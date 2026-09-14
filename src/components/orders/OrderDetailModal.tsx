@@ -14,6 +14,12 @@ import { ShippingOrder, DefectiveItem, CCIMaster } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle, getScreeningStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
 import { printConsignmentManifest } from '../../services/manifestGenerator';
+import { 
+  getMotorolaStatusInfo, 
+  isAwbIssueRequired,
+  getCciActionDetails,
+  getCwhActionDetails
+} from '../../lib/motorolaStatus';
 
 interface OrderDetailModalProps {
   order: ShippingOrder | null;
@@ -38,6 +44,8 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
 
   const orderItems = items.filter((i) => i.shipping_order_code === order.so_code);
   const totalValue = orderItems.reduce((acc, item) => acc + ((item.estimated_value || 8000) * (item.quantity || 1)), 0);
+  const motoInfo = getMotorolaStatusInfo(order.motorola_status);
+  const needsAwb = isAwbIssueRequired(order);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
@@ -55,6 +63,9 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getCrmStatusStyle(order.crm_status)}`}>
                   {order.crm_status}
                 </span>
+                <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${motoInfo.badgeClass}`}>
+                  {motoInfo.label}
+                </span>
               </div>
               <p className="text-xs text-slate-400">
                 Station: <strong className="text-slate-200">{order.station_code}</strong> ({station?.station_name || 'Service Center'}) • {(station?.city || order.city) ? `${station?.city || order.city}, ` : ''}{(station?.state || order.state) ? `${station?.state || order.state} • ` : ''}Region: <strong className="text-cyan-400">{station?.region || order.region || 'West'}</strong>
@@ -65,13 +76,13 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={() => printConsignmentManifest(order, orderItems, station)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-cyan-300 border border-cyan-500/30 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-cyan-300 border border-cyan-500/30 transition-colors cursor-pointer"
             >
               <Printer className="w-4 h-4" />
               Print Manifest
             </button>
 
-            {onOpenPickupModal && (order.active_awb || order.excel_ref_awb || order.crm_status !== 'AWB Pending') && (
+            {onOpenPickupModal && !motoInfo.isDelivered && (order.active_awb || order.excel_ref_awb || order.crm_status !== 'AWB Pending') && (
               <button
                 onClick={() => onOpenPickupModal(order)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow transition-all cursor-pointer"
@@ -82,20 +93,20 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               </button>
             )}
 
-            {onOpenAwbModal && (
+            {onOpenAwbModal && !motoInfo.isDelivered && (
               <button
                 onClick={() => onOpenAwbModal(order)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white shadow transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white shadow transition-colors cursor-pointer"
               >
                 <Barcode className="w-4 h-4" />
                 AWB / Retoken
               </button>
             )}
 
-            {onOpenInward && order.crm_status !== 'CWH Received' && (
+            {onOpenInward && order.crm_status !== 'CWH Received' && !motoInfo.isDelivered && (
               <button
                 onClick={() => onOpenInward(order)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-colors cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 Verify Inward
@@ -113,6 +124,44 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
 
         {/* Modal Body & Metrics */}
         <div className="p-6 overflow-y-auto space-y-6">
+          {/* Action Guidance Banner */}
+          {motoInfo.isDelivered ? (
+            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-3">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+              <div className="text-xs">
+                <span className="font-bold text-emerald-300">Delivered & Closed Lifecycle:</span>
+                <span className="text-slate-300 ml-1.5">
+                  Parts have been acknowledged and received by the Repair Center (RC) in Motorola CRM. No further courier dispatch or AWB generation is required.
+                </span>
+              </div>
+            </div>
+          ) : needsAwb ? (
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 text-xs">
+                <Barcode className="w-5 h-5 text-amber-400 shrink-0 animate-pulse" />
+                <div>
+                  <span className="font-bold text-amber-300">AWB Issuance Required:</span>
+                  <span className="text-slate-300 ml-1.5">
+                    Delivery Challan (DC) was created by Station in Moto CRM. CWH must issue courier AWB for shipment pickup.
+                  </span>
+                </div>
+              </div>
+              {onOpenAwbModal && (
+                <button
+                  onClick={() => onOpenAwbModal(order)}
+                  className="px-3 py-1 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white shrink-0 transition-colors cursor-pointer"
+                >
+                  Issue AWB Now
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center gap-3 text-xs text-slate-300">
+              <span className="font-semibold text-indigo-300">Status Stage:</span>
+              <span>{motoInfo.meaning}</span>
+            </div>
+          )}
+
           {/* Metrics ribbon */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <div className="p-3 rounded-xl bg-[#101a35] border border-[#1c2b53]">
@@ -138,7 +187,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             <div className="p-3 rounded-xl bg-[#101a35] border border-[#1c2b53]">
               <span className="text-xs text-slate-400">Active AWB & Courier</span>
               <div className="text-sm font-bold text-cyan-400 font-mono mt-1 truncate">
-                {order.active_awb || order.excel_ref_awb || 'None Assigned'}
+                {order.active_awb || order.excel_ref_awb || (motoInfo.isDelivered ? 'Delivered (Direct)' : 'None Assigned')}
               </div>
               <span className="text-[10px] text-slate-400">{order.courier || 'BlueDart Express'}</span>
             </div>
@@ -156,6 +205,11 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                     <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
                     Pickup Not Done
                   </span>
+                ) : motoInfo.isDelivered ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    Delivered
+                  </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
                     <Clock className="w-3.5 h-3.5" />
@@ -164,16 +218,16 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 )}
               </div>
               <span className="text-[10px] text-slate-400 mt-1 block truncate" title={order.pickup_remarks || ''}>
-                {order.pickup_date ? formatDate(order.pickup_date) : order.pickup_remarks || 'Handover pending'}
+                {order.pickup_date ? formatDate(order.pickup_date) : order.pickup_remarks || (motoInfo.isDelivered ? 'Closed at RC' : 'Handover pending')}
               </span>
             </div>
 
             <div className="p-3 rounded-xl bg-[#101a35] border border-[#1c2b53]">
               <span className="text-xs text-slate-400">Motorola Parts Status</span>
-              <div className="text-xs font-semibold text-slate-200 mt-1 truncate">
+              <div className="text-xs font-semibold text-slate-200 mt-1 truncate" title={motoInfo.meaning}>
                 {order.motorola_status || 'CCI Send To CWH'}
               </div>
-              <span className="text-[10px] text-slate-400">Synced from Defective Dump</span>
+              <span className="text-[10px] text-slate-400">{motoInfo.meaning}</span>
             </div>
           </div>
 

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { DefectiveItem, CCIMaster, UserRole } from '../../types/crm';
 import { formatINR, formatDate, getScreeningStatusStyle } from '../../lib/utils';
+import { getMotorolaStatusInfo } from '../../lib/motorolaStatus';
 
 interface DefectiveMasterVaultProps {
   items: DefectiveItem[];
@@ -33,6 +34,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
   const [selectedRegion, setSelectedRegion] = useState('ALL');
   const [selectedScreening, setSelectedScreening] = useState('ALL');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
+  const [selectedMotoStatus, setSelectedMotoStatus] = useState('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 20;
 
@@ -93,6 +95,12 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
       if (selectedCategory !== 'ALL' && item.part_category !== selectedCategory) {
         return false;
       }
+      if (selectedMotoStatus !== 'ALL') {
+        const info = getMotorolaStatusInfo(item.motorola_parts_status);
+        if (String(info.code) !== selectedMotoStatus) {
+          return false;
+        }
+      }
 
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
@@ -111,7 +119,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
 
       return true;
     });
-  }, [items, currentRole, currentStation, selectedRegion, selectedScreening, selectedCategory, searchTerm, stationMap]);
+  }, [items, currentRole, currentStation, selectedRegion, selectedScreening, selectedCategory, selectedMotoStatus, searchTerm, stationMap]);
 
   const totalPages = Math.ceil(filteredItems.length / pageSize) || 1;
   const paginatedItems = useMemo(() => {
@@ -226,6 +234,25 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
             ))}
           </select>
 
+          {/* Motorola Status */}
+          <select
+            value={selectedMotoStatus}
+            onChange={(e) => {
+              setSelectedMotoStatus(e.target.value);
+              setCurrentPage(1);
+            }}
+            aria-label="Filter by Motorola Status"
+            className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
+          >
+            <option value="ALL">All Motorola Statuses</option>
+            <option value="1">1. Not Return - Action: Create DC in Moto CRM</option>
+            <option value="2">2. CCI Send to CWH - Active Logistics</option>
+            <option value="3">3. CWH Received - At Warehouse</option>
+            <option value="4">4. ASP Send to RC - Outbound to RC</option>
+            <option value="5">5. RC Received ASP - Completed</option>
+            <option value="6">6. RC Received ASP(Negative) - Discrepancy</option>
+          </select>
+
           {/* Export */}
           <button
             onClick={handleExport}
@@ -259,59 +286,74 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1c2b53]/60 text-slate-300">
-              {paginatedItems.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
-                  <td className="py-2.5 px-3 font-mono font-medium text-white">
-                    {item.sr_number}
-                  </td>
-                  <td className="py-2.5 px-3 font-mono text-cyan-300">
-                    {item.sr_part_number}
-                  </td>
-                  <td className="py-2.5 px-3 font-mono text-slate-400">
-                    {item.new_part_number || '-'}
-                  </td>
-                  <td className="py-2.5 px-3 max-w-xs">
-                    <div className="font-semibold text-slate-200 truncate">{item.part_category}</div>
-                    <div className="text-[11px] text-slate-400 truncate">{item.part_description}</div>
-                  </td>
-                  <td className="py-2.5 px-3 text-slate-300">
-                    {item.sr_model_name || '-'}
-                  </td>
-                  <td className="py-2.5 px-3 font-mono text-slate-300">
-                    <div className="font-semibold text-white">{item.station_code}</div>
-                    <div className="text-[10px] text-cyan-400/80 truncate max-w-[130px]" title={[stationMap.get(item.station_code)?.city || item.city, stationMap.get(item.station_code)?.state || item.state, stationMap.get(item.station_code)?.region || item.region].filter(Boolean).join(', ')}>
-                      {[stationMap.get(item.station_code)?.city || item.city, stationMap.get(item.station_code)?.state || item.state].filter(Boolean).join(', ') || stationMap.get(item.station_code)?.region || item.region}
-                    </div>
-                  </td>
-                  <td className="py-2.5 px-3 font-mono text-slate-400 truncate max-w-[130px]">
-                    {item.shipping_order_code}
-                  </td>
-                  <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-400">
-                    {formatINR((item.estimated_value || 8000) * (item.quantity || 1))}
-                  </td>
-                  <td className="py-2.5 px-3 text-center">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getScreeningStatusStyle(item.screening_status)}`}>
-                      {item.screening_status}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-3 text-slate-400 text-[11px] truncate max-w-[120px]" title={item.motorola_parts_status}>
-                    {item.motorola_parts_status}
-                  </td>
-                  {currentRole === 'ADMIN' && (
+              {paginatedItems.map((item) => {
+                const motoInfo = getMotorolaStatusInfo(item.motorola_parts_status);
+                const isNotReturn = motoInfo.code === 1;
+
+                return (
+                  <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
+                    <td className="py-2.5 px-3 font-mono font-medium text-white">
+                      {item.sr_number}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-cyan-300">
+                      {item.sr_part_number}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-slate-400">
+                      {item.new_part_number || '-'}
+                    </td>
+                    <td className="py-2.5 px-3 max-w-xs">
+                      <div className="font-semibold text-slate-200 truncate">{item.part_category}</div>
+                      <div className="text-[11px] text-slate-400 truncate">{item.part_description}</div>
+                    </td>
+                    <td className="py-2.5 px-3 text-slate-300">
+                      {item.sr_model_name || '-'}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-slate-300">
+                      <div className="font-semibold text-white">{item.station_code}</div>
+                      <div className="text-[10px] text-cyan-400/80 truncate max-w-[130px]" title={[stationMap.get(item.station_code)?.city || item.city, stationMap.get(item.station_code)?.state || item.state, stationMap.get(item.station_code)?.region || item.region].filter(Boolean).join(', ')}>
+                        {[stationMap.get(item.station_code)?.city || item.city, stationMap.get(item.station_code)?.state || item.state].filter(Boolean).join(', ') || stationMap.get(item.station_code)?.region || item.region}
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-slate-400 truncate max-w-[130px]">
+                      {item.shipping_order_code}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-400">
+                      {formatINR((item.estimated_value || 8000) * (item.quantity || 1))}
+                    </td>
                     <td className="py-2.5 px-3 text-center">
-                      {onDeleteItem && (
-                        <button
-                          onClick={() => onDeleteItem(item)}
-                          title="Delete Item (Admin Only)"
-                          className="p-1 rounded bg-[#1f2e5a]/60 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getScreeningStatusStyle(item.screening_status)}`}>
+                        {item.screening_status}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${motoInfo.badgeClass}`}
+                        title={motoInfo.meaning}
+                      >
+                        {motoInfo.label}
+                      </span>
+                      {isNotReturn && (
+                        <div className="text-[9px] text-amber-300 font-semibold mt-0.5">
+                          Action: Create DC
+                        </div>
                       )}
                     </td>
-                  )}
-                </tr>
-              ))}
+                    {currentRole === 'ADMIN' && (
+                      <td className="py-2.5 px-3 text-center">
+                        {onDeleteItem && (
+                          <button
+                            onClick={() => onDeleteItem(item)}
+                            title="Delete Item (Admin Only)"
+                            className="p-1 rounded bg-[#1f2e5a]/60 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
               {paginatedItems.length === 0 && (
                 <tr>
                   <td colSpan={currentRole === 'ADMIN' ? 11 : 10} className="py-12 text-center text-slate-500">

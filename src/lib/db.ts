@@ -17,6 +17,7 @@ import {
   INITIAL_AUDIT_LOGS 
 } from '../data/seedData';
 import { supabase, isSupabaseConfigured } from './supabase';
+import { deriveCrmStatusFromMotorolaStatus } from './motorolaStatus';
 
 const STORAGE_KEYS = {
   STATIONS: 'moto_crm_stations_v2',
@@ -346,6 +347,12 @@ class CRMDatabase {
     const state = station?.state || existingSo?.state || '';
     const city = station?.city || existingSo?.city || '';
 
+    const derivedCrmStatus = deriveCrmStatusFromMotorolaStatus(
+      latestMotoStatus,
+      latestExcelAwb || existingSo?.active_awb,
+      existingSo?.crm_status
+    );
+
     if (existingSo) {
       existingSo.max_sr_age = maxAge;
       existingSo.total_declared_value = totalVal;
@@ -353,12 +360,17 @@ class CRMDatabase {
       existingSo.eway_bill_required = ewayRequired;
       existingSo.total_items = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
       existingSo.motorola_status = latestMotoStatus || existingSo.motorola_status;
+      existingSo.crm_status = derivedCrmStatus;
+      if (derivedCrmStatus === 'Closed' || latestMotoStatus?.toLowerCase().includes('rc received')) {
+        existingSo.pickup_status = 'Pickup Done';
+      }
       if (latestExcelAwb) existingSo.excel_ref_awb = latestExcelAwb;
       existingSo.region = region;
       existingSo.state = state;
       existingSo.city = city;
       existingSo.updated_at = new Date().toISOString();
     } else {
+      const isDelivered = derivedCrmStatus === 'Closed' || latestMotoStatus?.toLowerCase().includes('rc received');
       const newSo: ShippingOrder = {
         id: `so-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
         so_code: soCode,
@@ -367,10 +379,11 @@ class CRMDatabase {
         state,
         city,
         motorola_status: latestMotoStatus,
-        crm_status: latestExcelAwb ? 'In Transit' : 'AWB Pending',
+        crm_status: derivedCrmStatus,
         excel_ref_awb: latestExcelAwb,
         active_awb: latestExcelAwb,
         courier: 'BlueDart Express',
+        pickup_status: isDelivered ? 'Pickup Done' : (latestExcelAwb ? 'Pickup Pending' : undefined),
         eway_bill_required: ewayRequired,
         total_declared_value: totalVal,
         max_sr_age: maxAge,

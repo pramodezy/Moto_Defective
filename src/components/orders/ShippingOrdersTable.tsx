@@ -20,6 +20,7 @@ import { ShippingOrder, DefectiveItem, CCIMaster, PriorityTier, CRMStatus, UserR
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
 import { printConsignmentManifest } from '../../services/manifestGenerator';
+import { getMotorolaStatusInfo, isAwbIssueRequired } from '../../lib/motorolaStatus';
 
 interface ShippingOrdersTableProps {
   orders: ShippingOrder[];
@@ -50,6 +51,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
   const [selectedRegion, setSelectedRegion] = useState<string>('ALL');
   const [selectedTier, setSelectedTier] = useState<string>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
+  const [selectedMotoStatus, setSelectedMotoStatus] = useState<string>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 15;
 
@@ -106,6 +108,13 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
         return false;
       }
 
+      if (selectedMotoStatus !== 'ALL') {
+        const info = getMotorolaStatusInfo(so.motorola_status);
+        if (String(info.code) !== selectedMotoStatus) {
+          return false;
+        }
+      }
+
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
         const matchSo = so.so_code.toLowerCase().includes(q);
@@ -118,7 +127,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
 
       return true;
     });
-  }, [orders, currentRole, currentStation, selectedRegion, selectedTier, selectedStatus, searchTerm, stationMap]);
+  }, [orders, currentRole, currentStation, selectedRegion, selectedTier, selectedStatus, selectedMotoStatus, searchTerm, stationMap]);
 
   // Pagination
   const totalPages = Math.ceil(filteredOrders.length / pageSize) || 1;
@@ -234,6 +243,25 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
             <option value="Closed">Closed</option>
           </select>
 
+          {/* Motorola Parts Status */}
+          <select
+            value={selectedMotoStatus}
+            onChange={(e) => {
+              setSelectedMotoStatus(e.target.value);
+              setCurrentPage(1);
+            }}
+            aria-label="Filter by Motorola Status"
+            className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
+          >
+            <option value="ALL">All Motorola Statuses</option>
+            <option value="1">1. Not Return - CCI to Create DC</option>
+            <option value="2">2. CCI Send to CWH - Active Logistics</option>
+            <option value="3">3. CWH Received - At Warehouse</option>
+            <option value="4">4. ASP Send to RC - Outbound to RC</option>
+            <option value="5">5. RC Received ASP - Completed</option>
+            <option value="6">6. RC Received ASP(Negative) - Discrepancy</option>
+          </select>
+
           {/* Upload & Ingest Data button (Admin only) */}
           {currentRole === 'ADMIN' && onNavigateTab && (
             <button
@@ -279,6 +307,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
               {paginatedOrders.map((so) => {
                 const station = stationMap.get(so.station_code);
                 const orderItems = items.filter((i) => i.shipping_order_code === so.so_code);
+                const motoInfo = getMotorolaStatusInfo(so.motorola_status);
 
                 return (
                   <tr key={so.id} className="hover:bg-slate-800/40 transition-colors group">
@@ -339,11 +368,14 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                       <SlaBadge tier={so.priority_tier} ageDays={so.max_sr_age} />
                     </td>
 
-                    {/* Motorola Status */}
+                    {/* Motorola Status Badge */}
                     <td className="py-3 px-4">
-                      <div className="text-[11px] text-slate-300 max-w-[130px] truncate" title={so.motorola_status}>
-                        {so.motorola_status}
-                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${motoInfo.badgeClass}`}
+                        title={motoInfo.meaning}
+                      >
+                        {motoInfo.label}
+                      </span>
                     </td>
 
                     {/* CRM Status */}
@@ -371,6 +403,8 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                             </span>
                           ) : null}
                         </div>
+                      ) : motoInfo.isDelivered ? (
+                        <span className="text-emerald-400/80 text-[11px] font-sans font-medium">Delivered (Closed)</span>
                       ) : (
                         <span className="text-slate-500 italic">Unassigned</span>
                       )}
@@ -395,7 +429,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                           <Printer className="w-3.5 h-3.5" />
                         </button>
 
-                        {onOpenAwbModal && (
+                        {onOpenAwbModal && !motoInfo.isDelivered && (
                           <button
                             onClick={() => onOpenAwbModal(so)}
                             title="Assign or Retoken AWB"
