@@ -18,12 +18,19 @@ import {
 import { supabase, isSupabaseConfigured } from './supabase';
 
 const STORAGE_KEYS = {
-  STATIONS: 'moto_crm_stations_v1',
-  SHIPPING_ORDERS: 'moto_crm_shipping_orders_v1',
-  DEFECTIVE_ITEMS: 'moto_crm_defective_items_v1',
-  AUDIT_LOGS: 'moto_crm_audit_logs_v1',
-  AWB_HISTORY: 'moto_crm_awb_history_v1',
+  STATIONS: 'moto_crm_stations_v2',
+  SHIPPING_ORDERS: 'moto_crm_shipping_orders_v2',
+  DEFECTIVE_ITEMS: 'moto_crm_defective_items_v2',
+  AUDIT_LOGS: 'moto_crm_audit_logs_v2',
+  AWB_HISTORY: 'moto_crm_awb_history_v2',
 };
+
+// Purge legacy v1 demo data from browser storage
+try {
+  ['moto_crm_stations_v1', 'moto_crm_shipping_orders_v1', 'moto_crm_defective_items_v1', 'moto_crm_audit_logs_v1', 'moto_crm_awb_history_v1'].forEach((k) => {
+    localStorage.removeItem(k);
+  });
+} catch (_) {}
 
 class CRMDatabase {
   private stations: CCIMaster[] = [];
@@ -36,7 +43,8 @@ class CRMDatabase {
   constructor() {
     this.loadFromStorage();
     this.reapplyStationLocationMappings();
-    this.syncStationsFromSupabase();
+    // Connect directly to Supabase as single source of truth
+    this.syncAllFromSupabase();
   }
 
   // Ensure all defective items and shipping orders have city, state, and region mapped from stations
@@ -85,19 +93,22 @@ class CRMDatabase {
     }
   }
 
-  // Synchronize stations from Supabase cci_master table
-  public async syncStationsFromSupabase(): Promise<number> {
-    if (!isSupabaseConfigured || !supabase) return 0;
+  // Live Bidirectional Sync with Supabase Cloud (Single Source of Truth)
+  public async syncAllFromSupabase(): Promise<{ stations: number; orders: number; items: number }> {
+    if (!isSupabaseConfigured || !supabase) {
+      return { stations: this.stations.length, orders: this.shippingOrders.length, items: this.defectiveItems.length };
+    }
+
     try {
-      const { data, error } = await supabase
-        .from('cci_master')
-        .select('*')
-        .order('station_code', { ascending: true });
+      const [stRes, soRes, itemRes, logRes] = await Promise.all([
+        supabase.from('cci_master').select('*').order('station_code', { ascending: true }),
+        supabase.from('shipping_orders').select('*').order('created_at', { ascending: false }),
+        supabase.from('defective_master').select('*').order('created_at', { ascending: false }),
+        supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100),
+      ]);
 
-      if (error) throw error;
-
-      if (data && data.length > 0) {
-        const fetchedStations: CCIMaster[] = data.map((d: any) => ({
+      if (stRes.data && stRes.data.length > 0) {
+        this.stations = stRes.data.map((d: any) => ({
           station_code: d.station_code,
           username: d.username || `cci_${d.station_code}`,
           station_name: d.station_name,
@@ -110,16 +121,100 @@ class CRMDatabase {
           created_at: d.created_at,
           updated_at: d.updated_at,
         }));
-
-        this.stations = fetchedStations;
-        this.reapplyStationLocationMappings();
-        this.notify();
-        return fetchedStations.length;
       }
+
+      // If Supabase tables are cleared or empty, the CRM immediately sets orders to []
+      if (soRes.data !== null && !soRes.error) {
+        this.shippingOrders = soRes.data.map((so: any) => ({
+          id: so.id,
+          so_code: so.so_code,
+          station_code: so.station_code,
+          region: so.region || 'West',
+          state: so.state || '',
+          city: so.city || '',
+          motorola_status: so.motorola_status || 'CCI Send To CWH',
+          crm_status: (so.crm_status as CRMStatus) || 'AWB Pending',
+          excel_ref_awb: so.excel_ref_awb,
+          active_awb: so.active_awb,
+          courier: so.courier || 'BlueDart Express',
+          eway_bill_required: Boolean(so.eway_bill_required),
+          eway_bill_number: so.eway_bill_number,
+          eway_bill_url: so.eway_bill_url,
+          cwh_evidence_ref: so.cwh_evidence_ref,
+          total_declared_value: parseFloat(so.total_declared_value || 0),
+          max_sr_age: parseInt(so.max_sr_age || 0, 10),
+          priority_tier: parseInt(so.priority_tier || 3, 10) as any,
+          total_items: parseInt(so.total_items || 1, 10),
+          created_at: so.created_at,
+          updated_at: so.updated_at,
+        }));
+      }
+
+      if (itemRes.data !== null && !itemRes.error) {
+        this.defectiveItems = itemRes.data.map((it: any) => ({
+          id: it.id,
+          composite_key: it.composite_key,
+          sr_number: it.sr_number,
+          sr_part_number: it.sr_part_number,
+          new_part_number: it.new_part_number || '',
+          part_category: it.part_category || 'General Spare',
+          part_description: it.part_description || '',
+          quantity: parseInt(it.quantity || 1, 10),
+          station_code: it.station_code,
+          region: it.region,
+          state: it.state,
+          city: it.city,
+          shipping_order_code: it.shipping_order_code,
+          shipping_order_id: it.shipping_order_id,
+          sr_close_timestamp: it.sr_close_timestamp,
+          sr_model_name: it.sr_model_name,
+          sr_fault_description: it.sr_fault_description,
+          motorola_parts_status: it.motorola_parts_status || 'CCI Send To CWH',
+          excel_awb: it.excel_awb,
+          screening_status: it.screening_status || 'Pending',
+          item_remarks: it.item_remarks,
+          estimated_value: parseFloat(it.estimated_value || 8000),
+          last_synced_at: it.last_synced_at || it.created_at,
+          created_at: it.created_at,
+          updated_at: it.updated_at,
+        }));
+      }
+
+      if (logRes.data && logRes.data.length > 0) {
+        this.auditLogs = logRes.data.map((l: any) => ({
+          id: l.id,
+          shipping_order_id: l.shipping_order_id,
+          so_code: l.so_code,
+          user_name: l.user_name,
+          user_role: l.user_role,
+          action: l.action,
+          old_status: l.old_status,
+          new_status: l.new_status,
+          awb: l.awb,
+          remarks: l.remarks,
+          created_at: l.created_at,
+        }));
+      }
+
+      this.reapplyStationLocationMappings();
+      this.saveToStorage();
+      this.notify();
+
+      return {
+        stations: this.stations.length,
+        orders: this.shippingOrders.length,
+        items: this.defectiveItems.length,
+      };
     } catch (e) {
-      console.warn('Supabase cci_master sync skipped/error:', e);
+      console.warn('Supabase full sync error:', e);
+      return { stations: this.stations.length, orders: this.shippingOrders.length, items: this.defectiveItems.length };
     }
-    return 0;
+  }
+
+  // Synchronize stations from Supabase cci_master table
+  public async syncStationsFromSupabase(): Promise<number> {
+    const res = await this.syncAllFromSupabase();
+    return res.stations;
   }
 
   private loadFromStorage() {
@@ -384,6 +479,65 @@ class CRMDatabase {
       this.recalculateShippingOrder(soCode);
     });
 
+    // Live push to Supabase Cloud
+    if (isSupabaseConfigured && supabase) {
+      const client = supabase;
+      const itemsToPush = this.defectiveItems.filter((i) => affectedSoCodes.has(i.shipping_order_code));
+      const ordersToPush = this.shippingOrders.filter((o) => affectedSoCodes.has(o.so_code));
+
+      (async () => {
+        try {
+          await client.from('shipping_orders').upsert(
+            ordersToPush.map((so) => ({
+              so_code: so.so_code,
+              station_code: so.station_code,
+              region: so.region,
+              state: so.state,
+              city: so.city,
+              motorola_status: so.motorola_status,
+              crm_status: so.crm_status,
+              excel_ref_awb: so.excel_ref_awb,
+              active_awb: so.active_awb,
+              courier: so.courier,
+              eway_bill_required: so.eway_bill_required,
+              total_declared_value: so.total_declared_value,
+              max_sr_age: so.max_sr_age,
+              priority_tier: so.priority_tier,
+            })),
+            { onConflict: 'so_code' }
+          );
+
+          await client.from('defective_master').upsert(
+            itemsToPush.map((it) => ({
+              composite_key: it.composite_key,
+              sr_number: it.sr_number,
+              sr_part_number: it.sr_part_number,
+              new_part_number: it.new_part_number || '',
+              part_category: it.part_category,
+              part_description: it.part_description,
+              quantity: it.quantity,
+              station_code: it.station_code,
+              region: it.region,
+              state: it.state,
+              city: it.city,
+              shipping_order_code: it.shipping_order_code,
+              sr_close_timestamp: it.sr_close_timestamp,
+              sr_model_name: it.sr_model_name,
+              sr_fault_description: it.sr_fault_description,
+              motorola_parts_status: it.motorola_parts_status,
+              excel_awb: it.excel_awb,
+              screening_status: it.screening_status,
+              item_remarks: it.item_remarks,
+              estimated_value: it.estimated_value,
+            })),
+            { onConflict: 'composite_key' }
+          );
+        } catch (e: any) {
+          console.warn('Supabase live push error:', e);
+        }
+      })();
+    }
+
     // Audit log
     this.auditLogs.unshift({
       id: `log-${Date.now()}`,
@@ -644,6 +798,19 @@ class CRMDatabase {
     // Remove the shipping order
     this.shippingOrders.splice(orderIdx, 1);
 
+    // Delete in Supabase if configured
+    if (isSupabaseConfigured && supabase) {
+      const client = supabase;
+      (async () => {
+        try {
+          await client.from('defective_master').delete().eq('shipping_order_code', target.so_code);
+          await client.from('shipping_orders').delete().or(`id.eq.${target.id},so_code.eq.${target.so_code}`);
+        } catch (e: any) {
+          console.warn('Supabase order delete error:', e);
+        }
+      })();
+    }
+
     // Audit log
     this.auditLogs.unshift({
       id: `log-${Date.now()}`,
@@ -672,6 +839,18 @@ class CRMDatabase {
 
     // Remove the line item
     this.defectiveItems.splice(itemIdx, 1);
+
+    // Delete in Supabase if configured
+    if (isSupabaseConfigured && supabase) {
+      const client = supabase;
+      (async () => {
+        try {
+          await client.from('defective_master').delete().or(`id.eq.${target.id},composite_key.eq.${target.composite_key}`);
+        } catch (e: any) {
+          console.warn('Supabase item delete error:', e);
+        }
+      })();
+    }
 
     // Recalculate parent shipping order
     if (parentSoCode) {

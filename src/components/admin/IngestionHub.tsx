@@ -105,44 +105,41 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
     refreshSupabase();
   }, []);
 
-  const handleSyncToSupabase = async () => {
+  const handleSyncAllFromSupabase = async () => {
     setIsSyncingSupabase(true);
-    setSyncProgress('Starting Supabase sync...');
+    setSyncProgress('Synchronizing live data directly from Supabase tables...');
     setSyncResult(null);
 
     try {
-      const res = await pushSeedDataToSupabase((msg) => setSyncProgress(msg));
-      setSyncResult(res);
-      if (res.success) {
-        confetti({ particleCount: 70, spread: 70, origin: { y: 0.6 } });
-        refreshSupabase();
-      }
+      const counts = await crmDb.syncAllFromSupabase();
+      setSyncResult({
+        success: true,
+        message: `Synced with Supabase: ${counts.stations} stations, ${counts.orders} shipping orders, ${counts.items} defective items.`,
+      });
+      confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
+      refreshSupabase();
     } catch (e: any) {
-      setSyncResult({ success: false, message: e.message || 'Sync failed' });
+      setSyncResult({ success: false, message: e.message || 'Failed to sync with Supabase' });
     } finally {
       setIsSyncingSupabase(false);
       setSyncProgress(null);
     }
   };
 
-  const handlePullFromSupabase = async () => {
-    setIsSyncingSupabase(true);
-    setSyncProgress('Loading stations and location mappings from Supabase cci_master...');
-    setSyncResult(null);
-
+  const handleClearLocalCache = async () => {
+    if (!window.confirm('Clear all local browser cache and reload live data from Supabase?')) return;
     try {
-      const count = await crmDb.syncStationsFromSupabase();
+      ['moto_crm_stations_v1', 'moto_crm_shipping_orders_v1', 'moto_crm_defective_items_v1', 'moto_crm_audit_logs_v1', 'moto_crm_awb_history_v1',
+       'moto_crm_stations_v2', 'moto_crm_shipping_orders_v2', 'moto_crm_defective_items_v2', 'moto_crm_audit_logs_v2', 'moto_crm_awb_history_v2'
+      ].forEach((k) => localStorage.removeItem(k));
+      await crmDb.syncAllFromSupabase();
+      refreshSupabase();
       setSyncResult({
         success: true,
-        message: `Successfully synchronized ${count} stations with City, State & Region directly from Supabase cci_master!`,
+        message: 'Browser cache cleared. Live data refreshed from Supabase.',
       });
-      confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 } });
-      refreshSupabase();
     } catch (e: any) {
-      setSyncResult({ success: false, message: e.message || 'Failed to pull from Supabase cci_master' });
-    } finally {
-      setIsSyncingSupabase(false);
-      setSyncProgress(null);
+      setSyncResult({ success: false, message: e.message || 'Failed to clear cache' });
     }
   };
 
@@ -187,7 +184,7 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
               <div>
                 <h3 className="text-sm font-bold text-white">Supabase Cloud PostgreSQL Database</h3>
                 <p className="text-xs text-slate-400">
-                  Project: <code className="text-cyan-300 font-mono">rippjixfknqwptbcruux.supabase.co</code> (CCI Master Source of Truth)
+                  Project: <code className="text-cyan-300 font-mono">rippjixfknqwptbcruux.supabase.co</code> (Live Single Source of Truth)
                 </p>
               </div>
             </div>
@@ -195,23 +192,24 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={handlePullFromSupabase}
+                onClick={handleSyncAllFromSupabase}
                 disabled={isSyncingSupabase}
                 className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-cyan-600/80 hover:bg-cyan-500 text-white shadow transition-all"
-                title="Fetch City, State & Region directly from Supabase cci_master"
+                title="Fetch live records directly from Supabase tables"
               >
                 <CloudDownload className="w-4 h-4" />
-                {isSyncingSupabase ? 'Syncing...' : 'Sync CCI Master from Supabase'}
+                {isSyncingSupabase ? 'Syncing...' : 'Sync Live Data from Supabase'}
               </button>
 
               <button
                 type="button"
-                onClick={handleSyncToSupabase}
+                onClick={handleClearLocalCache}
                 disabled={isSyncingSupabase}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow transition-all"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600 shadow transition-all"
+                title="Clear residual browser localStorage cache"
               >
-                <CloudUpload className="w-4 h-4" />
-                {isSyncingSupabase ? 'Pushing...' : 'Push Seed Data to Supabase'}
+                <RefreshCw className="w-4 h-4" />
+                Clear Local Cache
               </button>
             </div>
           </div>
