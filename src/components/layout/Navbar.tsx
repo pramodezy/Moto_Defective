@@ -94,63 +94,61 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
             </div>
 
-            {/* Role Switcher Pills */}
-            <div className="flex items-center bg-[#070e20] p-1 rounded-xl border border-[#1c2b53]">
-              <button
-                onClick={() => onRoleChange('ADMIN')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  currentRole === 'ADMIN'
-                    ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Admin: Full System & Ingestion Visibility"
-              >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>ADMIN</span>
-              </button>
+            {/* Role Badging & RBAC: Strictly scoped to authenticated profile */}
+            {currentUser.role === 'CCI' && (
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm">
+                  <Store className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Station {currentUser.station_code || currentStation}</span>
+                </span>
+              </div>
+            )}
 
-              <button
-                onClick={() => onRoleChange('CWH')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  currentRole === 'CWH'
-                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="CWH: Inward, CCTV Unboxing & AWB Retokening"
-              >
-                <Warehouse className="w-3.5 h-3.5" />
-                <span>CWH</span>
-              </button>
+            {currentUser.role === 'CWH' && (
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm">
+                  <Warehouse className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Central Warehouse (CWH)</span>
+                </span>
+              </div>
+            )}
 
-              <button
-                onClick={() => onRoleChange('CCI')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  currentRole === 'CCI'
-                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="CCI: Scoped Service Center Consignments"
-              >
-                <Store className="w-3.5 h-3.5" />
-                <span>CCI</span>
-              </button>
-            </div>
-
-            {/* If CCI is selected, show station scoped selector */}
-            {currentRole === 'CCI' && (
-              <div className="flex items-center gap-1.5">
-                <select
-                  value={currentStation}
-                  onChange={(e) => onStationChange(e.target.value)}
-                  aria-label="Active Station Code"
-                  className="bg-[#101a35] border border-emerald-500/40 text-emerald-300 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-emerald-400"
+            {currentUser.role === 'ADMIN' && (
+              <div className="flex items-center gap-1.5 bg-[#070e20] p-1 rounded-xl border border-[#1c2b53]">
+                <button
+                  onClick={() => onRoleChange('ADMIN')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    currentRole === 'ADMIN'
+                      ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Admin Dashboard"
                 >
-                  {stations.slice(0, 30).map((st) => (
-                    <option key={st.station_code} value={st.station_code}>
-                      cci_{st.station_code} ({st.station_code}) - {st.city || st.station_name.slice(0, 15)}
-                    </option>
-                  ))}
-                </select>
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>Admin Mode</span>
+                </button>
+                <button
+                  onClick={() => onRoleChange('CWH')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    currentRole === 'CWH'
+                      ? 'bg-indigo-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Simulate CWH View"
+                >
+                  <span>CWH View</span>
+                </button>
+                <button
+                  onClick={() => onRoleChange('CCI')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    currentRole === 'CCI'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Simulate CCI View"
+                >
+                  <span>CCI View</span>
+                </button>
               </div>
             )}
 

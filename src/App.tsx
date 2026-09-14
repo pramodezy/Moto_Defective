@@ -79,8 +79,13 @@ export function App() {
     toast.info('Signed out of Motorola Returns CRM.');
   };
 
-  // Handle role switch defaults
+  // Handle role switch defaults (Only Admin is permitted to preview other views)
   const handleRoleChange = (role: UserRole) => {
+    if (currentUser?.role !== 'ADMIN') {
+      toast.error('Permission Denied: Only Administrator can switch views.');
+      return;
+    }
+
     setCurrentRole(role);
     if (role === 'ADMIN') {
       setActiveTab('dashboard');
