@@ -320,6 +320,8 @@ export function App() {
               station={activeStationObj}
               orders={orders}
               items={items}
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
               onSelectOrder={setSelectedOrder}
               onOpenPickupModal={setCciPickupOrder}
             />

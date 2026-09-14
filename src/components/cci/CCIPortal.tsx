@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Store, 
   Truck, 
@@ -28,6 +28,8 @@ interface CCIPortalProps {
   station?: CCIMaster;
   orders: ShippingOrder[];
   items: DefectiveItem[];
+  activeTab?: string;
+  onTabChange?: (tab: string) => void;
   onSelectOrder: (order: ShippingOrder) => void;
   onOpenPickupModal?: (order: ShippingOrder) => void;
 }
@@ -37,10 +39,34 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   station,
   orders,
   items,
+  activeTab,
+  onTabChange,
   onSelectOrder,
   onOpenPickupModal,
 }) => {
-  const [activeView, setActiveView] = useState<'consignments' | 'items'>('consignments');
+  // Sync active view with Navbar activeTab
+  const isItemsTab = activeTab === 'cci_items' || activeTab === 'vault';
+  const [internalView, setInternalView] = useState<'consignments' | 'items'>(
+    isItemsTab ? 'items' : 'consignments'
+  );
+
+  useEffect(() => {
+    if (activeTab === 'cci_items' || activeTab === 'vault') {
+      setInternalView('items');
+    } else if (activeTab === 'cci_consignments') {
+      setInternalView('consignments');
+    }
+  }, [activeTab]);
+
+  const activeView = internalView;
+
+  const handleViewChange = (view: 'consignments' | 'items') => {
+    setInternalView(view);
+    if (onTabChange) {
+      onTabChange(view === 'items' ? 'cci_items' : 'cci_consignments');
+    }
+  };
+
   const [consignmentFilter, setConsignmentFilter] = useState<'all' | 'action_pickup' | 'in_transit_monitor' | 'waiting_awb' | 'cwh_received' | 'delivered'>('all');
   const [itemStatusFilter, setItemStatusFilter] = useState<string>('ALL');
 
@@ -199,10 +225,10 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
             </div>
             <button
               onClick={() => {
-                setActiveView('items');
+                handleViewChange('items');
                 setItemStatusFilter('1');
               }}
-              className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white shrink-0 transition-colors shadow"
+              className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white shrink-0 transition-colors shadow cursor-pointer"
             >
               View Parts &amp; Create DC ({notReturnItems.length})
             </button>
@@ -225,10 +251,10 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
             </div>
             <button
               onClick={() => {
-                setActiveView('consignments');
+                handleViewChange('consignments');
                 setConsignmentFilter('action_pickup');
               }}
-              className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white shrink-0 transition-colors shadow"
+              className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white shrink-0 transition-colors shadow cursor-pointer"
             >
               Handover Parcels ({pickupHandoverOrders.length})
             </button>
@@ -249,10 +275,10 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
             </div>
             <button
               onClick={() => {
-                setActiveView('consignments');
+                handleViewChange('consignments');
                 setConsignmentFilter('in_transit_monitor');
               }}
-              className="text-cyan-400 hover:underline shrink-0 text-xs font-medium"
+              className="text-cyan-400 hover:underline shrink-0 text-xs font-medium cursor-pointer"
             >
               View In-Transit ({inTransitMonitorOrders.length})
             </button>
@@ -287,40 +313,40 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
         </div>
 
         <div className="p-4 rounded-xl bg-[#101a35] border border-[#1c2b53]">
-          <span className="text-xs text-slate-400">🏢 CWH Received / RC</span>
-          <div className="text-2xl font-bold font-mono text-emerald-400 mt-1">
+          <span className="text-xs text-slate-400">🏢 CWH &amp; RC Processed</span>
+          <div className="text-2xl font-bold font-mono text-indigo-300 mt-1">
             {cwhStageOrders.length + deliveredOrders.length}
           </div>
-          <span className="text-[10px] text-slate-400">At CWH / Dispatched to RC</span>
+          <span className="text-[10px] text-slate-400">No action for CCI (CWH / RC stage)</span>
         </div>
       </div>
 
-      {/* View Switcher Tabs */}
+      {/* View Switcher Tabs (Synchronized with Navbar) */}
       <div className="flex items-center gap-2 border-b border-[#1f2e5a] pb-2">
         <button
-          onClick={() => setActiveView('consignments')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+          onClick={() => handleViewChange('consignments')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
             activeView === 'consignments'
               ? 'bg-emerald-600 text-white shadow'
               : 'bg-[#101a35] text-slate-400 hover:text-slate-200 border border-[#1c2b53]'
           }`}
         >
           <Truck className="w-3.5 h-3.5" />
-          Consignments Dispatch Orders ({stationOrders.length})
+          My Station Consignments (SO) ({stationOrders.length})
         </button>
 
         <button
-          onClick={() => setActiveView('items')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+          onClick={() => handleViewChange('items')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
             activeView === 'items'
               ? 'bg-emerald-600 text-white shadow'
               : 'bg-[#101a35] text-slate-400 hover:text-slate-200 border border-[#1c2b53]'
           }`}
         >
           <Layers className="w-3.5 h-3.5" />
-          Defective Line Items ({stationItems.length})
+          Station Defective Items Vault ({stationItems.length})
           {notReturnItems.length > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500 text-black font-bold">
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500 text-black font-bold ml-1">
               {notReturnItems.length}
             </span>
           )}
@@ -334,7 +360,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setConsignmentFilter('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                 consignmentFilter === 'all'
                   ? 'bg-emerald-600 text-white shadow'
                   : 'bg-[#101a35] text-slate-400 hover:text-slate-200 border border-[#1c2b53]'
@@ -345,7 +371,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
             <button
               onClick={() => setConsignmentFilter('action_pickup')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                 consignmentFilter === 'action_pickup'
                   ? 'bg-amber-600 text-white shadow font-semibold'
                   : 'bg-[#101a35] text-amber-300 hover:text-white border border-amber-500/40'
@@ -357,7 +383,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
             <button
               onClick={() => setConsignmentFilter('in_transit_monitor')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                 consignmentFilter === 'in_transit_monitor'
                   ? 'bg-cyan-600 text-white shadow font-semibold'
                   : 'bg-[#101a35] text-cyan-300 hover:text-white border border-cyan-500/30'
@@ -369,7 +395,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
             <button
               onClick={() => setConsignmentFilter('waiting_awb')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                 consignmentFilter === 'waiting_awb'
                   ? 'bg-slate-700 text-white shadow'
                   : 'bg-[#101a35] text-slate-400 hover:text-slate-200 border border-[#1c2b53]'
@@ -381,7 +407,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
             <button
               onClick={() => setConsignmentFilter('cwh_received')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                 consignmentFilter === 'cwh_received'
                   ? 'bg-indigo-600 text-white shadow'
                   : 'bg-[#101a35] text-slate-400 hover:text-slate-200 border border-[#1c2b53]'
@@ -393,7 +419,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
             <button
               onClick={() => setConsignmentFilter('delivered')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                 consignmentFilter === 'delivered'
                   ? 'bg-emerald-700 text-white shadow'
                   : 'bg-[#101a35] text-slate-400 hover:text-slate-200 border border-[#1c2b53]'
@@ -405,22 +431,23 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
           <div className="rounded-xl border border-[#1c2b53] overflow-hidden bg-[#101a35] shadow-lg">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-[#0b1329] text-slate-400 border-b border-[#1c2b53] font-mono">
                   <tr>
-                    <th className="py-3 px-4">SO Code</th>
-                    <th className="py-3 px-4">Courier & AWB</th>
-                    <th className="py-3 px-4 text-center">Units</th>
-                    <th className="py-3 px-4 text-right">Declared Value</th>
-                    <th className="py-3 px-4">Motorola Status</th>
-                    <th className="py-3 px-4">CCI Stage & Action</th>
-                    <th className="py-3 px-4">Pickup Status</th>
-                    <th className="py-3 px-4 text-center">Actions</th>
+                    <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">SO Code</th>
+                    <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Courier &amp; AWB</th>
+                    <th className="py-3 px-3 text-center uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Units</th>
+                    <th className="py-3 px-3.5 text-right uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Declared Value</th>
+                    <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Motorola Status</th>
+                    <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">CCI Stage</th>
+                    <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Pickup Status</th>
+                    <th className="py-3 px-3.5 text-center uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#1c2b53]/60 text-slate-300">
                   {displayedOrders.map((so) => {
-                    const orderItems = items.filter((i) => i.shipping_order_code === so.so_code);
+                    const orderItems = items.filter((i) => (i.shipping_order_code || '').trim() === so.so_code.trim());
+                    const units = orderItems.reduce((s, i) => s + (i.quantity || 1), 0) || so.total_items || 0;
                     const motoInfo = getMotorolaStatusInfo(so.motorola_status);
                     const cciAction = getCciActionDetails(so);
                     const hasAwb = !!(so.active_awb || so.excel_ref_awb);
@@ -428,126 +455,138 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
                     return (
                       <tr key={so.id} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3 px-4 font-mono font-medium text-cyan-300">
+                        {/* 1. SO Code */}
+                        <td className="py-3 px-3.5 whitespace-nowrap align-middle">
                           <button
                             onClick={() => onSelectOrder(so)}
-                            className="hover:underline text-left"
+                            className="font-mono font-semibold text-cyan-300 hover:text-cyan-200 hover:underline text-left block cursor-pointer"
                           >
                             {so.so_code}
                           </button>
                           {so.eway_bill_required && (
-                            <div className="text-[9px] text-amber-400">E-Way Bill Req</div>
+                            <span className="text-[9px] text-amber-400 font-sans block mt-0.5">E-Way Bill Req</span>
                           )}
                         </td>
 
-                        <td className="py-3 px-4">
-                          <div className="text-slate-300">{so.courier}</div>
-                          <div className="font-mono text-cyan-400 text-[11px] font-semibold">
+                        {/* 2. Courier & AWB */}
+                        <td className="py-3 px-3.5 whitespace-nowrap align-middle">
+                          <div className="text-slate-300 font-medium text-xs">{so.courier || 'BlueDart Express'}</div>
+                          <div className="font-mono text-cyan-400/90 text-[11px] mt-0.5">
                             {so.active_awb || so.excel_ref_awb || (motoInfo.isDelivered ? 'Delivered (Direct)' : 'Pending CWH AWB')}
                           </div>
                         </td>
 
-                        <td className="py-3 px-4 text-center font-mono font-medium">
-                          {orderItems.reduce((s, i) => s + (i.quantity || 1), 0)}
+                        {/* 3. Units */}
+                        <td className="py-3 px-3 text-center font-mono font-semibold text-slate-200 whitespace-nowrap align-middle">
+                          {units}
                         </td>
 
-                        <td className="py-3 px-4 text-right font-mono font-bold text-emerald-400">
+                        {/* 4. Declared Value */}
+                        <td className="py-3 px-3.5 text-right font-mono font-bold text-emerald-400 whitespace-nowrap align-middle">
                           {formatINR(so.total_declared_value)}
                         </td>
 
-                        {/* Motorola Status Badge */}
-                        <td className="py-3 px-4">
+                        {/* 5. Motorola Status */}
+                        <td className="py-3 px-3.5 whitespace-nowrap align-middle">
                           <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${motoInfo.badgeClass}`}
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${motoInfo.badgeClass} inline-block whitespace-nowrap`}
                             title={motoInfo.meaning}
                           >
                             {motoInfo.label}
                           </span>
                         </td>
 
-                        {/* CCI Stage & Action Column */}
-                        <td className="py-3 px-4">
+                        {/* 6. CCI Stage (Clean typography without redundant pill borders) */}
+                        <td className="py-3 px-3.5 whitespace-nowrap align-middle">
                           {cciAction.actionType === 'PICKUP_HANDOVER_PENDING' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/25 text-amber-300 border border-amber-500/50 animate-pulse">
-                              ⚡ Pickup Handover Pending
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">
+                              <Clock className="w-3 h-3 text-amber-400 shrink-0" />
+                              Pickup Pending
                             </span>
                           ) : cciAction.actionType === 'IN_TRANSIT_MONITOR' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-                              🚚 In-Transit (Monitor till CWH)
+                            <span className="inline-flex items-center gap-1.5 text-xs text-cyan-300 font-medium">
+                              <Truck className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                              In-Transit (Monitor)
                             </span>
                           ) : cciAction.actionType === 'AWAITING_CWH_AWB' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
-                              ⏳ Waiting CWH AWB
+                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                              <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                              Waiting CWH AWB
                             </span>
                           ) : cciAction.actionType === 'CWH_RECEIVED' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
-                              🏢 CWH Received (Verified)
+                            <span className="inline-flex items-center gap-1.5 text-xs text-indigo-300 font-medium">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                              At CWH (Verified)
                             </span>
                           ) : cciAction.actionType === 'DISPATCHED_TO_RC' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/20 text-blue-300 border border-blue-500/40">
-                              📦 Dispatched CWH → RC (No Action)
+                            <span className="inline-flex items-center gap-1.5 text-xs text-blue-300 font-medium">
+                              <Send className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                              Dispatched CWH → RC
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                              ✓ Delivered to RC (Closed)
+                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              Delivered to RC
                             </span>
                           )}
                         </td>
 
-                        {/* Pickup Status Column */}
-                        <td className="py-3 px-4">
+                        {/* 7. Pickup Status (Clean text with status icons, no bulky capsules) */}
+                        <td className="py-3 px-3.5 whitespace-nowrap align-middle">
                           {motoInfo.isDelivered ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                              Delivered to RC
+                            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                              Delivered
                             </span>
                           ) : motoInfo.code === 4 ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/20 text-blue-300 border border-blue-500/40">
+                            <span className="inline-flex items-center gap-1.5 text-xs text-blue-300 font-medium">
+                              <Send className="w-3.5 h-3.5 shrink-0 text-blue-400" />
                               CWH Dispatched
                             </span>
                           ) : so.pickup_status === 'Pickup Done' ? (
                             <div className="flex flex-col">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 w-fit">
-                                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              <span className="inline-flex items-center gap-1.5 text-xs text-emerald-300 font-medium">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                                 Pickup Done
                               </span>
                               {so.pickup_date && (
-                                <span className="text-[9px] text-slate-400 font-mono mt-0.5">
+                                <span className="text-[10px] text-slate-400 font-mono mt-0.5">
                                   {formatDate(so.pickup_date)}
                                 </span>
                               )}
                             </div>
                           ) : so.pickup_status === 'Pickup Not Done' ? (
                             <div className="flex flex-col">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40 w-fit">
-                                <AlertTriangle className="w-3 h-3 text-rose-400" />
+                              <span className="inline-flex items-center gap-1.5 text-xs text-rose-400 font-medium">
+                                <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
                                 Pickup Failed
                               </span>
                               {so.pickup_remarks && (
-                                <span className="text-[9px] text-rose-300/80 truncate max-w-[130px] mt-0.5" title={so.pickup_remarks}>
+                                <span className="text-[10px] text-rose-300/80 truncate max-w-[130px]" title={so.pickup_remarks}>
                                   {so.pickup_remarks}
                                 </span>
                               )}
                             </div>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
-                              <Clock className="w-3 h-3 text-slate-400" />
+                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                              <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                               {hasAwb ? 'Handover Pending' : 'AWB Pending'}
                             </span>
                           )}
                         </td>
 
-                        <td className="py-3 px-4 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
+                        {/* 8. Actions (Prominent button only when action is pending, otherwise just clean print manifest button) */}
+                        <td className="py-3 px-3.5 text-center whitespace-nowrap align-middle">
+                          <div className="flex items-center justify-center gap-2">
                             {/* Handover / Pickup button: STRICTLY for Code 2 (CCI send to CWH) */}
                             {isPickupPending ? (
                               <button
                                 onClick={() => onOpenPickupModal?.(so)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-sm transition-all hover:scale-[1.02] cursor-pointer animate-pulse"
-                                title="AWB issued from CWH: Handover consignment to courier and record pickup status"
+                                className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-sm transition-all hover:scale-[1.02] cursor-pointer animate-pulse"
+                                title="AWB issued from CWH: Handover consignment to courier & record pickup status"
                               >
                                 <Truck className="w-3.5 h-3.5" />
-                                Handover Parcel
+                                Handover
                               </button>
                             ) : motoInfo.code === 2 && hasAwb ? (
                               <button
@@ -556,39 +595,13 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                                 title="View or Edit AWB Details / Pickup Status"
                               >
                                 <Truck className="w-3.5 h-3.5" />
-                                Edit Pickup
+                                Edit
                               </button>
-                            ) : motoInfo.code === 4 ? (
-                              <span 
-                                className="text-[10px] text-blue-300 font-mono px-2 py-0.5 rounded bg-blue-500/15 border border-blue-500/30"
-                                title="Dispatch from CWH to RC in Lenovo CRM. Strictly not actionable for CCI."
-                              >
-                                Dispatched CWH → RC (No Action)
-                              </span>
-                            ) : motoInfo.code === 3 ? (
-                              <span 
-                                className="text-[10px] text-indigo-300 font-mono px-2 py-0.5 rounded bg-indigo-500/15 border border-indigo-500/30"
-                                title="Received & verified at CWH in Motorola CRM. Monitoring complete."
-                              >
-                                Inward at CWH
-                              </span>
-                            ) : motoInfo.isDelivered ? (
-                              <span className="text-[10px] text-emerald-400 font-mono">
-                                Closed at RC
-                              </span>
-                            ) : (
-                              <span 
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed"
-                                title="Waiting for CWH to issue AWB token"
-                              >
-                                <Clock className="w-3 h-3" />
-                                Waiting CWH AWB
-                              </span>
-                            )}
+                            ) : null}
 
                             <button
                               onClick={() => printConsignmentManifest(so, orderItems, station)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-cyan-300 border border-cyan-500/30 transition-colors cursor-pointer"
+                              className="inline-flex items-center justify-center p-1.5 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-cyan-300 border border-cyan-500/30 transition-colors cursor-pointer"
                               title="Print Consignment Manifest"
                             >
                               <Printer className="w-3.5 h-3.5" />
@@ -641,20 +654,20 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
             </div>
           </div>
 
-          <div className="rounded-xl border border-[#1c2b53] overflow-hidden bg-[#101a35]">
+          <div className="rounded-xl border border-[#1c2b53] overflow-hidden bg-[#101a35] shadow-lg">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-[#0b1329] text-slate-400 border-b border-[#1c2b53]">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-[#0b1329] text-slate-400 border-b border-[#1c2b53] font-mono">
                   <tr>
-                    <th className="py-2.5 px-3">SR Number</th>
-                    <th className="py-2.5 px-3">Defective Part No</th>
-                    <th className="py-2.5 px-3">Category</th>
-                    <th className="py-2.5 px-3">Description</th>
-                    <th className="py-2.5 px-3">Model</th>
-                    <th className="py-2.5 px-3 text-center">Qty</th>
-                    <th className="py-2.5 px-3">SO Code</th>
-                    <th className="py-2.5 px-3">Motorola Status</th>
-                    <th className="py-2.5 px-3 text-right">Value</th>
+                    <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">SR Number</th>
+                    <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Defective Part No</th>
+                    <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Category</th>
+                    <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Description</th>
+                    <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Model</th>
+                    <th className="py-3 px-3 text-center uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Qty</th>
+                    <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">SO Code</th>
+                    <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Motorola Status</th>
+                    <th className="py-3 px-3.5 text-right uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Est. Value</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#1c2b53]/60 text-slate-300">
@@ -664,18 +677,18 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
                     return (
                       <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="py-2.5 px-3 font-mono font-medium text-white">{item.sr_number}</td>
-                        <td className="py-2.5 px-3 font-mono text-cyan-300">{item.sr_part_number}</td>
-                        <td className="py-2.5 px-3 text-slate-200">{item.part_category}</td>
-                        <td className="py-2.5 px-3 text-slate-400 max-w-xs truncate">{item.part_description}</td>
-                        <td className="py-2.5 px-3">{item.sr_model_name || '-'}</td>
-                        <td className="py-2.5 px-3 text-center font-mono">{item.quantity || 1}</td>
-                        <td className="py-2.5 px-3 font-mono text-slate-400">{item.shipping_order_code}</td>
+                        <td className="py-3 px-3.5 font-mono font-medium text-white whitespace-nowrap align-middle">{item.sr_number}</td>
+                        <td className="py-3 px-3.5 font-mono text-cyan-300 whitespace-nowrap align-middle">{item.sr_part_number}</td>
+                        <td className="py-3 px-3.5 text-slate-200 whitespace-nowrap align-middle">{item.part_category}</td>
+                        <td className="py-3 px-3.5 text-slate-400 max-w-xs truncate align-middle">{item.part_description}</td>
+                        <td className="py-3 px-3.5 whitespace-nowrap align-middle text-slate-300">{item.sr_model_name || '-'}</td>
+                        <td className="py-3 px-3 text-center font-mono font-semibold text-slate-200 whitespace-nowrap align-middle">{item.quantity || 1}</td>
+                        <td className="py-3 px-3.5 font-mono text-slate-400 whitespace-nowrap align-middle">{item.shipping_order_code}</td>
                         
                         {/* Motorola Status */}
-                        <td className="py-2.5 px-3">
+                        <td className="py-3 px-3.5 whitespace-nowrap align-middle">
                           <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${motoInfo.badgeClass}`}
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${motoInfo.badgeClass} inline-block whitespace-nowrap`}
                             title={motoInfo.meaning}
                           >
                             {motoInfo.label}
@@ -687,7 +700,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                           )}
                         </td>
 
-                        <td className="py-2.5 px-3 text-right font-mono text-emerald-400">
+                        <td className="py-3 px-3.5 text-right font-mono font-bold text-emerald-400 whitespace-nowrap align-middle">
                           {formatINR((item.estimated_value || 8000) * (item.quantity || 1))}
                         </td>
                       </tr>
