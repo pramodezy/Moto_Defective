@@ -22,6 +22,7 @@ interface OrderDetailModalProps {
   onClose: () => void;
   onOpenInward?: (order: ShippingOrder) => void;
   onOpenAwbModal?: (order: ShippingOrder) => void;
+  onOpenPickupModal?: (order: ShippingOrder) => void;
 }
 
 export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
@@ -31,6 +32,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   onClose,
   onOpenInward,
   onOpenAwbModal,
+  onOpenPickupModal,
 }) => {
   if (!order) return null;
 
@@ -69,6 +71,17 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               Print Manifest
             </button>
 
+            {onOpenPickupModal && (order.active_awb || order.excel_ref_awb || order.crm_status !== 'AWB Pending') && (
+              <button
+                onClick={() => onOpenPickupModal(order)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow transition-all cursor-pointer"
+                title="Update AWB number or mark Pickup Done / Not Done"
+              >
+                <Truck className="w-4 h-4" />
+                Pickup / AWB
+              </button>
+            )}
+
             {onOpenAwbModal && (
               <button
                 onClick={() => onOpenAwbModal(order)}
@@ -101,7 +114,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
         {/* Modal Body & Metrics */}
         <div className="p-6 overflow-y-auto space-y-6">
           {/* Metrics ribbon */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <div className="p-3 rounded-xl bg-[#101a35] border border-[#1c2b53]">
               <span className="text-xs text-slate-400">Declared Value</span>
               <div className="text-lg font-bold text-white font-mono mt-0.5">
@@ -128,6 +141,31 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 {order.active_awb || order.excel_ref_awb || 'None Assigned'}
               </div>
               <span className="text-[10px] text-slate-400">{order.courier || 'BlueDart Express'}</span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-[#101a35] border border-[#1c2b53]">
+              <span className="text-xs text-slate-400">Pickup Status</span>
+              <div className="mt-1">
+                {order.pickup_status === 'Pickup Done' ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    Pickup Done
+                  </span>
+                ) : order.pickup_status === 'Pickup Not Done' ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+                    Pickup Not Done
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                    <Clock className="w-3.5 h-3.5" />
+                    Awaiting Pickup
+                  </span>
+                )}
+              </div>
+              <span className="text-[10px] text-slate-400 mt-1 block truncate" title={order.pickup_remarks || ''}>
+                {order.pickup_date ? formatDate(order.pickup_date) : order.pickup_remarks || 'Handover pending'}
+              </span>
             </div>
 
             <div className="p-3 rounded-xl bg-[#101a35] border border-[#1c2b53]">

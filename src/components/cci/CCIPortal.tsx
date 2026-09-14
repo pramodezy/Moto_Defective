@@ -22,6 +22,7 @@ interface CCIPortalProps {
   orders: ShippingOrder[];
   items: DefectiveItem[];
   onSelectOrder: (order: ShippingOrder) => void;
+  onOpenPickupModal?: (order: ShippingOrder) => void;
 }
 
 export const CCIPortal: React.FC<CCIPortalProps> = ({
@@ -30,6 +31,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   orders,
   items,
   onSelectOrder,
+  onOpenPickupModal,
 }) => {
   const [activeView, setActiveView] = useState<'consignments' | 'items'>('consignments');
 
@@ -161,6 +163,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                   <th className="py-3 px-4 text-center">Units</th>
                   <th className="py-3 px-4 text-right">Declared Value</th>
                   <th className="py-3 px-4">SLA Priority</th>
+                  <th className="py-3 px-4">Pickup Status</th>
                   <th className="py-3 px-4">CRM Status</th>
                   <th className="py-3 px-4">Ship Date</th>
                   <th className="py-3 px-4 text-center">Actions</th>
@@ -169,6 +172,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
               <tbody className="divide-y divide-[#1c2b53]/60 text-slate-300">
                 {stationOrders.map((so) => {
                   const orderItems = items.filter((i) => i.shipping_order_code === so.so_code);
+                  const isAwbIssued = !!(so.active_awb || so.excel_ref_awb || so.crm_status !== 'AWB Pending');
 
                   return (
                     <tr key={so.id} className="hover:bg-slate-800/40 transition-colors">
@@ -186,7 +190,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
                       <td className="py-3 px-4">
                         <div className="text-slate-300">{so.courier}</div>
-                        <div className="font-mono text-cyan-400 text-[11px]">
+                        <div className="font-mono text-cyan-400 text-[11px] font-semibold">
                           {so.active_awb || so.excel_ref_awb || 'Pending'}
                         </div>
                       </td>
@@ -203,6 +207,40 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                         <SlaBadge tier={so.priority_tier} ageDays={so.max_sr_age} />
                       </td>
 
+                      {/* Pickup Status Column */}
+                      <td className="py-3 px-4">
+                        {so.pickup_status === 'Pickup Done' ? (
+                          <div className="flex flex-col">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 w-fit">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              Pickup Done
+                            </span>
+                            {so.pickup_date && (
+                              <span className="text-[9px] text-slate-400 font-mono mt-0.5">
+                                {formatDate(so.pickup_date)}
+                              </span>
+                            )}
+                          </div>
+                        ) : so.pickup_status === 'Pickup Not Done' ? (
+                          <div className="flex flex-col">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40 w-fit">
+                              <AlertTriangle className="w-3 h-3 text-rose-400" />
+                              Pickup Not Done
+                            </span>
+                            {so.pickup_remarks && (
+                              <span className="text-[9px] text-rose-300/80 truncate max-w-[130px] mt-0.5" title={so.pickup_remarks}>
+                                {so.pickup_remarks}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
+                            <Clock className="w-3 h-3 text-slate-400" />
+                            {isAwbIssued ? 'Awaiting Pickup' : 'AWB Pending'}
+                          </span>
+                        )}
+                      </td>
+
                       <td className="py-3 px-4">
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getCrmStatusStyle(so.crm_status)}`}>
                           {so.crm_status}
@@ -214,13 +252,35 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                       </td>
 
                       <td className="py-3 px-4 text-center">
-                        <button
-                          onClick={() => printConsignmentManifest(so, orderItems, station)}
-                          className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-cyan-300 border border-cyan-500/30 transition-colors"
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                          Print Manifest
-                        </button>
+                        <div className="flex items-center justify-center gap-1.5">
+                          {isAwbIssued ? (
+                            <button
+                              onClick={() => onOpenPickupModal?.(so)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-sm transition-all hover:scale-[1.02] cursor-pointer"
+                              title="Update AWB number or record pickup status (Pickup Done / Not Done)"
+                            >
+                              <Truck className="w-3.5 h-3.5" />
+                              Pickup / AWB
+                            </button>
+                          ) : (
+                            <span 
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed"
+                              title="AWB must be issued by CWH first"
+                            >
+                              <Clock className="w-3 h-3" />
+                              AWB Pending
+                            </span>
+                          )}
+
+                          <button
+                            onClick={() => printConsignmentManifest(so, orderItems, station)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-cyan-300 border border-cyan-500/30 transition-colors cursor-pointer"
+                            title="Print Consignment Manifest"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            Manifest
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -228,7 +288,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
                 {stationOrders.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-slate-400">
+                    <td colSpan={9} className="py-12 text-center text-slate-400">
                       No consignments recorded for Station {stationCode}.
                     </td>
                   </tr>

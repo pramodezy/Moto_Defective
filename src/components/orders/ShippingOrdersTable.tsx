@@ -13,7 +13,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Trash2,
-  Upload
+  Upload,
+  CheckCircle2
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster, PriorityTier, CRMStatus, UserRole } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
@@ -145,6 +146,9 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
         'Active AWB': so.active_awb || '',
         'Excel Ref AWB': so.excel_ref_awb || '',
         'Courier': so.courier,
+        'Pickup Status': so.pickup_status || 'Pickup Pending',
+        'Pickup Date': so.pickup_date ? formatDate(so.pickup_date) : '',
+        'Pickup Remarks': so.pickup_remarks || '',
         'E-Way Bill Required': so.eway_bill_required ? 'YES' : 'NO',
         'E-Way Bill Number': so.eway_bill_number || '',
         'Created Date': formatDate(so.created_at),
@@ -349,12 +353,23 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                       </span>
                     </td>
 
-                    {/* Active AWB */}
+                    {/* Active AWB & Pickup */}
                     <td className="py-3 px-4 font-mono text-slate-300">
                       {so.active_awb || so.excel_ref_awb ? (
-                        <div className="text-cyan-300 flex items-center gap-1">
-                          <Barcode className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>{so.active_awb || so.excel_ref_awb}</span>
+                        <div>
+                          <div className="text-cyan-300 flex items-center gap-1 font-semibold">
+                            <Barcode className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>{so.active_awb || so.excel_ref_awb}</span>
+                          </div>
+                          {so.pickup_status === 'Pickup Done' ? (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] text-emerald-400 font-sans mt-0.5">
+                              <CheckCircle2 className="w-2.5 h-2.5" /> Pickup Done
+                            </span>
+                          ) : so.pickup_status === 'Pickup Not Done' ? (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] text-rose-400 font-sans mt-0.5" title={so.pickup_remarks}>
+                              <AlertTriangle className="w-2.5 h-2.5" /> Pickup Failed
+                            </span>
+                          ) : null}
                         </div>
                       ) : (
                         <span className="text-slate-500 italic">Unassigned</span>

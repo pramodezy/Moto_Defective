@@ -18,6 +18,7 @@ import { CWHInwardStation } from './components/cwh/CWHInwardStation';
 import { UnboxingModal } from './components/cwh/UnboxingModal';
 import { AwbDispatchModal } from './components/cwh/AwbDispatchModal';
 import { CCIPortal } from './components/cci/CCIPortal';
+import { CciPickupModal } from './components/cci/CciPickupModal';
 import { DefectiveMasterVault } from './components/vault/DefectiveMasterVault';
 import { AuditLogsViewer } from './components/audit/AuditLogsViewer';
 import { LoginPage } from './components/auth/LoginPage';
@@ -38,6 +39,7 @@ export function App() {
   const [selectedOrder, setSelectedOrder] = useState<ShippingOrder | null>(null);
   const [unboxingOrder, setUnboxingOrder] = useState<ShippingOrder | null>(null);
   const [awbModalOrder, setAwbModalOrder] = useState<ShippingOrder | null>(null);
+  const [cciPickupOrder, setCciPickupOrder] = useState<ShippingOrder | null>(null);
 
   // Subscribe to reactive database changes
   const [, setDbVersion] = useState(0);
@@ -133,6 +135,29 @@ export function App() {
       toast.success(`AWB ${awbNumber} successfully assigned (${courier})`);
     } catch (err: any) {
       toast.error(err.message || 'AWB assignment failed');
+    }
+  };
+
+  // CCI Pickup & AWB Update handler
+  const handleUpdateCciPickup = (
+    soId: string,
+    data: {
+      pickupStatus: any;
+      newAwb?: string;
+      courier?: string;
+      remarks?: string;
+    }
+  ) => {
+    if (!currentUser) return;
+    try {
+      crmDb.updateCciPickupAction(soId, data, currentUser);
+      toast.success(
+        data.pickupStatus === 'Pickup Done'
+          ? 'Consignment pickup confirmed! Status updated to In Transit.'
+          : 'Pickup delay logged for consignment.'
+      );
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update pickup status');
     }
   };
 
@@ -296,6 +321,7 @@ export function App() {
               orders={orders}
               items={items}
               onSelectOrder={setSelectedOrder}
+              onOpenPickupModal={setCciPickupOrder}
             />
           </>
         )}
@@ -316,6 +342,10 @@ export function App() {
             setSelectedOrder(null);
             setAwbModalOrder(o);
           }}
+          onOpenPickupModal={(o) => {
+            setSelectedOrder(null);
+            setCciPickupOrder(o);
+          }}
         />
       )}
 
@@ -335,6 +365,17 @@ export function App() {
           user={currentUser}
           onClose={() => setAwbModalOrder(null)}
           onSubmit={handleAssignAwb}
+        />
+      )}
+
+      {cciPickupOrder && (
+        <CciPickupModal
+          order={cciPickupOrder}
+          items={items}
+          station={stations.find((s) => s.station_code === cciPickupOrder.station_code)}
+          user={currentUser}
+          onClose={() => setCciPickupOrder(null)}
+          onSubmitPickupAction={handleUpdateCciPickup}
         />
       )}
 

@@ -7,7 +7,8 @@ import {
   UserProfile, 
   ScreeningStatus,
   IngestionResult,
-  CRMStatus
+  CRMStatus,
+  PickupStatus
 } from '../types/crm';
 import { 
   INITIAL_STATIONS, 
@@ -750,6 +751,103 @@ class CRMDatabase {
         : `New AWB ${newAwb} generated for ${courier}`,
       created_at: new Date().toISOString(),
     });
+
+    this.notify();
+    return so;
+  }
+
+  // --- CCI PICKUP & AWB UPDATE ACTION ---
+  public updateCciPickupAction(
+    soId: string,
+    data: {
+      pickupStatus: PickupStatus;
+      newAwb?: string;
+      courier?: string;
+      remarks?: string;
+    },
+    user: UserProfile
+  ): ShippingOrder {
+    const so = this.shippingOrders.find((o) => o.id === soId || o.so_code === soId);
+    if (!so) throw new Error('Shipping Order not found');
+
+    const oldAwb = so.active_awb || so.excel_ref_awb || '';
+    let awbChanged = false;
+    const cleanNewAwb = data.newAwb?.trim();
+
+    // 1. If AWB is modified by CCI
+    if (cleanNewAwb && cleanNewAwb !== oldAwb) {
+      awbChanged = true;
+
+      // Archive previous AWB in history
+      if (oldAwb) {
+        this.awbHistory.unshift({
+          id: `awb-${Date.now()}`,
+          shipping_order_id: so.id,
+          awb_number: oldAwb,
+          courier: so.courier,
+          is_active: false,
+          cancellation_reason: data.remarks || 'Updated by CCI at Service Center during pickup',
+          created_by: user.id,
+          created_at: new Date().toISOString(),
+        });
+      }
+
+      // Record new AWB
+      this.awbHistory.unshift({
+        id: `awb-${Date.now() + 1}`,
+        shipping_order_id: so.id,
+        awb_number: cleanNewAwb,
+        courier: data.courier || so.courier,
+        is_active: true,
+        pickup_date: data.pickupStatus === 'Pickup Done' ? new Date().toISOString() : undefined,
+        created_by: user.id,
+        created_at: new Date().toISOString(),
+      });
+
+      so.active_awb = cleanNewAwb;
+      if (data.courier) so.courier = data.courier;
+    }
+
+    // 2. Update Pickup Status & Timestamps
+    so.pickup_status = data.pickupStatus;
+    so.pickup_remarks = data.remarks || '';
+
+    if (data.pickupStatus === 'Pickup Done') {
+      so.pickup_date = new Date().toISOString();
+      so.crm_status = 'In Transit'; // Consignment is now moving with the courier
+    } else if (data.pickupStatus === 'Pickup Not Done') {
+      // Remain at station pending resolution
+      so.crm_status = so.crm_status === 'In Transit' ? 'AWB Pending' : so.crm_status;
+    }
+
+    so.updated_at = new Date().toISOString();
+
+    // 3. System Audit Log
+    this.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      shipping_order_id: so.id,
+      so_code: so.so_code,
+      user_name: user.full_name,
+      user_role: user.role,
+      action: data.pickupStatus === 'Pickup Done' ? 'CCI_PICKUP_DONE' : 'CCI_PICKUP_NOT_DONE',
+      awb: so.active_awb,
+      remarks: `CCI ${user.username} marked status: "${data.pickupStatus}".${
+        awbChanged ? ` AWB updated from ${oldAwb || 'None'} to ${so.active_awb} (${so.courier}).` : ''
+      }${data.remarks ? ` Notes: ${data.remarks}` : ''}`,
+      created_at: new Date().toISOString(),
+    });
+
+    // 4. Live update to Supabase Cloud if configured
+    if (isSupabaseConfigured && supabase) {
+      supabase.from('shipping_orders').update({
+        active_awb: so.active_awb,
+        courier: so.courier,
+        crm_status: so.crm_status,
+        updated_at: so.updated_at,
+      }).eq('so_code', so.so_code).then(({ error }) => {
+        if (error) console.warn('Live Supabase update for CCI pickup action failed:', error.message);
+      });
+    }
 
     this.notify();
     return so;

@@ -19,6 +19,8 @@ export type CRMStatus =
   | 'Dispatched to RC'
   | 'Closed';
 
+export type PickupStatus = 'Pickup Pending' | 'Pickup Done' | 'Pickup Not Done';
+
 export type PriorityTier = 1 | 2 | 3; // 1: Critical (>=15D), 2: High (8-14D), 3: Normal (<8D)
 
 export interface CCIMaster {
@@ -64,6 +66,9 @@ export interface ShippingOrder {
   max_sr_age: number;
   priority_tier: PriorityTier;
   total_items?: number;
+  pickup_status?: PickupStatus;
+  pickup_date?: string;
+  pickup_remarks?: string;
   created_at: string;
   updated_at: string;
 }
