@@ -20,7 +20,7 @@ import { parseDefectiveReportFile } from '../../services/defectiveReportIngestor
 import { parseRegionMappingFile, generateSampleRegionTemplateCSV } from '../../services/regionMappingIngestor';
 import { crmDb } from '../../lib/db';
 import { isSupabaseConfigured } from '../../lib/supabase';
-import { checkSupabaseStatus, pushSeedDataToSupabase, SupabaseSyncStatus } from '../../services/supabaseSync';
+import { checkSupabaseStatus, pushUploadedDataToSupabase, SupabaseSyncStatus } from '../../services/supabaseSync';
 
 interface IngestionHubProps {
   user: UserProfile;
@@ -39,55 +39,6 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
   const [regionError, setRegionError] = useState<string | null>(null);
   const regionInputRef = useRef<HTMLInputElement>(null);
 
-  // Handle Defective Report File
-  const handleProcessDefectiveFile = async (file: File) => {
-    setIsProcessingReport(true);
-    setReportError(null);
-    setReportResult(null);
-
-    try {
-      const parsed = await parseDefectiveReportFile(file);
-      const result = crmDb.batchUpsertDefectiveItems(parsed.items, user);
-      setReportResult(result);
-      confetti({ particleCount: 60, spread: 60, origin: { y: 0.7 } });
-    } catch (err: any) {
-      setReportError(err.message || 'Failed to process defective report file');
-    } finally {
-      setIsProcessingReport(false);
-    }
-  };
-
-  // Handle Region Mapping File
-  const handleProcessRegionFile = async (file: File) => {
-    setIsProcessingRegion(true);
-    setRegionError(null);
-    setRegionResult(null);
-
-    try {
-      const parsed = await parseRegionMappingFile(file);
-      const result = crmDb.batchUpsertStations(parsed.stations, user);
-      setRegionResult(result);
-      confetti({ particleCount: 50, spread: 50, origin: { y: 0.7 } });
-    } catch (err: any) {
-      setRegionError(err.message || 'Failed to process region mapping file');
-    } finally {
-      setIsProcessingRegion(false);
-    }
-  };
-
-  // Download Region Mapping Template
-  const handleDownloadTemplate = () => {
-    const csv = generateSampleRegionTemplateCSV();
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'Motorola_Region_Mapping_Template.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   // Supabase sync state
   const [supabaseStatus, setSupabaseStatus] = useState<SupabaseSyncStatus | null>(null);
   const [isSyncingSupabase, setIsSyncingSupabase] = useState(false);
@@ -104,6 +55,142 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
   React.useEffect(() => {
     refreshSupabase();
   }, []);
+
+  // Ingest all uploaded data to Supabase
+  const handleIngestAllToSupabase = async () => {
+    setIsSyncingSupabase(true);
+    setSyncProgress('Preparing uploaded data to push to Supabase Cloud...');
+    setSyncResult(null);
+
+    try {
+      const orders = crmDb.getShippingOrders();
+      const items = crmDb.getDefectiveItems();
+      const stations = crmDb.getStations();
+
+      const res = await pushUploadedDataToSupabase(orders, items, stations, (msg) => {
+        setSyncProgress(msg);
+      });
+
+      setSyncResult({
+        success: res.success,
+        message: res.message,
+      });
+
+      if (res.success) {
+        confetti({ particleCount: 70, spread: 70, origin: { y: 0.6 } });
+        refreshSupabase();
+      }
+    } catch (e: any) {
+      setSyncResult({ success: false, message: e.message || 'Failed to ingest data to Supabase' });
+    } finally {
+      setIsSyncingSupabase(false);
+      setSyncProgress(null);
+    }
+  };
+
+  // Handle Defective Report File
+  const handleProcessDefectiveFile = async (file: File) => {
+    setIsProcessingReport(true);
+    setReportError(null);
+    setReportResult(null);
+
+    try {
+      const parsed = await parseDefectiveReportFile(file);
+      const result = crmDb.batchUpsertDefectiveItems(parsed.items, user);
+      
+      // Auto-ingest directly to Supabase cloud if configured
+      let cloudFeedback = '';
+      if (isSupabaseConfigured) {
+        setSyncProgress('Ingesting uploaded rows directly into Supabase Cloud PostgreSQL...');
+        const ordersToPush = crmDb.getShippingOrders().filter((o) => 
+          parsed.items.some((i) => i.shipping_order_code === o.so_code)
+        );
+        const itemsToPush = crmDb.getDefectiveItems().filter((it) => 
+          parsed.items.some((i) => i.shipping_order_code === it.shipping_order_code)
+        );
+        const pushRes = await pushUploadedDataToSupabase(
+          ordersToPush,
+          itemsToPush,
+          crmDb.getStations(),
+          (msg) => setSyncProgress(msg)
+        );
+        if (pushRes.success) {
+          cloudFeedback = ` | Direct Cloud Push: ${pushRes.ordersCount} SOs, ${pushRes.itemsCount} Items Ingested to Supabase!`;
+          refreshSupabase();
+        } else {
+          cloudFeedback = ` | Local store updated, but Supabase reported: ${pushRes.message}`;
+        }
+      }
+
+      setReportResult(result);
+      if (cloudFeedback) {
+        setSyncResult({
+          success: true,
+          message: `Defective Report Processed: ${result.inserted} new, ${result.updated} updated.` + cloudFeedback,
+        });
+      }
+      confetti({ particleCount: 60, spread: 60, origin: { y: 0.7 } });
+    } catch (err: any) {
+      setReportError(err.message || 'Failed to process defective report file');
+    } finally {
+      setIsProcessingReport(false);
+      setSyncProgress(null);
+    }
+  };
+
+  // Handle Region Mapping File
+  const handleProcessRegionFile = async (file: File) => {
+    setIsProcessingRegion(true);
+    setRegionError(null);
+    setRegionResult(null);
+
+    try {
+      const parsed = await parseRegionMappingFile(file);
+      const result = crmDb.batchUpsertStations(parsed.stations, user);
+
+      let cloudFeedback = '';
+      if (isSupabaseConfigured) {
+        setSyncProgress('Ingesting stations directly into Supabase cci_master...');
+        const pushRes = await pushUploadedDataToSupabase(
+          [],
+          [],
+          crmDb.getStations(),
+          (msg) => setSyncProgress(msg)
+        );
+        if (pushRes.success) {
+          cloudFeedback = ` | Ingested ${result.stationsAffected} stations to Supabase cci_master.`;
+          refreshSupabase();
+        }
+      }
+
+      setRegionResult(result);
+      if (cloudFeedback) {
+        setSyncResult({
+          success: true,
+          message: `Region Mapping Updated: ${result.inserted} new stations, ${result.updated} updated.` + cloudFeedback,
+        });
+      }
+      confetti({ particleCount: 50, spread: 50, origin: { y: 0.7 } });
+    } catch (err: any) {
+      setRegionError(err.message || 'Failed to process region mapping file');
+    } finally {
+      setIsProcessingRegion(false);
+      setSyncProgress(null);
+    }
+  };
+
+  // Download Region Mapping Template
+  const handleDownloadTemplate = () => {
+    const csv = generateSampleRegionTemplateCSV();
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'Motorola_Region_Mapping_Template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const handleSyncAllFromSupabase = async () => {
     setIsSyncingSupabase(true);
@@ -192,9 +279,20 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
+                onClick={handleIngestAllToSupabase}
+                disabled={isSyncingSupabase}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
+                title="Push all uploaded Shipping Orders and Defective Items to Supabase Cloud"
+              >
+                <CloudUpload className="w-4 h-4" />
+                {isSyncingSupabase ? 'Ingesting...' : 'Ingest Uploaded Data to Supabase'}
+              </button>
+
+              <button
+                type="button"
                 onClick={handleSyncAllFromSupabase}
                 disabled={isSyncingSupabase}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-cyan-600/80 hover:bg-cyan-500 text-white shadow transition-all"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-cyan-600/80 hover:bg-cyan-500 text-white shadow transition-all cursor-pointer"
                 title="Fetch live records directly from Supabase tables"
               >
                 <CloudDownload className="w-4 h-4" />
@@ -205,7 +303,7 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
                 type="button"
                 onClick={handleClearLocalCache}
                 disabled={isSyncingSupabase}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600 shadow transition-all"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600 shadow transition-all cursor-pointer"
                 title="Clear residual browser localStorage cache"
               >
                 <RefreshCw className="w-4 h-4" />
@@ -323,10 +421,20 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
               </p>
             </div>
 
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isProcessingReport}
+              className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white shadow-md shadow-cyan-500/20 transition-all cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              {isProcessingReport ? 'Ingesting to Supabase...' : 'Upload Defective Dump & Ingest to Supabase'}
+            </button>
+
             {isProcessingReport && (
               <div className="mt-4 p-4 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center gap-3 text-xs text-blue-300 animate-pulse">
                 <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Reading sheet, executing composite key deduplication, and recalculating parent orders...</span>
+                <span>Reading sheet, executing composite key deduplication, and ingesting to Supabase...</span>
               </div>
             )}
 
@@ -419,6 +527,16 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
                 CSV or Excel with Station Code, Name, Region, State, City
               </p>
             </div>
+
+            <button
+              type="button"
+              onClick={() => regionInputRef.current?.click()}
+              disabled={isProcessingRegion}
+              className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white shadow-md shadow-teal-500/20 transition-all cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              {isProcessingRegion ? 'Ingesting Stations...' : 'Upload Region Mapping & Ingest to Supabase'}
+            </button>
 
             {isProcessingRegion && (
               <div className="mt-4 p-4 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center gap-3 text-xs text-teal-300 animate-pulse">

@@ -12,7 +12,8 @@ import {
   FileSpreadsheet,
   ChevronLeft,
   ChevronRight,
-  Trash2
+  Trash2,
+  Upload
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster, PriorityTier, CRMStatus, UserRole } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
@@ -29,6 +30,7 @@ interface ShippingOrdersTableProps {
   onOpenAwbModal?: (order: ShippingOrder) => void;
   onOpenInward?: (order: ShippingOrder) => void;
   onDeleteOrder?: (order: ShippingOrder) => void;
+  onNavigateTab?: (tab: string) => void;
 }
 
 export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
@@ -41,6 +43,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
   onOpenAwbModal,
   onOpenInward,
   onDeleteOrder,
+  onNavigateTab,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRegion, setSelectedRegion] = useState<string>('ALL');
@@ -227,10 +230,22 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
             <option value="Closed">Closed</option>
           </select>
 
+          {/* Upload & Ingest Data button (Admin only) */}
+          {currentRole === 'ADMIN' && onNavigateTab && (
+            <button
+              onClick={() => onNavigateTab('ingestion')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white shadow-sm transition-all cursor-pointer"
+              title="Upload Defective Dump & Ingest to Supabase"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Upload & Ingest
+            </button>
+          )}
+
           {/* Export button */}
           <button
             onClick={handleExportExcel}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 transition-colors cursor-pointer"
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
             Export Excel ({filteredOrders.length})

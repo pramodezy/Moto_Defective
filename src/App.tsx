@@ -220,6 +220,7 @@ export function App() {
                 onOpenAwbModal={setAwbModalOrder}
                 onOpenInward={setUnboxingOrder}
                 onDeleteOrder={handleDeleteOrder}
+                onNavigateTab={setActiveTab}
               />
             )}
             {activeTab === 'vault' && (

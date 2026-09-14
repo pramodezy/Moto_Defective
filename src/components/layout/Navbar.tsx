@@ -12,7 +12,8 @@ import {
   Truck,
   Sparkles,
   Search,
-  LogOut
+  LogOut,
+  Upload
 } from 'lucide-react';
 import { UserRole, CCIMaster, UserProfile } from '../../types/crm';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -148,6 +149,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span>CCI View</span>
                 </button>
               </div>
+            )}
+
+            {currentUser.role === 'ADMIN' && (
+              <button
+                onClick={() => onTabChange('ingestion')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border ${
+                  activeTab === 'ingestion'
+                    ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white border-cyan-400 shadow-md shadow-cyan-500/20'
+                    : 'bg-[#070e20] hover:bg-[#101a35] text-cyan-300 border-cyan-500/30'
+                }`}
+                title="Upload Defective Report & Ingest to Supabase"
+              >
+                <Upload className="w-3.5 h-3.5 text-cyan-300" />
+                <span className="hidden sm:inline">Upload & Ingest</span>
+              </button>
             )}
 
 
