@@ -1,0 +1,268 @@
+import React, { useMemo } from 'react';
+import { 
+  Truck, 
+  Layers, 
+  AlertTriangle, 
+  Clock, 
+  CheckCircle2, 
+  FileSpreadsheet, 
+  ShieldCheck, 
+  Sparkles, 
+  DollarSign, 
+  Barcode, 
+  ArrowUpRight,
+  TrendingUp
+} from 'lucide-react';
+import { ShippingOrder, DefectiveItem, CCIMaster } from '../../types/crm';
+import { formatINR } from '../../lib/utils';
+import { StatCard } from '../ui/StatCard';
+import { SlaBadge } from '../layout/SlaBadge';
+
+interface AdminDashboardProps {
+  orders: ShippingOrder[];
+  items: DefectiveItem[];
+  stations: CCIMaster[];
+  onNavigateTab: (tab: string) => void;
+  onSelectOrder: (order: ShippingOrder) => void;
+}
+
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({
+  orders,
+  items,
+  stations,
+  onNavigateTab,
+  onSelectOrder,
+}) => {
+  // Aggregate KPI metrics
+  const totalValue = useMemo(() => {
+    return orders.reduce((sum, so) => sum + (so.total_declared_value || 0), 0);
+  }, [orders]);
+
+  const criticalOrders = useMemo(() => {
+    return orders.filter((so) => so.priority_tier === 1);
+  }, [orders]);
+
+  const highOrders = useMemo(() => {
+    return orders.filter((so) => so.priority_tier === 2);
+  }, [orders]);
+
+  const awbPending = useMemo(() => {
+    return orders.filter((so) => so.crm_status === 'AWB Pending');
+  }, [orders]);
+
+  const ewayRequiredCount = useMemo(() => {
+    return orders.filter((so) => so.eway_bill_required);
+  }, [orders]);
+
+  // Regional Aggregations
+  const regionalMetrics = useMemo(() => {
+    const regions = ['North', 'South', 'West', 'East'];
+    return regions.map((region) => {
+      const regionOrders = orders.filter((o) => o.region === region);
+      const val = regionOrders.reduce((sum, o) => sum + (o.total_declared_value || 0), 0);
+      const critical = regionOrders.filter((o) => o.priority_tier === 1).length;
+      return {
+        region,
+        consignments: regionOrders.length,
+        value: val,
+        critical,
+      };
+    });
+  }, [orders]);
+
+  return (
+    <div className="space-y-8">
+      {/* Executive Header Banner */}
+      <div className="relative overflow-hidden rounded-2xl p-6 bg-gradient-to-r from-[#0b1638] via-[#10204d] to-[#14285e] border border-cyan-500/30 shadow-2xl">
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5" />
+                Live Reverse Logistics Operations
+              </span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white font-['Outfit'] mt-2">
+              Motorola Defective Returns Command Center
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-300 max-w-2xl mt-1">
+              Real-time synchronization across {stations.length} Service Centers, Central Warehouse Inward, and SLA breach mitigation.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => onNavigateTab('ingestion')}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white shadow-lg shadow-cyan-500/20 transition-all hover:scale-[1.02]"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Upload Latest Dump
+            </button>
+
+            <button
+              onClick={() => onNavigateTab('orders')}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-[#1a274c] hover:bg-[#233566] text-cyan-300 border border-cyan-500/30 transition-colors"
+            >
+              <Truck className="w-4 h-4" />
+              Consignments ({orders.length})
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* KPI Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          title="Total Consignments"
+          value={orders.length}
+          subtitle={`${items.length} defective line items`}
+          icon={<Truck className="w-5 h-5 text-cyan-400" />}
+          variant="cyan"
+          onClick={() => onNavigateTab('orders')}
+        />
+
+        <StatCard
+          title="Total Declared Value"
+          value={formatINR(totalValue)}
+          subtitle="Active pipeline valuation"
+          icon={<TrendingUp className="w-5 h-5 text-emerald-400" />}
+          variant="emerald"
+        />
+
+        <StatCard
+          title="Critical SLA Breaches (≥15D)"
+          value={criticalOrders.length}
+          subtitle={`+ ${highOrders.length} in High Priority (8-14D)`}
+          icon={<AlertTriangle className="w-5 h-5 text-red-400" />}
+          variant="red"
+          onClick={() => onNavigateTab('orders')}
+        />
+
+        <StatCard
+          title="E-Way Bill Alerts (≥ ₹50K)"
+          value={ewayRequiredCount.length}
+          subtitle={`${awbPending.length} AWB Pending staging`}
+          icon={<Barcode className="w-5 h-5 text-amber-400" />}
+          variant="amber"
+          onClick={() => onNavigateTab('orders')}
+        />
+      </div>
+
+      {/* Regional Distribution & Critical SLA Monitor */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Regional Distribution breakdown */}
+        <div className="p-5 rounded-2xl bg-[#101a35] border border-[#1c2b53] space-y-4 shadow-lg">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+              Regional Defective Volume
+            </h3>
+            <span className="text-[11px] text-cyan-400 font-mono">
+              {stations.length} Station Nodes
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {regionalMetrics.map((rm) => (
+              <div
+                key={rm.region}
+                className="p-3 rounded-xl bg-[#0b1329] border border-[#1f2e5a] hover:border-cyan-500/40 transition-colors"
+              >
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                    <span className="font-semibold text-white">{rm.region} Region</span>
+                  </div>
+                  <span className="font-mono text-emerald-400 font-bold">
+                    {formatINR(rm.value)}
+                  </span>
+                </div>
+
+                <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+                  <span>{rm.consignments} Consignments</span>
+                  {rm.critical > 0 ? (
+                    <span className="text-red-400 font-semibold font-mono">
+                      {rm.critical} Critical SLA
+                    </span>
+                  ) : (
+                    <span className="text-emerald-400 font-mono">SLA Clean</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Critical SLA Consignments Queue */}
+        <div className="lg:col-span-2 p-5 rounded-2xl bg-[#101a35] border border-[#1c2b53] space-y-4 shadow-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-red-500/15 text-red-400 border border-red-500/30">
+                <AlertTriangle className="w-4 h-4" />
+              </span>
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                Priority Tier 1: Critical SLA Breaches (≥ 15 Days)
+              </h3>
+            </div>
+            <button
+              onClick={() => onNavigateTab('orders')}
+              className="text-xs text-cyan-400 hover:underline flex items-center gap-1"
+            >
+              View All Consignments <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-[#0b1329] text-slate-400 border-b border-[#1c2b53] font-mono">
+                <tr>
+                  <th className="py-2.5 px-3">SO Code</th>
+                  <th className="py-2.5 px-3">Station</th>
+                  <th className="py-2.5 px-3">Region</th>
+                  <th className="py-2.5 px-3 text-right">Value</th>
+                  <th className="py-2.5 px-3">SLA Age</th>
+                  <th className="py-2.5 px-3">CRM Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#1c2b53]/60 text-slate-300">
+                {criticalOrders.slice(0, 6).map((so) => (
+                  <tr
+                    key={so.id}
+                    onClick={() => onSelectOrder(so)}
+                    className="hover:bg-slate-800/40 cursor-pointer transition-colors"
+                  >
+                    <td className="py-2.5 px-3 font-mono font-medium text-cyan-300">
+                      {so.so_code}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-slate-200">
+                      {so.station_code}
+                    </td>
+                    <td className="py-2.5 px-3">{so.region}</td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-400">
+                      {formatINR(so.total_declared_value)}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <SlaBadge tier={so.priority_tier} ageDays={so.max_sr_age} />
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300">
+                        {so.crm_status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {criticalOrders.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-emerald-400">
+                      <CheckCircle2 className="w-6 h-6 mx-auto mb-1 opacity-80" />
+                      No critical SLA breaches! All consignments are within SLA parameters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

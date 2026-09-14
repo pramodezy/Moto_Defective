@@ -1,0 +1,297 @@
+import React, { useState, useRef } from 'react';
+import { 
+  FileSpreadsheet, 
+  Upload, 
+  CheckCircle2, 
+  AlertCircle, 
+  Download, 
+  Layers, 
+  RefreshCw, 
+  MapPin, 
+  Sparkles,
+  FileCheck
+} from 'lucide-react';
+import confetti from 'canvas-confetti';
+import { UserProfile, IngestionResult } from '../../types/crm';
+import { parseDefectiveReportFile } from '../../services/defectiveReportIngestor';
+import { parseRegionMappingFile, generateSampleRegionTemplateCSV } from '../../services/regionMappingIngestor';
+import { crmDb } from '../../lib/db';
+
+interface IngestionHubProps {
+  user: UserProfile;
+}
+
+export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
+  // Defective report state
+  const [isProcessingReport, setIsProcessingReport] = useState(false);
+  const [reportResult, setReportResult] = useState<IngestionResult | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Region mapping state
+  const [isProcessingRegion, setIsProcessingRegion] = useState(false);
+  const [regionResult, setRegionResult] = useState<{ inserted: number; updated: number; stationsAffected: number } | null>(null);
+  const [regionError, setRegionError] = useState<string | null>(null);
+  const regionInputRef = useRef<HTMLInputElement>(null);
+
+  // Handle Defective Report File
+  const handleProcessDefectiveFile = async (file: File) => {
+    setIsProcessingReport(true);
+    setReportError(null);
+    setReportResult(null);
+
+    try {
+      const parsed = await parseDefectiveReportFile(file);
+      const result = crmDb.batchUpsertDefectiveItems(parsed.items, user);
+      setReportResult(result);
+      confetti({ particleCount: 60, spread: 60, origin: { y: 0.7 } });
+    } catch (err: any) {
+      setReportError(err.message || 'Failed to process defective report file');
+    } finally {
+      setIsProcessingReport(false);
+    }
+  };
+
+  // Handle Region Mapping File
+  const handleProcessRegionFile = async (file: File) => {
+    setIsProcessingRegion(true);
+    setRegionError(null);
+    setRegionResult(null);
+
+    try {
+      const parsed = await parseRegionMappingFile(file);
+      const result = crmDb.batchUpsertStations(parsed.stations, user);
+      setRegionResult(result);
+      confetti({ particleCount: 50, spread: 50, origin: { y: 0.7 } });
+    } catch (err: any) {
+      setRegionError(err.message || 'Failed to process region mapping file');
+    } finally {
+      setIsProcessingRegion(false);
+    }
+  };
+
+  // Download Region Mapping Template
+  const handleDownloadTemplate = () => {
+    const csv = generateSampleRegionTemplateCSV();
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'Motorola_Region_Mapping_Template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* Overview Banner */}
+      <div className="p-6 rounded-2xl bg-gradient-to-r from-[#101a35] via-[#122047] to-[#172754] border border-cyan-500/30 shadow-xl">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+            <FileSpreadsheet className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-white font-['Outfit']">
+              Enterprise File Ingestion Engines
+            </h2>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Dual-status defective master synchronization and dynamic region-to-station mapping
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Engine 1: Defective Report Ingestion */}
+        <div className="p-6 rounded-2xl bg-[#101a35] border border-[#1c2b53] flex flex-col justify-between shadow-lg">
+          <div>
+            <div className="flex items-center justify-between pb-4 border-b border-[#1f2e5a]">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  <Layers className="w-4 h-4" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-white">1. Motorola Defective Report Sync</h3>
+                  <p className="text-[11px] text-slate-400">Updates Defective Master & Recalculates SO SLA</p>
+                </div>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono">
+                XLSX / CSV
+              </span>
+            </div>
+
+            <div className="mt-4 text-xs text-slate-300 space-y-2">
+              <p>
+                Upload regular Motorola Defective Reports (like <code>Dump.xlsx</code>). The engine:
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-slate-400 text-[11px]">
+                <li>Matches composite key: <code className="text-cyan-400">sr_number + sr_part_number + new_part_number</code></li>
+                <li>Preserves internal CRM status & unboxing notes while updating external Motorola status</li>
+                <li>Automatically computes parent Consignment Declared Value, SLA Age, and E-Way bill threshold</li>
+              </ul>
+            </div>
+
+            {/* Dropzone */}
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="mt-5 p-8 rounded-xl border-2 border-dashed border-cyan-500/30 hover:border-cyan-500/60 bg-[#0b1329]/60 hover:bg-[#0b1329] transition-all cursor-pointer text-center group"
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleProcessDefectiveFile(file);
+                }}
+              />
+              <Upload className="w-8 h-8 mx-auto text-cyan-400 group-hover:scale-110 transition-transform mb-2" />
+              <p className="text-xs font-semibold text-slate-200">
+                Click or drag & drop Motorola Defective Report
+              </p>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Supports Excel (.xlsx, .xls) and CSV files
+              </p>
+            </div>
+
+            {isProcessingReport && (
+              <div className="mt-4 p-4 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center gap-3 text-xs text-blue-300 animate-pulse">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Reading sheet, executing composite key deduplication, and recalculating parent orders...</span>
+              </div>
+            )}
+
+            {reportError && (
+              <div className="mt-4 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 text-red-400" />
+                <span>{reportError}</span>
+              </div>
+            )}
+
+            {reportResult && (
+              <div className="mt-4 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Synchronization Complete!</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs pt-1 font-mono">
+                  <div className="p-2 rounded bg-[#0b1329] border border-emerald-500/20">
+                    <span className="text-slate-400 text-[10px]">Inserted</span>
+                    <div className="text-emerald-400 font-bold text-sm">{reportResult.inserted}</div>
+                  </div>
+                  <div className="p-2 rounded bg-[#0b1329] border border-emerald-500/20">
+                    <span className="text-slate-400 text-[10px]">Updated</span>
+                    <div className="text-cyan-400 font-bold text-sm">{reportResult.updated}</div>
+                  </div>
+                  <div className="p-2 rounded bg-[#0b1329] border border-emerald-500/20">
+                    <span className="text-slate-400 text-[10px]">SO Synced</span>
+                    <div className="text-indigo-400 font-bold text-sm">{reportResult.shippingOrdersUpdated}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Engine 2: Region Mapping Ingestion */}
+        <div className="p-6 rounded-2xl bg-[#101a35] border border-[#1c2b53] flex flex-col justify-between shadow-lg">
+          <div>
+            <div className="flex items-center justify-between pb-4 border-b border-[#1f2e5a]">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 rounded-lg bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                  <MapPin className="w-4 h-4" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-white">2. Region Mapping & Station Ingestion</h3>
+                  <p className="text-[11px] text-slate-400">Assigns Regions & Generates Dynamic CCI Users</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleDownloadTemplate}
+                className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium bg-[#1a274c] hover:bg-[#233566] text-cyan-300 border border-cyan-500/30 transition-colors"
+              >
+                <Download className="w-3 h-3" />
+                Template CSV
+              </button>
+            </div>
+
+            <div className="mt-4 text-xs text-slate-300 space-y-2">
+              <p>
+                Upload station-to-region mapping file. The engine:
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-slate-400 text-[11px]">
+                <li>Generates dynamic username: <code className="text-teal-400">cci_{'{station_code}'}</code> (e.g. <code>cci_65</code>)</li>
+                <li>Populates regional classification (North, South, East, West, Central)</li>
+                <li>Cascades region inheritance down to all defective items and shipping orders</li>
+              </ul>
+            </div>
+
+            {/* Dropzone */}
+            <div
+              onClick={() => regionInputRef.current?.click()}
+              className="mt-5 p-8 rounded-xl border-2 border-dashed border-teal-500/30 hover:border-teal-500/60 bg-[#0b1329]/60 hover:bg-[#0b1329] transition-all cursor-pointer text-center group"
+            >
+              <input
+                ref={regionInputRef}
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleProcessRegionFile(file);
+                }}
+              />
+              <Upload className="w-8 h-8 mx-auto text-teal-400 group-hover:scale-110 transition-transform mb-2" />
+              <p className="text-xs font-semibold text-slate-200">
+                Click or drag & drop Region Mapping File
+              </p>
+              <p className="text-[10px] text-slate-400 mt-1">
+                CSV or Excel with Station Code, Name, Region, State, City
+              </p>
+            </div>
+
+            {isProcessingRegion && (
+              <div className="mt-4 p-4 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center gap-3 text-xs text-teal-300 animate-pulse">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Parsing region definitions and updating station master...</span>
+              </div>
+            )}
+
+            {regionError && (
+              <div className="mt-4 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 text-red-400" />
+                <span>{regionError}</span>
+              </div>
+            )}
+
+            {regionResult && (
+              <div className="mt-4 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Region Mapping Updated!</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs pt-1 font-mono">
+                  <div className="p-2 rounded bg-[#0b1329] border border-emerald-500/20">
+                    <span className="text-slate-400 text-[10px]">New Stations</span>
+                    <div className="text-teal-400 font-bold text-sm">{regionResult.inserted}</div>
+                  </div>
+                  <div className="p-2 rounded bg-[#0b1329] border border-emerald-500/20">
+                    <span className="text-slate-400 text-[10px]">Updated</span>
+                    <div className="text-cyan-400 font-bold text-sm">{regionResult.updated}</div>
+                  </div>
+                  <div className="p-2 rounded bg-[#0b1329] border border-emerald-500/20">
+                    <span className="text-slate-400 text-[10px]">Total Synced</span>
+                    <div className="text-emerald-400 font-bold text-sm">{regionResult.stationsAffected}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
