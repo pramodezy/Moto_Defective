@@ -11,7 +11,8 @@ import {
   Sparkles,
   FileCheck,
   Database,
-  CloudUpload
+  CloudUpload,
+  CloudDownload
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { UserProfile, IngestionResult } from '../../types/crm';
@@ -124,6 +125,27 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
     }
   };
 
+  const handlePullFromSupabase = async () => {
+    setIsSyncingSupabase(true);
+    setSyncProgress('Loading stations and location mappings from Supabase cci_master...');
+    setSyncResult(null);
+
+    try {
+      const count = await crmDb.syncStationsFromSupabase();
+      setSyncResult({
+        success: true,
+        message: `Successfully synchronized ${count} stations with City, State & Region directly from Supabase cci_master!`,
+      });
+      confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 } });
+      refreshSupabase();
+    } catch (e: any) {
+      setSyncResult({ success: false, message: e.message || 'Failed to pull from Supabase cci_master' });
+    } finally {
+      setIsSyncingSupabase(false);
+      setSyncProgress(null);
+    }
+  };
+
   return (
     <div className="space-y-8">
       {/* Overview Banner */}
@@ -165,20 +187,31 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
               <div>
                 <h3 className="text-sm font-bold text-white">Supabase Cloud PostgreSQL Database</h3>
                 <p className="text-xs text-slate-400">
-                  Project: <code className="text-cyan-300 font-mono">rippjixfknqwptbcruux.supabase.co</code>
+                  Project: <code className="text-cyan-300 font-mono">rippjixfknqwptbcruux.supabase.co</code> (CCI Master Source of Truth)
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handlePullFromSupabase}
+                disabled={isSyncingSupabase}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-cyan-600/80 hover:bg-cyan-500 text-white shadow transition-all"
+                title="Fetch City, State & Region directly from Supabase cci_master"
+              >
+                <CloudDownload className="w-4 h-4" />
+                {isSyncingSupabase ? 'Syncing...' : 'Sync CCI Master from Supabase'}
+              </button>
+
               <button
                 type="button"
                 onClick={handleSyncToSupabase}
                 disabled={isSyncingSupabase}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg transition-all"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow transition-all"
               >
                 <CloudUpload className="w-4 h-4" />
-                {isSyncingSupabase ? 'Pushing to Supabase...' : 'Push Seed Data to Supabase (64 Stations, 115 SOs, 300 Items)'}
+                {isSyncingSupabase ? 'Pushing...' : 'Push Seed Data to Supabase'}
               </button>
             </div>
           </div>

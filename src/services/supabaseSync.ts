@@ -79,6 +79,8 @@ export async function pushSeedDataToSupabase(
         so_code: so.so_code,
         station_code: so.station_code,
         region: so.region,
+        state: so.state,
+        city: so.city,
         motorola_status: so.motorola_status,
         crm_status: so.crm_status,
         excel_ref_awb: so.excel_ref_awb,
@@ -108,6 +110,8 @@ export async function pushSeedDataToSupabase(
           quantity: it.quantity,
           station_code: it.station_code,
           region: it.region,
+          state: it.state,
+          city: it.city,
           shipping_order_code: it.shipping_order_code,
           sr_close_timestamp: it.sr_close_timestamp,
           sr_model_name: it.sr_model_name,
@@ -133,3 +137,25 @@ export async function pushSeedDataToSupabase(
     };
   }
 }
+
+export async function pullCciMasterFromSupabase(): Promise<{ success: boolean; count: number; message: string }> {
+  if (!isSupabaseConfigured || !supabase) {
+    return { success: false, count: 0, message: 'Supabase client is not configured' };
+  }
+  try {
+    const { data, error } = await supabase.from('cci_master').select('*').order('station_code');
+    if (error) throw error;
+    return {
+      success: true,
+      count: data?.length || 0,
+      message: `Successfully loaded ${data?.length || 0} stations from Supabase cci_master`,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      count: 0,
+      message: err.message || 'Failed to fetch from Supabase cci_master',
+    };
+  }
+}
+

@@ -97,23 +97,28 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
 
   // Export to Excel
   const handleExportExcel = () => {
-    const exportData = filteredOrders.map((so) => ({
-      'SO Code': so.so_code,
-      'Station Code': so.station_code,
-      'Station Name': stationMap.get(so.station_code)?.station_name || '',
-      'Region': so.region,
-      'Declared Value (INR)': so.total_declared_value,
-      'Max Age (Days)': so.max_sr_age,
-      'Priority Tier': so.priority_tier === 1 ? 'Critical' : so.priority_tier === 2 ? 'High' : 'Normal',
-      'Motorola Status': so.motorola_status,
-      'CRM Status': so.crm_status,
-      'Active AWB': so.active_awb || '',
-      'Excel Ref AWB': so.excel_ref_awb || '',
-      'Courier': so.courier,
-      'E-Way Bill Required': so.eway_bill_required ? 'YES' : 'NO',
-      'E-Way Bill Number': so.eway_bill_number || '',
-      'Created Date': formatDate(so.created_at),
-    }));
+    const exportData = filteredOrders.map((so) => {
+      const st = stationMap.get(so.station_code);
+      return {
+        'SO Code': so.so_code,
+        'Station Code': so.station_code,
+        'Station Name': st?.station_name || '',
+        'City': st?.city || so.city || '',
+        'State': st?.state || so.state || '',
+        'Region': st?.region || so.region || '',
+        'Declared Value (INR)': so.total_declared_value,
+        'Max Age (Days)': so.max_sr_age,
+        'Priority Tier': so.priority_tier === 1 ? 'Critical' : so.priority_tier === 2 ? 'High' : 'Normal',
+        'Motorola Status': so.motorola_status,
+        'CRM Status': so.crm_status,
+        'Active AWB': so.active_awb || '',
+        'Excel Ref AWB': so.excel_ref_awb || '',
+        'Courier': so.courier,
+        'E-Way Bill Required': so.eway_bill_required ? 'YES' : 'NO',
+        'E-Way Bill Number': so.eway_bill_number || '',
+        'Created Date': formatDate(so.created_at),
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
@@ -245,19 +250,31 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                       )}
                     </td>
 
-                    {/* Station */}
+                    {/* Station & Location */}
                     <td className="py-3 px-4">
                       <div className="font-mono text-slate-200">{so.station_code}</div>
-                      <div className="text-[11px] text-slate-400 max-w-[140px] truncate" title={station?.station_name}>
+                      <div className="text-[11px] text-slate-300 max-w-[150px] truncate" title={station?.station_name}>
                         {station?.station_name || 'Service Station'}
                       </div>
+                      {(station?.city || so.city || station?.state || so.state) && (
+                        <div className="text-[10px] text-cyan-400/80 truncate max-w-[150px]">
+                          {[station?.city || so.city, station?.state || so.state].filter(Boolean).join(', ')}
+                        </div>
+                      )}
                     </td>
 
                     {/* Region */}
                     <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 rounded text-[11px] bg-slate-800/80 border border-slate-700 text-slate-300">
-                        {so.region || 'West'}
-                      </span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="px-2 py-0.5 rounded text-[11px] bg-slate-800/80 border border-slate-700 text-slate-300 w-fit">
+                          {station?.region || so.region || 'West'}
+                        </span>
+                        {(station?.state || so.state) && (
+                          <span className="text-[10px] text-slate-400 truncate max-w-[90px]" title={station?.state || so.state}>
+                            {station?.state || so.state}
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     {/* Units */}

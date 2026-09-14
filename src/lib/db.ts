@@ -15,6 +15,7 @@ import {
   INITIAL_DEFECTIVE_ITEMS, 
   INITIAL_AUDIT_LOGS 
 } from '../data/seedData';
+import { supabase, isSupabaseConfigured } from './supabase';
 
 const STORAGE_KEYS = {
   STATIONS: 'moto_crm_stations_v1',
@@ -34,6 +35,81 @@ class CRMDatabase {
 
   constructor() {
     this.loadFromStorage();
+    this.reapplyStationLocationMappings();
+    this.syncStationsFromSupabase();
+  }
+
+  // Ensure all defective items and shipping orders have city, state, and region mapped from stations
+  public reapplyStationLocationMappings() {
+    const stationMap = new Map<string, CCIMaster>();
+    this.stations.forEach((st) => stationMap.set(st.station_code, st));
+
+    let modified = false;
+
+    this.defectiveItems.forEach((item) => {
+      const st = stationMap.get(item.station_code);
+      if (st) {
+        if (item.region !== st.region || item.state !== st.state || item.city !== st.city) {
+          item.region = st.region;
+          item.state = st.state;
+          item.city = st.city;
+          modified = true;
+        }
+      }
+    });
+
+    this.shippingOrders.forEach((so) => {
+      const st = stationMap.get(so.station_code);
+      if (st) {
+        if (so.region !== st.region || so.state !== st.state || so.city !== st.city) {
+          so.region = st.region;
+          so.state = st.state;
+          so.city = st.city;
+          modified = true;
+        }
+      }
+    });
+
+    if (modified) {
+      this.saveToStorage();
+    }
+  }
+
+  // Synchronize stations from Supabase cci_master table
+  public async syncStationsFromSupabase(): Promise<number> {
+    if (!isSupabaseConfigured || !supabase) return 0;
+    try {
+      const { data, error } = await supabase
+        .from('cci_master')
+        .select('*')
+        .order('station_code', { ascending: true });
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        const fetchedStations: CCIMaster[] = data.map((d: any) => ({
+          station_code: d.station_code,
+          username: d.username || `cci_${d.station_code}`,
+          station_name: d.station_name,
+          region: d.region || 'West',
+          state: d.state || '',
+          city: d.city || '',
+          contact_person: d.contact_person || '',
+          contact_phone: d.contact_phone || '',
+          is_active: d.is_active ?? true,
+          created_at: d.created_at,
+          updated_at: d.updated_at,
+        }));
+
+        this.stations = fetchedStations;
+        this.reapplyStationLocationMappings();
+        this.notify();
+        return fetchedStations.length;
+      }
+    } catch (e) {
+      console.warn('Supabase cci_master sync skipped/error:', e);
+    }
+    return 0;
   }
 
   private loadFromStorage() {
@@ -161,6 +237,8 @@ class CRMDatabase {
     const stationCode = items[0]?.station_code || existingSo?.station_code || '000';
     const station = this.stations.find((st) => st.station_code === stationCode);
     const region = station?.region || existingSo?.region || 'West';
+    const state = station?.state || existingSo?.state || '';
+    const city = station?.city || existingSo?.city || '';
 
     if (existingSo) {
       existingSo.max_sr_age = maxAge;
@@ -170,6 +248,9 @@ class CRMDatabase {
       existingSo.total_items = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
       existingSo.motorola_status = latestMotoStatus || existingSo.motorola_status;
       if (latestExcelAwb) existingSo.excel_ref_awb = latestExcelAwb;
+      existingSo.region = region;
+      existingSo.state = state;
+      existingSo.city = city;
       existingSo.updated_at = new Date().toISOString();
     } else {
       const newSo: ShippingOrder = {
@@ -177,6 +258,8 @@ class CRMDatabase {
         so_code: soCode,
         station_code: stationCode,
         region,
+        state,
+        city,
         motorola_status: latestMotoStatus,
         crm_status: latestExcelAwb ? 'In Transit' : 'AWB Pending',
         excel_ref_awb: latestExcelAwb,
@@ -223,6 +306,8 @@ class CRMDatabase {
         const stationCode = incoming.station_code || '068';
         const station = this.stations.find((s) => s.station_code === stationCode);
         const region = station?.region || incoming.region || 'West';
+        const state = station?.state || incoming.state || '';
+        const city = station?.city || incoming.city || '';
 
         const existing = itemMap.get(compositeKey);
 
@@ -237,6 +322,8 @@ class CRMDatabase {
           existing.sr_close_timestamp = incoming.sr_close_timestamp || existing.sr_close_timestamp;
           existing.estimated_value = incoming.estimated_value || existing.estimated_value;
           existing.region = region;
+          existing.state = state;
+          existing.city = city;
           existing.last_synced_at = new Date().toISOString();
           existing.updated_at = new Date().toISOString();
           
@@ -254,6 +341,8 @@ class CRMDatabase {
             quantity: incoming.quantity || 1,
             station_code: stationCode,
             region,
+            state,
+            city,
             shipping_order_code: incoming.shipping_order_code,
             sr_close_timestamp: incoming.sr_close_timestamp,
             sr_model_name: incoming.sr_model_name,
@@ -333,18 +422,42 @@ class CRMDatabase {
         inserted++;
       }
 
-      // Propagate region to existing defective items and shipping orders for this station
+      // Propagate region, state, and city to existing defective items and shipping orders for this station
       this.defectiveItems.forEach((item) => {
         if (item.station_code === st.station_code) {
           item.region = st.region;
+          item.state = st.state;
+          item.city = st.city;
         }
       });
       this.shippingOrders.forEach((so) => {
         if (so.station_code === st.station_code) {
           so.region = st.region;
+          so.state = st.state;
+          so.city = st.city;
         }
       });
     });
+
+    // Also push to Supabase cci_master asynchronously if connected
+    if (isSupabaseConfigured && supabase) {
+      supabase.from('cci_master').upsert(
+        newStations.map((st) => ({
+          station_code: st.station_code,
+          username: st.username || `cci_${st.station_code}`,
+          station_name: st.station_name,
+          region: st.region,
+          state: st.state || '',
+          city: st.city || '',
+          contact_person: st.contact_person || '',
+          contact_phone: st.contact_phone || '',
+          is_active: st.is_active ?? true,
+        })),
+        { onConflict: 'station_code' }
+      ).then(({ error }) => {
+        if (error) console.error('Failed to sync uploaded stations to Supabase cci_master:', error);
+      });
+    }
 
     this.auditLogs.unshift({
       id: `log-${Date.now()}`,

@@ -203,6 +203,9 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                   </div>
                   <div className="text-[11px] text-slate-400 truncate mt-0.5">
                     {station?.station_name || 'Service Center'}
+                    {(station?.city || so.city) && (
+                      <span className="text-cyan-400/80"> • {[station?.city || so.city, station?.state || so.state].filter(Boolean).join(', ')}</span>
+                    )}
                   </div>
                 </div>
 

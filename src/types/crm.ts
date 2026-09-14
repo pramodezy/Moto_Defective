@@ -49,6 +49,8 @@ export interface ShippingOrder {
   so_code: string;            // "CCI-ASP Shipping Order Code"
   station_code: string;
   region: string;
+  state?: string;
+  city?: string;
   motorola_status: string;
   crm_status: CRMStatus;
   excel_ref_awb?: string;
@@ -77,6 +79,8 @@ export interface DefectiveItem {
   quantity: number;
   station_code: string;
   region?: string;
+  state?: string;
+  city?: string;
   shipping_order_code: string;
   shipping_order_id?: string;
   sr_close_timestamp?: string;

@@ -83,27 +83,40 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
     return filteredItems.slice(start, start + pageSize);
   }, [filteredItems, currentPage, pageSize]);
 
+  // Station map lookup
+  const stationMap = useMemo(() => {
+    const map = new Map<string, CCIMaster>();
+    stations.forEach((st) => map.set(st.station_code, st));
+    return map;
+  }, [stations]);
+
   // Export to Excel
   const handleExport = () => {
-    const exportData = filteredItems.map((item) => ({
-      'Composite Key': item.composite_key,
-      'SR Number': item.sr_number,
-      'Defective Part Number': item.sr_part_number,
-      'New Part Number': item.new_part_number,
-      'Part Category': item.part_category,
-      'Part Description': item.part_description,
-      'Quantity': item.quantity,
-      'Station Code': item.station_code,
-      'Region': item.region,
-      'Shipping Order Code': item.shipping_order_code,
-      'Model Name': item.sr_model_name || '',
-      'Fault Description': item.sr_fault_description || '',
-      'Estimated Value (INR)': item.estimated_value,
-      'Motorola Status': item.motorola_parts_status,
-      'Screening Status': item.screening_status,
-      'Item Remarks': item.item_remarks || '',
-      'Last Synced': formatDate(item.last_synced_at),
-    }));
+    const exportData = filteredItems.map((item) => {
+      const st = stationMap.get(item.station_code);
+      return {
+        'Composite Key': item.composite_key,
+        'SR Number': item.sr_number,
+        'Defective Part Number': item.sr_part_number,
+        'New Part Number': item.new_part_number,
+        'Part Category': item.part_category,
+        'Part Description': item.part_description,
+        'Quantity': item.quantity,
+        'Station Code': item.station_code,
+        'Station Name': st?.station_name || '',
+        'City': st?.city || item.city || '',
+        'State': st?.state || item.state || '',
+        'Region': st?.region || item.region || '',
+        'Shipping Order Code': item.shipping_order_code,
+        'Model Name': item.sr_model_name || '',
+        'Fault Description': item.sr_fault_description || '',
+        'Estimated Value (INR)': item.estimated_value,
+        'Motorola Status': item.motorola_parts_status,
+        'Screening Status': item.screening_status,
+        'Item Remarks': item.item_remarks || '',
+        'Last Synced': formatDate(item.last_synced_at),
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
@@ -236,7 +249,10 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
                     {item.sr_model_name || '-'}
                   </td>
                   <td className="py-2.5 px-3 font-mono text-slate-300">
-                    {item.station_code} <span className="text-[10px] text-slate-500">({item.region})</span>
+                    <div className="font-semibold text-white">{item.station_code}</div>
+                    <div className="text-[10px] text-cyan-400/80 truncate max-w-[130px]" title={[stationMap.get(item.station_code)?.city || item.city, stationMap.get(item.station_code)?.state || item.state, stationMap.get(item.station_code)?.region || item.region].filter(Boolean).join(', ')}>
+                      {[stationMap.get(item.station_code)?.city || item.city, stationMap.get(item.station_code)?.state || item.state].filter(Boolean).join(', ') || stationMap.get(item.station_code)?.region || item.region}
+                    </div>
                   </td>
                   <td className="py-2.5 px-3 font-mono text-slate-400 truncate max-w-[130px]">
                     {item.shipping_order_code}

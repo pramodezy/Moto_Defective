@@ -55,7 +55,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Station: <strong className="text-slate-200">{order.station_code}</strong> ({station?.station_name || 'Service Center'}) • Region: <strong className="text-cyan-400">{order.region || 'West'}</strong>
+                Station: <strong className="text-slate-200">{order.station_code}</strong> ({station?.station_name || 'Service Center'}) • {(station?.city || order.city) ? `${station?.city || order.city}, ` : ''}{(station?.state || order.state) ? `${station?.state || order.state} • ` : ''}Region: <strong className="text-cyan-400">{station?.region || order.region || 'West'}</strong>
               </p>
             </div>
           </div>
