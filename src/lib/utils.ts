@@ -74,6 +74,8 @@ export function getCrmStatusStyle(status: CRMStatus) {
   switch (status) {
     case 'AWB Pending':
       return 'bg-amber-500/10 text-amber-300 border-amber-500/30';
+    case 'Pickup Pending':
+      return 'bg-amber-500/15 text-amber-300 border-amber-500/40 font-semibold';
     case 'In Transit':
       return 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30';
     case 'CWH Received':

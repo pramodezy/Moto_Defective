@@ -175,10 +175,10 @@ export function deriveCrmStatusFromMotorolaStatus(
     if (existingCrmStatus && existingCrmStatus !== 'AWB Pending') {
       return existingCrmStatus;
     }
-    return awb && awb.trim() ? 'In Transit' : 'AWB Pending';
+    return awb && awb.trim() ? 'Pickup Pending' : 'AWB Pending';
   }
 
-  return existingCrmStatus || (awb && awb.trim() ? 'In Transit' : 'AWB Pending');
+  return existingCrmStatus || (awb && awb.trim() ? 'Pickup Pending' : 'AWB Pending');
 }
 
 /**

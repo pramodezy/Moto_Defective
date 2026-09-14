@@ -13,6 +13,7 @@ export type MotorolaPartsStatus =
 
 export type CRMStatus = 
   | 'AWB Pending'
+  | 'Pickup Pending'
   | 'In Transit'
   | 'CWH Received'
   | 'Create DC for RC'

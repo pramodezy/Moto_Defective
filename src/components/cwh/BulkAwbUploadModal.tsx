@@ -229,9 +229,9 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
 
       if (res.updatedCount > 0) {
         if (res.errors.length > 0) {
-          toast.warning(`Updated ${res.updatedCount} orders to "In Transit", with notices: ${res.errors.slice(0, 2).join('; ')}`);
+          toast.warning(`Assigned AWBs to ${res.updatedCount} orders (Status: "Pickup Pending"), with notices: ${res.errors.slice(0, 2).join('; ')}`);
         } else {
-          toast.success(`Successfully assigned AWBs & updated ${res.updatedCount} orders to "In Transit" (synced to Supabase)!`);
+          toast.success(`Successfully assigned AWBs & updated ${res.updatedCount} orders to "Pickup Pending" (synced to Supabase)!`);
         }
         onSuccess?.(res.updatedCount);
         onClose();

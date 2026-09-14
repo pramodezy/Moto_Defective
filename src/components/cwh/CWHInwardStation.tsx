@@ -178,7 +178,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         moto.includes('send to rc') || 
         moto.includes('discrepanc')
       ) return false;
-      return o.crm_status === 'In Transit' || !!(o.active_awb || o.excel_ref_awb);
+      return o.crm_status === 'In Transit' || o.crm_status === 'Pickup Pending' || !!(o.active_awb || o.excel_ref_awb);
     });
   }, [stationScopedOrders]);
 

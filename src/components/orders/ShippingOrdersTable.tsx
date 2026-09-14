@@ -304,6 +304,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
           >
             <option value="ALL">All CRM Statuses</option>
             <option value="AWB Pending">AWB Pending</option>
+            <option value="Pickup Pending">Pickup Pending</option>
             <option value="In Transit">In Transit</option>
             <option value="Create DC for RC">Create DC for RC</option>
             <option value="CWH Received">CWH Received</option>

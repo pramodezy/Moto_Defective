@@ -119,18 +119,25 @@ class CRMDatabase {
         modified = true;
       }
 
-      // If consignment has an assigned active AWB and is not CWH received/discrepancy/closed, CRM status is 'In Transit'
+      // If consignment has an assigned active AWB:
+      // Once AWB is updated by CWH, next CRM status is 'Pickup Pending'
+      // Later, only CCI moves it to 'In Transit' when pickup is marked 'Pickup Done'
       const hasAwb = !!(so.active_awb && so.active_awb.trim());
       const motoLower = (so.motorola_status || '').toLowerCase();
       if (
         hasAwb &&
-        (so.crm_status === 'AWB Pending' || !so.crm_status) &&
         !motoLower.includes('cwh received') &&
         !motoLower.includes('rc received') &&
-        !motoLower.includes('discrepanc')
+        !motoLower.includes('discrepanc') &&
+        so.crm_status !== 'Closed' &&
+        so.crm_status !== 'Dispatched to RC' &&
+        so.crm_status !== 'Create DC for RC'
       ) {
-        so.crm_status = 'In Transit';
-        modified = true;
+        const targetStatus: CRMStatus = so.pickup_status === 'Pickup Done' ? 'In Transit' : 'Pickup Pending';
+        if (so.crm_status !== targetStatus) {
+          so.crm_status = targetStatus;
+          modified = true;
+        }
       }
     });
 
@@ -1159,6 +1166,7 @@ class CRMDatabase {
 
     so.active_awb = newAwb;
     so.courier = courier;
+    so.crm_status = 'Pickup Pending'; // Once AWB is updated by CWH, next status is Pickup Pending
     so.pickup_status = 'Pickup Pending'; // AWB assigned by CWH; awaiting handover from CCI
     so.updated_at = new Date().toISOString();
 
@@ -1260,7 +1268,7 @@ class CRMDatabase {
       // Update SO properties
       so.active_awb = cleanAwb;
       so.courier = cleanCourier;
-      so.crm_status = 'In Transit'; // Assigning AWB moves status to In Transit
+      so.crm_status = 'Pickup Pending'; // Once AWB is updated by CWH, next status is Pickup Pending
       so.pickup_status = 'Pickup Pending'; // AWB assigned; awaiting pickup from station
       if (rec.ewayBillNumber && rec.ewayBillNumber.trim()) {
         so.eway_bill_number = rec.ewayBillNumber.trim();
@@ -1280,7 +1288,7 @@ class CRMDatabase {
         user_role: user.role,
         action: oldAwb ? 'AWB_RETOKENED' : 'AWB_ASSIGNED',
         awb: cleanAwb,
-        remarks: `Bulk AWB Update by CWH: Assigned ${cleanAwb} (${cleanCourier}). Status updated to In Transit.`,
+        remarks: `Bulk AWB Update by CWH: Assigned ${cleanAwb} (${cleanCourier}). Status updated to Pickup Pending.`,
         created_at: timestamp,
       });
 
