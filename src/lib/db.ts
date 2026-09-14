@@ -95,6 +95,39 @@ class CRMDatabase {
     }
   }
 
+  // Helper to fetch all rows in parallel chunks (bypassing PostgREST 1000-row default limit)
+  private async fetchAllRowsParallel(tableName: string, orderBy = 'created_at'): Promise<any[]> {
+    if (!isSupabaseConfigured || !supabase) return [];
+    try {
+      const { count, error: countErr } = await supabase.from(tableName).select('*', { count: 'exact', head: true });
+      if (countErr || !count || count <= 1000) {
+        let query = supabase.from(tableName).select('*');
+        if (orderBy) query = query.order(orderBy, { ascending: false });
+        const { data } = await query;
+        return data || [];
+      }
+      const BATCH_SIZE = 1000;
+      const numBatches = Math.ceil(count / BATCH_SIZE);
+      const batchPromises = [];
+      for (let i = 0; i < numBatches; i++) {
+        const from = i * BATCH_SIZE;
+        const to = from + BATCH_SIZE - 1;
+        let query = supabase.from(tableName).select('*');
+        if (orderBy) query = query.order(orderBy, { ascending: false });
+        batchPromises.push(query.range(from, to));
+      }
+      const batchResults = await Promise.all(batchPromises);
+      const allRows: any[] = [];
+      for (const res of batchResults) {
+        if (res.data) allRows.push(...res.data);
+      }
+      return allRows;
+    } catch (err) {
+      console.warn(`Error fetching all rows for ${tableName}:`, err);
+      return [];
+    }
+  }
+
   // Live Bidirectional Sync with Supabase Cloud (Single Source of Truth)
   public async syncAllFromSupabase(): Promise<{ stations: number; orders: number; items: number }> {
     if (!isSupabaseConfigured || !supabase) {
@@ -102,10 +135,10 @@ class CRMDatabase {
     }
 
     try {
-      const [stRes, soRes, itemRes, logRes] = await Promise.all([
+      const [stRes, soRows, itemRows, logRes] = await Promise.all([
         supabase.from('cci_master').select('*').order('station_code', { ascending: true }),
-        supabase.from('shipping_orders').select('*').order('created_at', { ascending: false }),
-        supabase.from('defective_master').select('*').order('created_at', { ascending: false }),
+        this.fetchAllRowsParallel('shipping_orders', 'created_at'),
+        this.fetchAllRowsParallel('defective_master', 'created_at'),
         supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100),
       ]);
 
@@ -125,9 +158,9 @@ class CRMDatabase {
         }));
       }
 
-      // If Supabase tables are cleared or empty, the CRM immediately sets orders to []
-      if (soRes.data !== null && !soRes.error) {
-        this.shippingOrders = soRes.data.map((so: any) => ({
+      // Populate full shipping orders
+      if (soRows && soRows.length > 0) {
+        this.shippingOrders = soRows.map((so: any) => ({
           id: so.id,
           so_code: so.so_code,
           station_code: so.station_code,
@@ -152,8 +185,9 @@ class CRMDatabase {
         }));
       }
 
-      if (itemRes.data !== null && !itemRes.error) {
-        this.defectiveItems = itemRes.data.map((it: any) => ({
+      // Populate full defective master items (all 7000+ items)
+      if (itemRows && itemRows.length > 0) {
+        this.defectiveItems = itemRows.map((it: any) => ({
           id: it.id,
           composite_key: it.composite_key,
           sr_number: it.sr_number,
@@ -290,9 +324,84 @@ class CRMDatabase {
       result = result.filter((item) => item.station_code === stationCode);
     }
     if (soCode) {
-      result = result.filter((item) => item.shipping_order_code === soCode);
+      const cleanSo = soCode.trim().toLowerCase();
+      result = result.filter((item) => (item.shipping_order_code || '').trim().toLowerCase() === cleanSo);
     }
     return [...result];
+  }
+
+  // On-demand fetch for constituent items of a specific shipping order
+  public async fetchItemsForOrder(soCode: string, soId?: string): Promise<DefectiveItem[]> {
+    const cleanCode = (soCode || '').trim();
+    const normalize = (s?: string) => (s || '').trim().toLowerCase();
+
+    // 1. Check if already in memory
+    const inMem = this.defectiveItems.filter(
+      (i) =>
+        normalize(i.shipping_order_code) === normalize(cleanCode) ||
+        (soId && i.shipping_order_id === soId)
+    );
+    if (inMem.length > 0) {
+      return inMem;
+    }
+
+    // 2. Query Supabase directly on-demand
+    if (!isSupabaseConfigured || !supabase) return [];
+    try {
+      let query = supabase.from('defective_master').select('*');
+      if (soId) {
+        query = query.or(`shipping_order_code.eq.${cleanCode},shipping_order_id.eq.${soId}`);
+      } else {
+        query = query.eq('shipping_order_code', cleanCode);
+      }
+      const { data, error } = await query;
+      if (error || !data || data.length === 0) return [];
+
+      const parsed: DefectiveItem[] = data.map((it: any) => ({
+        id: it.id,
+        composite_key: it.composite_key,
+        sr_number: it.sr_number,
+        sr_part_number: it.sr_part_number,
+        new_part_number: it.new_part_number || '',
+        part_category: it.part_category || 'General Spare',
+        part_description: it.part_description || '',
+        quantity: parseInt(it.quantity || 1, 10),
+        station_code: it.station_code,
+        region: it.region,
+        state: it.state,
+        city: it.city,
+        shipping_order_code: it.shipping_order_code,
+        shipping_order_id: it.shipping_order_id,
+        sr_close_timestamp: it.sr_close_timestamp,
+        sr_model_name: it.sr_model_name,
+        sr_fault_description: it.sr_fault_description,
+        motorola_parts_status: it.motorola_parts_status || 'CCI Send To CWH',
+        excel_awb: it.excel_awb,
+        screening_status: it.screening_status || 'Pending',
+        item_remarks: it.item_remarks,
+        estimated_value: parseFloat(it.estimated_value || 8000),
+        last_synced_at: it.last_synced_at || it.created_at,
+        created_at: it.created_at,
+        updated_at: it.updated_at,
+      }));
+
+      // Merge into local cache so future lookups are instant
+      parsed.forEach((newItem) => {
+        const existingIdx = this.defectiveItems.findIndex(
+          (x) => x.id === newItem.id || x.composite_key === newItem.composite_key
+        );
+        if (existingIdx >= 0) {
+          this.defectiveItems[existingIdx] = newItem;
+        } else {
+          this.defectiveItems.push(newItem);
+        }
+      });
+      this.notify();
+      return parsed;
+    } catch (err) {
+      console.warn('fetchItemsForOrder failed:', err);
+      return [];
+    }
   }
 
   public getAuditLogs(): AuditLog[] {

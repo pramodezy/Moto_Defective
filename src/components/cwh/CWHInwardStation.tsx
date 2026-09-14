@@ -390,7 +390,12 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {currentDisplayOrders.map((so) => {
           const station = stationMap.get(so.station_code);
-          const orderItems = items.filter((i) => i.shipping_order_code === so.so_code);
+          const normalize = (s?: string) => (s || '').trim().toLowerCase();
+          const orderItems = items.filter(
+            (i) =>
+              normalize(i.shipping_order_code) === normalize(so.so_code) ||
+              (i.shipping_order_id && i.shipping_order_id === so.id)
+          );
           const isCritical = so.priority_tier === 1;
           const motoInfo = getMotorolaStatusInfo(so.motorola_status);
           const cwhAction = getCwhActionDetails(so);
@@ -635,7 +640,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                 <div>
                   <span className="text-slate-400 block text-[10px]">Constituent Items</span>
                   <span className="font-bold text-white text-xs">
-                    {items.filter((i) => (i.shipping_order_code || '').trim() === dcModalOrder.so_code.trim()).length} units
+                    {items.filter((i) => (i.shipping_order_code || '').trim().toLowerCase() === dcModalOrder.so_code.trim().toLowerCase() || (i.shipping_order_id && i.shipping_order_id === dcModalOrder.id)).length} units
                   </span>
                 </div>
                 <div>

@@ -1,24 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, 
   Camera, 
   CheckCircle2, 
   AlertTriangle, 
   Package, 
-  FileCheck,
-  Video,
+  Tag, 
+  Layers,
   ArrowRight,
   ArrowLeft,
+  RotateCcw,
+  CheckSquare,
+  Sparkles,
+  Info,
+  Loader2,
   Boxes,
-  Layers,
+  Video,
   ShieldCheck,
   ShieldAlert,
-  Send,
-  Sparkles,
-  Tag
+  FileCheck
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, ScreeningStatus, UserProfile } from '../../types/crm';
 import { formatINR } from '../../lib/utils';
+import { crmDb } from '../../lib/db';
 
 interface UnboxingModalProps {
   order: ShippingOrder;
@@ -56,8 +60,47 @@ export const UnboxingModal: React.FC<UnboxingModalProps> = ({
   onClose,
   onSubmitVerification,
 }) => {
-  const orderItems = items.filter((i) => (i.shipping_order_code || '').trim() === order.so_code.trim());
-  const expectedUnits = orderItems.reduce((s, i) => s + (i.quantity || 1), 0) || order.total_items || 1;
+  const normalize = (s?: string) => (s || '').trim().toLowerCase();
+  
+  // Initial in-memory matching with trimmed and case-insensitive check
+  const initialMatched = useMemo(() => {
+    return items.filter(
+      (i) =>
+        normalize(i.shipping_order_code) === normalize(order.so_code) ||
+        (i.shipping_order_id && i.shipping_order_id === order.id)
+    );
+  }, [items, order.so_code, order.id]);
+
+  const [orderItems, setOrderItems] = useState<DefectiveItem[]>(initialMatched);
+  const [isLoadingItems, setIsLoadingItems] = useState<boolean>(initialMatched.length === 0);
+
+  // If items weren't present in memory (e.g. past PostgREST pagination limit), fetch directly from Supabase
+  useEffect(() => {
+    if (initialMatched.length > 0) {
+      setOrderItems(initialMatched);
+      setIsLoadingItems(false);
+      return;
+    }
+    let isCancelled = false;
+    setIsLoadingItems(true);
+    crmDb.fetchItemsForOrder(order.so_code, order.id).then((fetched) => {
+      if (!isCancelled) {
+        if (fetched.length > 0) {
+          setOrderItems(fetched);
+        }
+        setIsLoadingItems(false);
+      }
+    }).catch(() => {
+      if (!isCancelled) setIsLoadingItems(false);
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [initialMatched, order.so_code, order.id]);
+
+  const expectedUnits = useMemo(() => {
+    return orderItems.reduce((s, i) => s + (i.quantity || 1), 0) || order.total_items || 1;
+  }, [orderItems, order.total_items]);
 
   // Active step in the two-stage unboxing process
   const [activeStage, setActiveStage] = useState<'stage1_qty' | 'stage2_parts'>('stage1_qty');
@@ -67,18 +110,32 @@ export const UnboxingModal: React.FC<UnboxingModalProps> = ({
   const [cartonCondition, setCartonCondition] = useState<'Intact & Sealed' | 'Carton Damaged' | 'Tampered Tape / Cut Seal'>('Intact & Sealed');
   const [qtyDiscrepancyNote, setQtyDiscrepancyNote] = useState<string>('');
 
+  // Keep receivedQty synced with expectedUnits when loaded
+  useEffect(() => {
+    setReceivedQty(expectedUnits);
+  }, [expectedUnits]);
+
   // Stage 2: Part-wise Matching & Inspection State
-  const [screeningMap, setScreeningMap] = useState<Record<string, { status: ScreeningStatus; remarks?: string; partMatched?: boolean }>>(() => {
-    const initial: Record<string, { status: ScreeningStatus; remarks?: string; partMatched?: boolean }> = {};
-    orderItems.forEach((item) => {
-      initial[item.id] = {
-        status: item.screening_status || 'Passed',
-        remarks: item.item_remarks || '',
-        partMatched: true,
-      };
+  const [screeningMap, setScreeningMap] = useState<Record<string, { status: ScreeningStatus; remarks?: string; partMatched?: boolean }>>({});
+
+  // Sync screeningMap whenever orderItems are loaded or updated
+  useEffect(() => {
+    setScreeningMap((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      orderItems.forEach((item) => {
+        if (!next[item.id]) {
+          next[item.id] = {
+            status: item.screening_status || 'Passed',
+            remarks: item.item_remarks || '',
+            partMatched: true,
+          };
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
     });
-    return initial;
-  });
+  }, [orderItems]);
 
   const [cctvEvidence, setCctvEvidence] = useState<string | null>(order.cwh_evidence_ref || null);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -665,8 +722,20 @@ export const UnboxingModal: React.FC<UnboxingModalProps> = ({
                 })}
 
                 {orderItems.length === 0 && (
-                  <div className="py-8 text-center text-slate-400 text-xs">
-                    No individual line items registered for this shipping order.
+                  <div className="py-12 text-center text-slate-400 text-xs">
+                    {isLoadingItems ? (
+                      <div className="flex flex-col items-center justify-center gap-3">
+                        <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" />
+                        <span className="font-medium text-slate-300">
+                          Retrieving constituent defective line items for <strong className="text-white font-mono">{order.so_code}</strong>...
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <p className="font-medium text-slate-300">No individual line items registered for this shipping order.</p>
+                        <p className="text-[11px] text-slate-500">Please verify if defective items were uploaded with SO Code: {order.so_code}</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, 
   Printer, 
@@ -9,12 +9,14 @@ import {
   Layers, 
   FileText,
   Barcode,
-  AlertTriangle
+  AlertTriangle,
+  Loader2
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle, getScreeningStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
 import { printConsignmentManifest } from '../../services/manifestGenerator';
+import { crmDb } from '../../lib/db';
 import { 
   getMotorolaStatusInfo, 
   isAwbIssueRequired,
@@ -43,7 +45,41 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
 }) => {
   if (!order) return null;
 
-  const orderItems = items.filter((i) => i.shipping_order_code === order.so_code);
+  const normalize = (s?: string) => (s || '').trim().toLowerCase();
+  const initialMatched = useMemo(() => {
+    return items.filter(
+      (i) =>
+        normalize(i.shipping_order_code) === normalize(order.so_code) ||
+        (i.shipping_order_id && i.shipping_order_id === order.id)
+    );
+  }, [items, order.so_code, order.id]);
+
+  const [orderItems, setOrderItems] = useState<DefectiveItem[]>(initialMatched);
+  const [isLoadingItems, setIsLoadingItems] = useState<boolean>(initialMatched.length === 0);
+
+  useEffect(() => {
+    if (initialMatched.length > 0) {
+      setOrderItems(initialMatched);
+      setIsLoadingItems(false);
+      return;
+    }
+    let isCancelled = false;
+    setIsLoadingItems(true);
+    crmDb.fetchItemsForOrder(order.so_code, order.id).then((fetched) => {
+      if (!isCancelled) {
+        if (fetched.length > 0) {
+          setOrderItems(fetched);
+        }
+        setIsLoadingItems(false);
+      }
+    }).catch(() => {
+      if (!isCancelled) setIsLoadingItems(false);
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [initialMatched, order.so_code, order.id]);
+
   const totalValue = orderItems.reduce((acc, item) => acc + ((item.estimated_value || 8000) * (item.quantity || 1)), 0);
   const motoInfo = getMotorolaStatusInfo(order.motorola_status);
   const needsAwb = isAwbIssueRequired(order);
