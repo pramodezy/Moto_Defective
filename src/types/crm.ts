@@ -15,6 +15,7 @@ export type CRMStatus =
   | 'AWB Pending'
   | 'In Transit'
   | 'CWH Received'
+  | 'Create DC for RC'
   | 'CWH Received - Discrepancies'
   | 'Screening In Progress'
   | 'Discrepancy Tagged'

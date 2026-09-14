@@ -17,7 +17,8 @@ import {
   X,
   FileText,
   Layers,
-  Sparkles
+  Sparkles,
+  Upload
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
@@ -27,6 +28,7 @@ import {
   isAwbIssueRequired, 
   getCwhActionDetails 
 } from '../../lib/motorolaStatus';
+import { BulkAwbUploadModal } from './BulkAwbUploadModal';
 
 interface CWHInwardStationProps {
   orders: ShippingOrder[];
@@ -56,6 +58,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   const [selectedStation, setSelectedStation] = useState<string>('ALL');
   const [selectedRegion, setSelectedRegion] = useState<string>('ALL');
   const [activeSubTab, setActiveSubTab] = useState<'needs_awb' | 'in_transit' | 'at_cwh' | 'discrepancies' | 'history'>('needs_awb');
+  const [isBulkAwbModalOpen, setIsBulkAwbModalOpen] = useState(false);
 
   // Create DC to RC Modal State
   const [dcModalOrder, setDcModalOrder] = useState<ShippingOrder | null>(null);
@@ -163,6 +166,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       if (isAwbIssueRequired(o)) return false;
       if (
         o.crm_status === 'Closed' || 
+        o.crm_status === 'Create DC for RC' ||
         o.crm_status === 'CWH Received' || 
         o.crm_status === 'CWH Received - Discrepancies' || 
         o.crm_status === 'Discrepancy Tagged'
@@ -183,7 +187,11 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     return stationScopedOrders.filter((o) => {
       const moto = (o.motorola_status || '').toLowerCase();
       if (o.crm_status === 'CWH Received - Discrepancies' || moto.includes('discrepanc') || moto.includes('negative')) return false;
-      return o.crm_status === 'CWH Received' || (moto.includes('cwh received') && o.crm_status !== 'Closed');
+      return (
+        o.crm_status === 'Create DC for RC' ||
+        o.crm_status === 'CWH Received' || 
+        (moto.includes('cwh received') && o.crm_status !== 'Closed')
+      );
     });
   }, [stationScopedOrders]);
 
@@ -400,7 +408,44 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
           <Archive className="w-3.5 h-3.5" />
           ✓ Delivered to RC / Archive ({historyOrders.length})
         </button>
+
+        {/* Bulk AWB Update Button for CWH */}
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setIsBulkAwbModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg border border-emerald-500/40 transition-all cursor-pointer"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            Bulk AWB Update
+          </button>
+        </div>
       </div>
+
+      {/* Needs AWB Info & Quick Bulk Action Callout */}
+      {activeSubTab === 'needs_awb' && (
+        <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <span className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
+              <Barcode className="w-4 h-4" />
+            </span>
+            <div>
+              <p className="text-xs font-semibold text-amber-200">
+                Bulk Dispatch from Courier Portal (BlueDart / Delhivery / DTDC)?
+              </p>
+              <p className="text-[11px] text-amber-300/80">
+                Generate AWBs for multiple shipping orders at once from courier portal, download our Excel template, and upload tracking numbers in 1 click.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsBulkAwbModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white shadow transition-colors whitespace-nowrap self-start sm:self-auto cursor-pointer"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            Upload Bulk AWB Sheet
+          </button>
+        </div>
+      )}
 
       {/* Clean Data Table for Consignments */}
       <div className="rounded-xl border border-[#1f2e5a] bg-[#0b1329] overflow-hidden shadow-lg">
@@ -480,13 +525,21 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                     <td className="py-3 px-3.5 whitespace-nowrap">
                       <div className="text-slate-300 font-medium">{so.courier || 'BlueDart Express'}</div>
                       <div className="font-mono text-cyan-400 text-[11px] mt-0.5">
-                        {so.active_awb || so.excel_ref_awb || (motoInfo.isDelivered ? 'Delivered' : 'Pending')}
+                        {so.active_awb || so.excel_ref_awb || (
+                          so.crm_status === 'Create DC for RC' || so.crm_status === 'CWH Received'
+                            ? <span className="text-purple-300 font-sans font-medium">CWH Inward Done</span>
+                            : motoInfo.isDelivered 
+                              ? <span className="text-emerald-400 font-sans font-medium">Delivered</span> 
+                              : <span className="text-amber-400 font-sans font-medium">Pending</span>
+                        )}
                       </div>
                     </td>
 
                     {/* Column 5: Items Count */}
                     <td className="py-3 px-3.5 text-center font-mono font-bold text-white whitespace-nowrap">
-                      {orderItems.length || so.total_items || 1}
+                      {orderItems.length > 0
+                        ? orderItems.reduce((s, i) => s + (parseInt(String(i.quantity || 1), 10) || 1), 0)
+                        : (so.total_items || 1)}
                     </td>
 
                     {/* Column 6: Declared Value */}
@@ -498,7 +551,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                     <td className="py-3 px-3.5 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5">
                         {/* 1. At CWH: Create DC to RC */}
-                        {so.crm_status === 'CWH Received' || activeSubTab === 'at_cwh' ? (
+                        {so.crm_status === 'Create DC for RC' || so.crm_status === 'CWH Received' || activeSubTab === 'at_cwh' ? (
                           <>
                             <button
                               onClick={() => handleOpenDcModal(so)}
@@ -746,6 +799,15 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
           </div>
         </div>
       )}
+
+      {/* Bulk AWB Upload & Verification Modal */}
+      <BulkAwbUploadModal
+        isOpen={isBulkAwbModalOpen}
+        onClose={() => setIsBulkAwbModalOpen(false)}
+        orders={orders}
+        stations={stations}
+        user={user}
+      />
     </div>
   );
 };

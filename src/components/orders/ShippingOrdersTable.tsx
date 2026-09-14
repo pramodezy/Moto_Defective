@@ -305,7 +305,9 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
             <option value="ALL">All CRM Statuses</option>
             <option value="AWB Pending">AWB Pending</option>
             <option value="In Transit">In Transit</option>
+            <option value="Create DC for RC">Create DC for RC</option>
             <option value="CWH Received">CWH Received</option>
+            <option value="CWH Received - Discrepancies">CWH Received - Discrepancies</option>
             <option value="Discrepancy Tagged">Discrepancy Tagged</option>
             <option value="Closed">Closed</option>
           </select>
@@ -410,7 +412,9 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
 
                     {/* Units */}
                     <td className="py-3 px-4 text-center font-mono font-medium text-slate-200">
-                      {so.total_items || orderItems.reduce((s, i) => s + (i.quantity || 1), 0) || 1}
+                      {orderItems.length > 0
+                        ? orderItems.reduce((s, i) => s + (parseInt(String(i.quantity || 1), 10) || 1), 0)
+                        : (so.total_items || 1)}
                     </td>
 
                     {/* Declared Value */}
@@ -460,6 +464,8 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                         </div>
                       ) : motoInfo.isDelivered ? (
                         <span className="text-emerald-400/80 text-[11px] font-sans font-medium">Delivered (Closed)</span>
+                      ) : so.crm_status === 'Create DC for RC' || so.crm_status === 'CWH Received' ? (
+                        <span className="text-purple-300 text-[11px] font-sans font-medium">CWH Inward Done</span>
                       ) : (
                         <span className="text-slate-500 italic">Unassigned</span>
                       )}

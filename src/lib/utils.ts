@@ -77,7 +77,8 @@ export function getCrmStatusStyle(status: CRMStatus) {
     case 'In Transit':
       return 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30';
     case 'CWH Received':
-      return 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30';
+    case 'Create DC for RC':
+      return 'bg-purple-500/15 text-purple-300 border-purple-500/40 font-semibold';
     case 'Screening In Progress':
       return 'bg-purple-500/10 text-purple-300 border-purple-500/30';
     case 'Discrepancy Tagged':

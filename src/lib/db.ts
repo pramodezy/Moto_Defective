@@ -81,6 +81,16 @@ class CRMDatabase {
       }
     });
 
+    // Aggregate total constituent parts for each shipping order code
+    const soPartsCountMap = new Map<string, number>();
+    this.defectiveItems.forEach((item) => {
+      if (item.shipping_order_code) {
+        const key = item.shipping_order_code.trim().toUpperCase();
+        const qty = parseInt(String(item.quantity || 1), 10) || 1;
+        soPartsCountMap.set(key, (soPartsCountMap.get(key) || 0) + qty);
+      }
+    });
+
     this.shippingOrders.forEach((so) => {
       const st = stationMap.get(so.station_code) || 
                  stationMap.get(so.station_code.padStart(3, '0')) || 
@@ -92,6 +102,21 @@ class CRMDatabase {
           so.city = st.city;
           modified = true;
         }
+      }
+
+      // Units in shipping order should accurately show total parts
+      const partsCount = soPartsCountMap.get(so.so_code.trim().toUpperCase());
+      if (partsCount && partsCount !== so.total_items) {
+        so.total_items = partsCount;
+        modified = true;
+      }
+
+      // If updated as CWH Received in Moto CRM, CRM status is Create DC for RC
+      const isCwhReceived = (so.motorola_status || '').trim().toLowerCase().includes('cwh received') &&
+                            !(so.motorola_status || '').toLowerCase().includes('discrepanc');
+      if (isCwhReceived && so.crm_status !== 'CWH Received - Discrepancies' && so.crm_status !== 'Create DC for RC') {
+        so.crm_status = 'Create DC for RC';
+        modified = true;
       }
     });
 
@@ -1152,6 +1177,122 @@ class CRMDatabase {
 
     this.notify();
     return so;
+  }
+
+  // --- BULK AWB ASSIGNMENT (FOR CWH BATCH COURIER GENERATION) ---
+  public async bulkAssignAwbTokens(
+    records: Array<{
+      soCode: string;
+      courier: string;
+      awbNumber: string;
+      ewayBillNumber?: string;
+      ewayBillUrl?: string;
+    }>,
+    user: UserProfile
+  ): Promise<{ updatedCount: number; errors: string[] }> {
+    const errors: string[] = [];
+    let updatedCount = 0;
+    const timestamp = new Date().toISOString();
+    const updatedSos: ShippingOrder[] = [];
+
+    for (const rec of records) {
+      const cleanSoCode = (rec.soCode || '').trim().toUpperCase();
+      const cleanAwb = (rec.awbNumber || '').trim();
+      const cleanCourier = (rec.courier || 'BlueDart Express').trim();
+
+      if (!cleanSoCode) {
+        errors.push(`Row skipped: Missing SO Code.`);
+        continue;
+      }
+      if (!cleanAwb) {
+        errors.push(`SO ${cleanSoCode}: Missing AWB Number.`);
+        continue;
+      }
+
+      const so = this.shippingOrders.find(
+        (o) => o.so_code.trim().toUpperCase() === cleanSoCode || o.id === rec.soCode
+      );
+
+      if (!so) {
+        errors.push(`SO ${cleanSoCode}: Not found in shipping orders.`);
+        continue;
+      }
+
+      const oldAwb = so.active_awb;
+
+      // Add to AWB history
+      if (oldAwb && oldAwb !== cleanAwb) {
+        this.awbHistory.unshift({
+          id: `awb-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          shipping_order_id: so.id,
+          awb_number: oldAwb,
+          courier: so.courier,
+          is_active: false,
+          cancellation_reason: 'Bulk Retokening from Courier Portal',
+          created_by: user.id,
+          created_at: timestamp,
+        });
+      }
+
+      this.awbHistory.unshift({
+        id: `awb-${Date.now() + 1}-${Math.random().toString(36).substr(2, 4)}`,
+        shipping_order_id: so.id,
+        awb_number: cleanAwb,
+        courier: cleanCourier,
+        is_active: true,
+        created_by: user.id,
+        created_at: timestamp,
+      });
+
+      // Update SO properties
+      so.active_awb = cleanAwb;
+      so.courier = cleanCourier;
+      so.pickup_status = 'Pickup Pending'; // AWB assigned; awaiting pickup from station
+      if (rec.ewayBillNumber && rec.ewayBillNumber.trim()) {
+        so.eway_bill_number = rec.ewayBillNumber.trim();
+        so.eway_bill_required = true;
+      }
+      if (rec.ewayBillUrl && rec.ewayBillUrl.trim()) {
+        so.eway_bill_url = rec.ewayBillUrl.trim();
+      }
+      so.updated_at = timestamp;
+
+      // Add audit log
+      this.auditLogs.unshift({
+        id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        shipping_order_id: so.id,
+        so_code: so.so_code,
+        user_name: user.full_name,
+        user_role: user.role,
+        action: oldAwb ? 'AWB_RETOKENED' : 'AWB_ASSIGNED',
+        awb: cleanAwb,
+        remarks: `Bulk AWB Update by CWH: Assigned ${cleanAwb} (${cleanCourier})`,
+        created_at: timestamp,
+      });
+
+      updatedSos.push(so);
+      updatedCount++;
+    }
+
+    // Live update to Supabase Cloud in parallel batches
+    if (isSupabaseConfigured && supabase && updatedSos.length > 0) {
+      const client = supabase;
+      const updatePromises = updatedSos.map((so) =>
+        client.from('shipping_orders').update({
+          active_awb: so.active_awb,
+          courier: so.courier,
+          pickup_status: so.pickup_status,
+          eway_bill_number: so.eway_bill_number,
+          eway_bill_required: so.eway_bill_required,
+          eway_bill_url: so.eway_bill_url,
+          updated_at: so.updated_at,
+        }).eq('id', so.id)
+      );
+      await Promise.allSettled(updatePromises);
+    }
+
+    this.notify();
+    return { updatedCount, errors };
   }
 
   // --- CCI PICKUP & AWB UPDATE ACTION ---

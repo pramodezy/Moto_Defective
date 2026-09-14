@@ -160,9 +160,9 @@ export function deriveCrmStatusFromMotorolaStatus(
     return 'Dispatched to RC';
   }
 
-  // 4. CWH Received: Consignment physically received at central warehouse
+  // 4. CWH Received: Consignment physically received at central warehouse -> Create DC for RC
   if (norm === 'cwh received') {
-    return 'CWH Received';
+    return 'Create DC for RC';
   }
 
   // 5. Not Return: DC not yet created by CCI in Moto CRM
@@ -193,7 +193,12 @@ export function isAwbIssueRequired(order: ShippingOrder): boolean {
     return false;
   }
 
-  if (order.crm_status === 'Closed' || order.crm_status === 'CWH Received' || order.crm_status === 'Dispatched to RC') {
+  if (
+    order.crm_status === 'Closed' || 
+    order.crm_status === 'CWH Received' || 
+    order.crm_status === 'Create DC for RC' || 
+    order.crm_status === 'Dispatched to RC'
+  ) {
     return false;
   }
 
@@ -375,8 +380,8 @@ export function getCwhActionDetails(order: ShippingOrder): {
     };
   }
 
-  // 3. CWH Received: Dispatch to RC
-  if (order.crm_status === 'CWH Received' || info.code === 3) {
+  // 3. CWH Received: Dispatch to RC (Create DC to RC)
+  if (order.crm_status === 'Create DC for RC' || order.crm_status === 'CWH Received' || info.code === 3) {
     return {
       isActionable: true,
       actionType: 'DISPATCH_TO_RC',

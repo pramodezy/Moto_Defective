@@ -458,7 +458,9 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                 <tbody className="divide-y divide-[#1c2b53]/60 text-slate-300">
                   {displayedOrders.map((so) => {
                     const orderItems = items.filter((i) => (i.shipping_order_code || '').trim() === so.so_code.trim());
-                    const units = orderItems.reduce((s, i) => s + (i.quantity || 1), 0) || so.total_items || 0;
+                    const units = orderItems.length > 0 
+                      ? orderItems.reduce((s, i) => s + (parseInt(String(i.quantity || 1), 10) || 1), 0) 
+                      : (so.total_items || 0);
                     const motoInfo = getMotorolaStatusInfo(so.motorola_status);
                     const cciAction = getCciActionDetails(so);
                     const hasAwb = !!(so.active_awb || so.excel_ref_awb);
