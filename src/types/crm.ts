@@ -18,6 +18,7 @@ export type CRMStatus =
   | 'CWH Received'
   | 'Create DC for RC'
   | 'CWH Received - Discrepancies'
+  | 'Discrepancies @ RC'
   | 'Screening In Progress'
   | 'Discrepancy Tagged'
   | 'Dispatched to RC'

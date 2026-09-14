@@ -326,13 +326,7 @@ export function App() {
               <IngestionHub user={currentUser} />
             )}
             {activeTab === 'cci_master' && (
-              <CciDirectory
-                stations={stations}
-                onSelectStation={(code) => {
-                  setCurrentStation(code);
-                  handleRoleChange('CCI');
-                }}
-              />
+              <CciDirectory stations={stations} />
             )}
             {activeTab === 'audit' && (
               <AuditLogsViewer logs={logs} />

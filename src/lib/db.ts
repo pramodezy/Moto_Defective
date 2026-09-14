@@ -139,6 +139,14 @@ class CRMDatabase {
           modified = true;
         }
       }
+
+      // If updated as RC Received ASP(Negative) in Moto CRM:
+      // Courier was sent from CWH to RC but found missing/damaged at RC -> Discrepancies @ RC (CWH answerable)
+      const isRcNegative = (so.motorola_status || '').toLowerCase().includes('negative');
+      if (isRcNegative && so.crm_status !== 'Discrepancies @ RC') {
+        so.crm_status = 'Discrepancies @ RC';
+        modified = true;
+      }
     });
 
     if (modified) {

@@ -85,6 +85,8 @@ export function getCrmStatusStyle(status: CRMStatus) {
       return 'bg-purple-500/10 text-purple-300 border-purple-500/30';
     case 'Discrepancy Tagged':
       return 'bg-rose-500/10 text-rose-300 border-rose-500/30';
+    case 'Discrepancies @ RC':
+      return 'bg-rose-500/20 text-rose-300 border-rose-500/50 font-bold shadow-sm';
     case 'Dispatched to RC':
       return 'bg-blue-500/10 text-blue-300 border-blue-500/30';
     case 'Closed':

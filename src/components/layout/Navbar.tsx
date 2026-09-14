@@ -79,20 +79,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* Quick Search Bar */}
-          <div className="hidden md:flex items-center flex-1 max-w-xs mx-6">
-            <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => onSearchChange(e.target.value)}
-                placeholder="Search SO, SR No, AWB..."
-                className="w-full bg-[#101a35] border border-[#1c2b53] rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-cyan-500 transition-colors"
-              />
-            </div>
-          </div>
-
           {/* Right Controls: Role Selector & System Status */}
           <div className="flex items-center gap-3">
             {/* Database mode pill */}
@@ -122,42 +108,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
 
             {currentUser.role === 'ADMIN' && (
-              <div className="flex items-center gap-1.5 bg-[#070e20] p-1 rounded-xl border border-[#1c2b53]">
-                <button
-                  onClick={() => onRoleChange('ADMIN')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    currentRole === 'ADMIN'
-                      ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-md'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="Admin Dashboard"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Admin Mode</span>
-                </button>
-                <button
-                  onClick={() => onRoleChange('CWH')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    currentRole === 'CWH'
-                      ? 'bg-indigo-600 text-white shadow-md'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="Simulate CWH View"
-                >
-                  <span>CWH View</span>
-                </button>
-                <button
-                  onClick={() => onRoleChange('CCI')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    currentRole === 'CCI'
-                      ? 'bg-emerald-600 text-white shadow-md'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="Simulate CCI View"
-                >
-                  <span>CCI View</span>
-                </button>
-              </div>
+              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600/30 to-cyan-600/30 text-cyan-300 border border-cyan-500/40 shadow-sm">
+                <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Admin Portal</span>
+              </span>
             )}
 
 

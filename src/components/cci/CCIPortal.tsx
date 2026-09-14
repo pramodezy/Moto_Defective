@@ -448,7 +448,6 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                     <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">SO Code</th>
                     <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Courier &amp; AWB</th>
                     <th className="py-3 px-3 text-center uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Units</th>
-                    <th className="py-3 px-3.5 text-right uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Declared Value</th>
                     <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Motorola Status</th>
                     <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">CCI Stage</th>
                     <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Pickup Status</th>
@@ -494,12 +493,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                           {units}
                         </td>
 
-                        {/* 4. Declared Value */}
-                        <td className="py-3 px-3.5 text-right font-mono font-bold text-emerald-400 whitespace-nowrap align-middle">
-                          {formatINR(so.total_declared_value)}
-                        </td>
-
-                        {/* 5. Motorola Status */}
+                        {/* 4. Motorola Status */}
                         <td className="py-3 px-3.5 whitespace-nowrap align-middle">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${motoInfo.badgeClass} inline-block whitespace-nowrap`}

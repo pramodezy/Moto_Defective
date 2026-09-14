@@ -83,12 +83,12 @@ export const MOTOROLA_STATUS_DEFINITIONS: Record<string, MotorolaStatusDefinitio
     statusKey: 'RC Received ASP(Negative)',
     code: 6,
     label: 'RC Received ASP (Negative)',
-    meaning: 'Received short / damaged parts at RC (Discrepancy Tagged)',
-    responsibleRole: 'NONE',
+    meaning: 'Courier sent from CWH to RC, but found missing/damaged at RC (CWH is answerable)',
+    responsibleRole: 'CWH',
     badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
-    isDelivered: true,
+    isDelivered: false,
     isAwbRequired: false,
-    actionPrompt: 'Delivered with Discrepancy: Shortage or physical damage flagged at RC',
+    actionPrompt: 'Discrepancy at RC: Courier delivered with missing or damaged parts. CWH is answerable.',
   },
 };
 
@@ -150,9 +150,9 @@ export function deriveCrmStatusFromMotorolaStatus(
     return 'Closed';
   }
 
-  // 2. RC Received ASP(Negative): RC received with Shortage / Damage
-  if (norm === 'rc received asp(negative)') {
-    return 'Discrepancy Tagged';
+  // 2. RC Received ASP(Negative): Courier sent from CWH to RC, found missing/damaged at RC -> Discrepancies @ RC
+  if (norm === 'rc received asp(negative)' || norm.includes('negative')) {
+    return 'Discrepancies @ RC';
   }
 
   // 3. ASP Send To RC: CWH created DC to RC in Lenovo CRM

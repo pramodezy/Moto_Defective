@@ -309,6 +309,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
             <option value="Create DC for RC">Create DC for RC</option>
             <option value="CWH Received">CWH Received</option>
             <option value="CWH Received - Discrepancies">CWH Received - Discrepancies</option>
+            <option value="Discrepancies @ RC">Discrepancies @ RC</option>
             <option value="Discrepancy Tagged">Discrepancy Tagged</option>
             <option value="Closed">Closed</option>
           </select>
@@ -353,7 +354,6 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                 <th className="py-3 px-4">Station</th>
                 <th className="py-3 px-4">Region</th>
                 <th className="py-3 px-4 text-center">Units</th>
-                <th className="py-3 px-4 text-right">Declared Value</th>
                 <th className="py-3 px-4">SLA Priority</th>
                 <th className="py-3 px-4">Motorola Status</th>
                 <th className="py-3 px-4">CRM Status</th>
@@ -416,11 +416,6 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                       {orderItems.length > 0
                         ? orderItems.reduce((s, i) => s + (parseInt(String(i.quantity || 1), 10) || 1), 0)
                         : (so.total_items || 1)}
-                    </td>
-
-                    {/* Declared Value */}
-                    <td className="py-3 px-4 text-right font-mono font-semibold text-emerald-400">
-                      {formatINR(so.total_declared_value)}
                     </td>
 
                     {/* SLA Priority */}

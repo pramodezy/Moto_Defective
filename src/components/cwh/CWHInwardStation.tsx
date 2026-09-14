@@ -195,11 +195,12 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     });
   }, [stationScopedOrders]);
 
-  // 4. Flagged Discrepancies: Shortage / damage detected
+  // 4. Flagged Discrepancies: Shortage / damage detected at CWH or RC
   const discrepancyOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
       const moto = (o.motorola_status || '').toLowerCase();
       return (
+        o.crm_status === 'Discrepancies @ RC' ||
         o.crm_status === 'CWH Received - Discrepancies' ||
         o.crm_status === 'Discrepancy Tagged' ||
         moto.includes('discrepanc') ||
@@ -393,7 +394,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
           }`}
         >
           <AlertTriangle className="w-3.5 h-3.5" />
-          ⚠️ CWH Received - Discrepancies ({discrepancyOrders.length})
+          ⚠️ Discrepancies (CWH / RC) ({discrepancyOrders.length})
         </button>
 
         {/* Queue 5: Delivered Archive & History */}
@@ -458,7 +459,6 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                 <th className="py-3 px-3.5 whitespace-nowrap">Status (CRM &amp; Moto)</th>
                 <th className="py-3 px-3.5 whitespace-nowrap">Courier &amp; AWB</th>
                 <th className="py-3 px-3.5 text-center whitespace-nowrap">Items</th>
-                <th className="py-3 px-3.5 text-right whitespace-nowrap">Declared Value</th>
                 <th className="py-3 px-3.5 text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
@@ -542,12 +542,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                         : (so.total_items || 1)}
                     </td>
 
-                    {/* Column 6: Declared Value */}
-                    <td className="py-3 px-3.5 text-right font-mono font-bold text-emerald-400 whitespace-nowrap">
-                      {formatINR(so.total_declared_value)}
-                    </td>
-
-                    {/* Column 7: Required Actions */}
+                    {/* Column 6: Required Actions */}
                     <td className="py-3 px-3.5 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5">
                         {/* 1. At CWH: Create DC to RC */}
