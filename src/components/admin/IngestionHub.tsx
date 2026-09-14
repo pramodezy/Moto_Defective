@@ -9,13 +9,17 @@ import {
   RefreshCw, 
   MapPin, 
   Sparkles,
-  FileCheck
+  FileCheck,
+  Database,
+  CloudUpload
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { UserProfile, IngestionResult } from '../../types/crm';
 import { parseDefectiveReportFile } from '../../services/defectiveReportIngestor';
 import { parseRegionMappingFile, generateSampleRegionTemplateCSV } from '../../services/regionMappingIngestor';
 import { crmDb } from '../../lib/db';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import { checkSupabaseStatus, pushSeedDataToSupabase, SupabaseSyncStatus } from '../../services/supabaseSync';
 
 interface IngestionHubProps {
   user: UserProfile;
@@ -83,24 +87,156 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
     document.body.removeChild(link);
   };
 
+  // Supabase sync state
+  const [supabaseStatus, setSupabaseStatus] = useState<SupabaseSyncStatus | null>(null);
+  const [isSyncingSupabase, setIsSyncingSupabase] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<string | null>(null);
+  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const refreshSupabase = async () => {
+    if (isSupabaseConfigured) {
+      const status = await checkSupabaseStatus();
+      setSupabaseStatus(status);
+    }
+  };
+
+  React.useEffect(() => {
+    refreshSupabase();
+  }, []);
+
+  const handleSyncToSupabase = async () => {
+    setIsSyncingSupabase(true);
+    setSyncProgress('Starting Supabase sync...');
+    setSyncResult(null);
+
+    try {
+      const res = await pushSeedDataToSupabase((msg) => setSyncProgress(msg));
+      setSyncResult(res);
+      if (res.success) {
+        confetti({ particleCount: 70, spread: 70, origin: { y: 0.6 } });
+        refreshSupabase();
+      }
+    } catch (e: any) {
+      setSyncResult({ success: false, message: e.message || 'Sync failed' });
+    } finally {
+      setIsSyncingSupabase(false);
+      setSyncProgress(null);
+    }
+  };
+
   return (
     <div className="space-y-8">
       {/* Overview Banner */}
       <div className="p-6 rounded-2xl bg-gradient-to-r from-[#101a35] via-[#122047] to-[#172754] border border-cyan-500/30 shadow-xl">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
-            <FileSpreadsheet className="w-6 h-6" />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+              <FileSpreadsheet className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white font-['Outfit']">
+                Enterprise File Ingestion & Supabase Cloud
+              </h2>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Dual-status defective master synchronization and dynamic region-to-station mapping
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-xl font-bold text-white font-['Outfit']">
-              Enterprise File Ingestion Engines
-            </h2>
-            <p className="text-xs text-slate-300 mt-0.5">
-              Dual-status defective master synchronization and dynamic region-to-station mapping
-            </p>
+
+          <div className="flex items-center gap-2">
+            <span className={`px-3 py-1 rounded-full text-xs font-mono border flex items-center gap-1.5 ${
+              isSupabaseConfigured ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-800 text-slate-400 border-slate-700'
+            }`}>
+              <Database className="w-3.5 h-3.5 text-emerald-400" />
+              {isSupabaseConfigured ? 'Supabase Connected' : 'Enterprise Store'}
+            </span>
           </div>
         </div>
       </div>
+
+      {/* Supabase Cloud Connection & Seeder Card */}
+      {isSupabaseConfigured && (
+        <div className="p-6 rounded-2xl bg-[#0e1730] border border-emerald-500/30 shadow-xl space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <Database className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white">Supabase Cloud PostgreSQL Database</h3>
+                <p className="text-xs text-slate-400">
+                  Project: <code className="text-cyan-300 font-mono">rippjixfknqwptbcruux.supabase.co</code>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleSyncToSupabase}
+                disabled={isSyncingSupabase}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg transition-all"
+              >
+                <CloudUpload className="w-4 h-4" />
+                {isSyncingSupabase ? 'Pushing to Supabase...' : 'Push Seed Data to Supabase (64 Stations, 115 SOs, 300 Items)'}
+              </button>
+            </div>
+          </div>
+
+          {/* Cloud Counts */}
+          {supabaseStatus && (
+            <div className="grid grid-cols-3 gap-3 pt-2">
+              <div className="p-3 rounded-xl bg-[#070e20] border border-[#1f2e5a] text-center">
+                <span className="text-[11px] text-slate-400">Stations in Cloud</span>
+                <div className="text-lg font-bold font-mono text-emerald-400 mt-0.5">
+                  {supabaseStatus.stationCount}
+                </div>
+              </div>
+              <div className="p-3 rounded-xl bg-[#070e20] border border-[#1f2e5a] text-center">
+                <span className="text-[11px] text-slate-400">Shipping Orders in Cloud</span>
+                <div className="text-lg font-bold font-mono text-cyan-400 mt-0.5">
+                  {supabaseStatus.orderCount}
+                </div>
+              </div>
+              <div className="p-3 rounded-xl bg-[#070e20] border border-[#1f2e5a] text-center">
+                <span className="text-[11px] text-slate-400">Defective Vault Items</span>
+                <div className="text-lg font-bold font-mono text-indigo-400 mt-0.5">
+                  {supabaseStatus.itemCount}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isSyncingSupabase && syncProgress && (
+            <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center gap-2 text-xs text-blue-300 animate-pulse">
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span>{syncProgress}</span>
+            </div>
+          )}
+
+          {syncResult && (
+            <div className={`p-3 rounded-lg text-xs flex items-center gap-2 border ${
+              syncResult.success 
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+                : 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+            }`}>
+              {syncResult.success ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+              )}
+              <div>
+                <span>{syncResult.message}</span>
+                {!syncResult.success && (
+                  <p className="mt-1 text-[11px] text-slate-300">
+                    Tip: If Supabase reports an RLS violation for the anon key, run the script <code>supabase/migrations/20260914_enable_anon_access.sql</code> in the Supabase SQL Editor.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Engine 1: Defective Report Ingestion */}
