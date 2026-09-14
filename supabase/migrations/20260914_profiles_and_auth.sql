@@ -56,29 +56,31 @@ VALUES (
 ON CONFLICT (username) DO UPDATE
 SET password_hash = EXCLUDED.password_hash;
 
--- CWH 1: Box Accept Lead (Password: Moto@@123)
+-- CWH 1: Box Accept Lead (Password: Moto123#)
 INSERT INTO profiles (username, full_name, role, password_hash, is_active)
 VALUES (
-  'cwh_1',
-  'Nilesh Shinde (CWH Box Accept Lead)',
+  'CWH_1',
+  'CWH Inward & Box Accept Lead',
   'CWH',
-  crypt('Moto@@123', gen_salt('bf')),
+  crypt('Moto123#', gen_salt('bf')),
   true
 )
 ON CONFLICT (username) DO UPDATE
-SET password_hash = EXCLUDED.password_hash;
+SET password_hash = EXCLUDED.password_hash,
+    full_name = EXCLUDED.full_name;
 
--- CWH 2: Quality Screener (Password: Moto@@123)
+-- CWH 2: Quality Screener (Password: Moto123#)
 INSERT INTO profiles (username, full_name, role, password_hash, is_active)
 VALUES (
-  'cwh_2',
-  'Rajesh Patil (CWH Quality Screener)',
+  'CWH_2',
+  'CWH Quality Screener & Inspection',
   'CWH',
-  crypt('Moto@@123', gen_salt('bf')),
+  crypt('Moto123#', gen_salt('bf')),
   true
 )
 ON CONFLICT (username) DO UPDATE
-SET password_hash = EXCLUDED.password_hash;
+SET password_hash = EXCLUDED.password_hash,
+    full_name = EXCLUDED.full_name;
 
 -- 5. Backfill all existing stations from cci_master into profiles
 INSERT INTO profiles (username, full_name, role, station_code, password_hash, is_active)
