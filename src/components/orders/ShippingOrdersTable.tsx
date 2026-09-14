@@ -13,7 +13,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Trash2,
-  Upload,
   CheckCircle2,
   Archive,
   PackageCheck,
@@ -329,18 +328,6 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
             <option value="5">5. RC Received ASP - Completed</option>
             <option value="6">6. RC Received ASP(Negative) - Discrepancy</option>
           </select>
-
-          {/* Upload & Ingest Data button (Admin only) */}
-          {currentRole === 'ADMIN' && onNavigateTab && (
-            <button
-              onClick={() => onNavigateTab('ingestion')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white shadow-sm transition-all cursor-pointer"
-              title="Upload Defective Dump & Ingest to Supabase"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              Upload & Ingest
-            </button>
-          )}
 
           {/* Export button */}
           <button
