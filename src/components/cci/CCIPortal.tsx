@@ -58,48 +58,51 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   }, [stationItems]);
 
   // 2. "CCI send to CWH" + AWB updated from CWH -> Action for CCI: Pickup Handover Pending
+  // Strictly only Code 2 (CCI send to CWH) - excludes ASP Send to RC, CWH Received, and RC Received
   const pickupHandoverOrders = useMemo(() => {
     return stationOrders.filter((o) => {
       const moto = getMotorolaStatusInfo(o.motorola_status);
-      if (moto.isDelivered || o.crm_status === 'Closed' || o.crm_status === 'CWH Received') return false;
+      if (moto.code !== 2) return false;
       const hasAwb = !!(o.active_awb || o.excel_ref_awb);
       return hasAwb && o.pickup_status !== 'Pickup Done';
     });
   }, [stationOrders]);
 
   // 3. "CCI send to CWH" + once updated -> In-Transit till delivery & updated as CWH Received: CCI need to monitor
+  // Strictly only Code 2 (CCI send to CWH) en route to warehouse
   const inTransitMonitorOrders = useMemo(() => {
     return stationOrders.filter((o) => {
       const moto = getMotorolaStatusInfo(o.motorola_status);
-      if (moto.isDelivered || o.crm_status === 'Closed' || o.crm_status === 'CWH Received') return false;
+      if (moto.code !== 2) return false;
       const hasAwb = !!(o.active_awb || o.excel_ref_awb);
       return hasAwb && o.pickup_status === 'Pickup Done';
     });
   }, [stationOrders]);
 
-  // 4. "CCI send to CWH" + AWB not yet updated by CWH: DC created, waiting for CWH
+  // 4. "CCI send to CWH" + AWB not yet updated by CWH: DC created, waiting for CWH to issue AWB
   const awaitingCwhAwbOrders = useMemo(() => {
     return stationOrders.filter((o) => {
       const moto = getMotorolaStatusInfo(o.motorola_status);
-      if (moto.isDelivered || o.crm_status === 'Closed' || o.crm_status === 'CWH Received') return false;
+      if (moto.code !== 2) return false;
       const hasAwb = !!(o.active_awb || o.excel_ref_awb);
       return !hasAwb;
     });
   }, [stationOrders]);
 
-  // 5. CWH Received: Delivered & verified at CWH (CCI monitoring completed)
-  const cwhReceivedOrders = useMemo(() => {
+  // 5. CWH Stage (CWH Received & ASP Send to RC):
+  // "ASP Send to RC is a dispatch from CWH to RC hence for CCI it is not actionable"
+  const cwhStageOrders = useMemo(() => {
     return stationOrders.filter((o) => {
-      const moto = (o.motorola_status || '').toLowerCase();
-      return o.crm_status === 'CWH Received' || (moto.includes('cwh received') && o.crm_status !== 'Closed');
+      const moto = getMotorolaStatusInfo(o.motorola_status);
+      return moto.code === 3 || moto.code === 4 || o.crm_status === 'CWH Received' || o.crm_status === 'Dispatched to RC';
     });
   }, [stationOrders]);
 
-  // 6. Delivered & Closed at RC
+  // 6. Delivered & Closed at RC (RC Received ASP)
   const deliveredOrders = useMemo(() => {
     return stationOrders.filter((o) => {
-      const moto = (o.motorola_status || '').toLowerCase();
-      return o.crm_status === 'Closed' || moto.includes('rc received');
+      const moto = getMotorolaStatusInfo(o.motorola_status);
+      return moto.code === 5 || moto.code === 6 || o.crm_status === 'Closed';
     });
   }, [stationOrders]);
 
@@ -113,13 +116,13 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
       case 'waiting_awb':
         return awaitingCwhAwbOrders;
       case 'cwh_received':
-        return cwhReceivedOrders;
+        return cwhStageOrders;
       case 'delivered':
         return deliveredOrders;
       default:
         return stationOrders;
     }
-  }, [consignmentFilter, pickupHandoverOrders, inTransitMonitorOrders, awaitingCwhAwbOrders, cwhReceivedOrders, deliveredOrders, stationOrders]);
+  }, [consignmentFilter, pickupHandoverOrders, inTransitMonitorOrders, awaitingCwhAwbOrders, cwhStageOrders, deliveredOrders, stationOrders]);
 
   // Filtered items based on itemStatusFilter
   const displayedItems = useMemo(() => {
@@ -284,11 +287,11 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
         </div>
 
         <div className="p-4 rounded-xl bg-[#101a35] border border-[#1c2b53]">
-          <span className="text-xs text-slate-400">🏢 CWH Received / Done</span>
+          <span className="text-xs text-slate-400">🏢 CWH Received / RC</span>
           <div className="text-2xl font-bold font-mono text-emerald-400 mt-1">
-            {cwhReceivedOrders.length + deliveredOrders.length}
+            {cwhStageOrders.length + deliveredOrders.length}
           </div>
-          <span className="text-[10px] text-slate-400">Arrived at CWH / Closed at RC</span>
+          <span className="text-[10px] text-slate-400">At CWH / Dispatched to RC</span>
         </div>
       </div>
 
@@ -383,8 +386,9 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                   ? 'bg-indigo-600 text-white shadow'
                   : 'bg-[#101a35] text-slate-400 hover:text-slate-200 border border-[#1c2b53]'
               }`}
+              title="CWH Received & ASP Send to RC (Dispatched from CWH to RC in Lenovo CRM — No Action for CCI)"
             >
-              🏢 CWH Received ({cwhReceivedOrders.length})
+              🏢 At CWH / Dispatched to RC (No CCI Action) ({cwhStageOrders.length})
             </button>
 
             <button
@@ -469,7 +473,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                             </span>
                           ) : cciAction.actionType === 'IN_TRANSIT_MONITOR' ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-                              🚚 In-Transit (Monitor)
+                              🚚 In-Transit (Monitor till CWH)
                             </span>
                           ) : cciAction.actionType === 'AWAITING_CWH_AWB' ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
@@ -477,11 +481,15 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                             </span>
                           ) : cciAction.actionType === 'CWH_RECEIVED' ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
-                              🏢 CWH Received
+                              🏢 CWH Received (Verified)
+                            </span>
+                          ) : cciAction.actionType === 'DISPATCHED_TO_RC' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/20 text-blue-300 border border-blue-500/40">
+                              📦 Dispatched CWH → RC (No Action)
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                              ✓ Delivered to RC
+                              ✓ Delivered to RC (Closed)
                             </span>
                           )}
                         </td>
@@ -492,6 +500,10 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                               <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                               Delivered to RC
+                            </span>
+                          ) : motoInfo.code === 4 ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/20 text-blue-300 border border-blue-500/40">
+                              CWH Dispatched
                             </span>
                           ) : so.pickup_status === 'Pickup Done' ? (
                             <div className="flex flex-col">
@@ -527,7 +539,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
                         <td className="py-3 px-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">
-                            {/* Handover / Pickup button */}
+                            {/* Handover / Pickup button: STRICTLY for Code 2 (CCI send to CWH) */}
                             {isPickupPending ? (
                               <button
                                 onClick={() => onOpenPickupModal?.(so)}
@@ -537,7 +549,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                                 <Truck className="w-3.5 h-3.5" />
                                 Handover Parcel
                               </button>
-                            ) : hasAwb && !motoInfo.isDelivered ? (
+                            ) : motoInfo.code === 2 && hasAwb ? (
                               <button
                                 onClick={() => onOpenPickupModal?.(so)}
                                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-slate-200 border border-[#1f2e5a] transition-colors cursor-pointer"
@@ -546,9 +558,23 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                                 <Truck className="w-3.5 h-3.5" />
                                 Edit Pickup
                               </button>
+                            ) : motoInfo.code === 4 ? (
+                              <span 
+                                className="text-[10px] text-blue-300 font-mono px-2 py-0.5 rounded bg-blue-500/15 border border-blue-500/30"
+                                title="Dispatch from CWH to RC in Lenovo CRM. Strictly not actionable for CCI."
+                              >
+                                Dispatched CWH → RC (No Action)
+                              </span>
+                            ) : motoInfo.code === 3 ? (
+                              <span 
+                                className="text-[10px] text-indigo-300 font-mono px-2 py-0.5 rounded bg-indigo-500/15 border border-indigo-500/30"
+                                title="Received & verified at CWH in Motorola CRM. Monitoring complete."
+                              >
+                                Inward at CWH
+                              </span>
                             ) : motoInfo.isDelivered ? (
                               <span className="text-[10px] text-emerald-400 font-mono">
-                                Closed
+                                Closed at RC
                               </span>
                             ) : (
                               <span 

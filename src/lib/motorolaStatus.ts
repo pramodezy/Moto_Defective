@@ -192,6 +192,7 @@ export type CciActionType =
   | 'AWAITING_CWH_AWB' 
   | 'IN_TRANSIT_MONITOR' 
   | 'CWH_RECEIVED' 
+  | 'DISPATCHED_TO_RC'
   | 'DELIVERED_RC';
 
 /**
@@ -201,7 +202,9 @@ export type CciActionType =
  *    - If AWB updated from CWH -> Actionable to CCI: Pickup Handover Pending (Handover to courier, mark Pickup Done/Not Done)
  *    - If AWB not yet updated -> Waiting for CWH to issue AWB
  *    - Once pickup updated -> In-Transit: CCI need to monitor till delivery and updated as CWH Received
- * 3. "CWH Received" onwards -> Arrived at CWH; monitoring completed.
+ * 3. "CWH Received" onwards -> Arrived at CWH; CCI monitoring completed.
+ * 4. "ASP Send to RC" -> Dispatch from CWH to RC in Lenovo CRM. Strictly NOT actionable for CCI.
+ * 5. "RC Received ASP" -> Received at RC; closed lifecycle.
  */
 export function getCciActionDetails(order: ShippingOrder): {
   isActionable: boolean;
@@ -223,7 +226,7 @@ export function getCciActionDetails(order: ShippingOrder): {
     };
   }
 
-  // 2. CCI send to CWH: Active Logistics
+  // 2. CCI send to CWH: Active Logistics from CCI to CWH
   if (info.code === 2) {
     const hasAwb = !!(order.active_awb || order.excel_ref_awb);
 
@@ -259,18 +262,29 @@ export function getCciActionDetails(order: ShippingOrder): {
     };
   }
 
-  // 3. CWH Received: Received by CWH in Moto CRM
+  // 3. CWH Received: Received by CWH in Moto CRM (CCI monitoring completed)
   if (info.code === 3 || order.crm_status === 'CWH Received') {
     return {
       isActionable: false,
       actionType: 'CWH_RECEIVED',
-      title: 'CWH Received & Inwarded',
-      description: 'Consignment safely delivered to CWH. Inward verification completed',
+      title: 'CWH Received & Verified',
+      description: 'Consignment safely delivered to CWH. Inward verification completed; monitoring complete',
       badgeClass: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
     };
   }
 
-  // 4, 5, 6: Dispatched to RC / Delivered to RC
+  // 4. ASP Send to RC: Dispatch from CWH to RC in Lenovo CRM (Not actionable for CCI)
+  if (info.code === 4 || order.crm_status === 'Dispatched to RC') {
+    return {
+      isActionable: false,
+      actionType: 'DISPATCHED_TO_RC',
+      title: 'Dispatched CWH → RC (No CCI Action)',
+      description: 'Dispatched from CWH to Repair Center (RC) in Lenovo CRM. Not actionable for CCI.',
+      badgeClass: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+    };
+  }
+
+  // 5, 6: Delivered to RC / Discrepancy tagged
   return {
     isActionable: false,
     actionType: 'DELIVERED_RC',

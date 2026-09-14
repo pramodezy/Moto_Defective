@@ -82,7 +82,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               Print Manifest
             </button>
 
-            {onOpenPickupModal && !motoInfo.isDelivered && (order.active_awb || order.excel_ref_awb || order.crm_status !== 'AWB Pending') && (
+            {onOpenPickupModal && motoInfo.code === 2 && !motoInfo.isDelivered && (order.active_awb || order.excel_ref_awb || order.crm_status !== 'AWB Pending') && (
               <button
                 onClick={() => onOpenPickupModal(order)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow transition-all cursor-pointer"
@@ -93,7 +93,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               </button>
             )}
 
-            {onOpenAwbModal && !motoInfo.isDelivered && (
+            {onOpenAwbModal && motoInfo.code === 2 && needsAwb && (
               <button
                 onClick={() => onOpenAwbModal(order)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white shadow transition-colors cursor-pointer"
@@ -103,7 +103,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               </button>
             )}
 
-            {onOpenInward && order.crm_status !== 'CWH Received' && !motoInfo.isDelivered && (
+            {onOpenInward && motoInfo.code === 2 && order.crm_status !== 'CWH Received' && !motoInfo.isDelivered && (
               <button
                 onClick={() => onOpenInward(order)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-colors cursor-pointer"
@@ -132,6 +132,16 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 <span className="font-bold text-emerald-300">Delivered & Closed Lifecycle:</span>
                 <span className="text-slate-300 ml-1.5">
                   Parts have been acknowledged and received by the Repair Center (RC) in Motorola CRM. No further courier dispatch or AWB generation is required.
+                </span>
+              </div>
+            </div>
+          ) : motoInfo.code === 4 ? (
+            <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center gap-3 text-xs">
+              <Truck className="w-5 h-5 text-blue-400 shrink-0" />
+              <div>
+                <span className="font-bold text-blue-300">Dispatched CWH → RC (Lenovo CRM) — Not Actionable for CCI:</span>
+                <span className="text-slate-300 ml-1.5">
+                  This consignment is an outbound dispatch created by CWH to the Repair Center (RC) in Lenovo CRM. Hence, <strong>it is not actionable for CCI</strong>. Awaiting RC receipt confirmation in Motorola CRM.
                 </span>
               </div>
             </div>
