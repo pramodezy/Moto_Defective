@@ -13,7 +13,11 @@ import {
   Building2,
   Filter,
   Send,
-  Archive
+  Archive,
+  X,
+  FileText,
+  Layers,
+  Sparkles
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
@@ -32,6 +36,10 @@ interface CWHInwardStationProps {
   onOpenUnboxing: (order: ShippingOrder) => void;
   onOpenAwbModal: (order: ShippingOrder) => void;
   onSelectOrder: (order: ShippingOrder) => void;
+  onDispatchToRc?: (
+    soId: string,
+    data: { dcNumber: string; courier?: string; remarks?: string }
+  ) => void;
 }
 
 export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
@@ -42,11 +50,46 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   onOpenUnboxing,
   onOpenAwbModal,
   onSelectOrder,
+  onDispatchToRc,
 }) => {
   const [scanInput, setScanInput] = useState('');
   const [selectedStation, setSelectedStation] = useState<string>('ALL');
   const [selectedRegion, setSelectedRegion] = useState<string>('ALL');
   const [activeSubTab, setActiveSubTab] = useState<'needs_awb' | 'in_transit' | 'at_cwh' | 'discrepancies' | 'history'>('needs_awb');
+
+  // Create DC to RC Modal State
+  const [dcModalOrder, setDcModalOrder] = useState<ShippingOrder | null>(null);
+  const [lenovoDcNumber, setLenovoDcNumber] = useState('');
+  const [dcCourier, setDcCourier] = useState('Bluedart Surface');
+  const [rcDestination, setRcDestination] = useState('Lenovo/Motorola Central RC (Mumbai)');
+  const [dcDocket, setDcDocket] = useState('');
+  const [dcRemarks, setDcRemarks] = useState('');
+
+  const handleOpenDcModal = (so: ShippingOrder) => {
+    setDcModalOrder(so);
+    const suffix = so.so_code.replace(/[^0-9]/g, '').slice(-5) || '101';
+    setLenovoDcNumber(`LEN-DC-${suffix}`);
+    setDcCourier(so.courier || 'Bluedart Surface');
+    setDcDocket('');
+    setDcRemarks('');
+  };
+
+  const handleConfirmDcToRc = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!dcModalOrder || !lenovoDcNumber.trim()) return;
+    if (onDispatchToRc) {
+      onDispatchToRc(dcModalOrder.id, {
+        dcNumber: lenovoDcNumber.trim(),
+        courier: dcCourier,
+        remarks: [
+          rcDestination ? `RC: ${rcDestination}` : '',
+          dcDocket.trim() ? `Docket: ${dcDocket.trim()}` : '',
+          dcRemarks.trim() ? dcRemarks.trim() : '',
+        ].filter(Boolean).join(' | '),
+      });
+    }
+    setDcModalOrder(null);
+  };
 
   // Station name lookup with code normalization
   const stationMap = useMemo(() => {
@@ -458,19 +501,61 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
 
               {/* Action Buttons */}
               <div className="mt-4 pt-3 border-t border-[#1c2b53] flex items-center gap-2">
-                {/* Unbox Under CCTV Button */}
-                {!motoInfo.isDelivered && (
-                  <button
-                    onClick={() => onOpenUnboxing(so)}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-colors"
-                  >
-                    <Video className="w-3.5 h-3.5" />
-                    {so.crm_status === 'CWH Received' ? 'Review Inspection' : 'Unbox Under CCTV'}
-                  </button>
-                )}
-
-                {/* Issue AWB Button (Only if AWB is needed or actively retokenable; NOT on delivered) */}
-                {needsAwb ? (
+                {/* 1. At CWH: Create DC to RC (Primary action requested by user) */}
+                {so.crm_status === 'CWH Received' || activeSubTab === 'at_cwh' ? (
+                  <>
+                    <button
+                      onClick={() => handleOpenDcModal(so)}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg transition-all"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      Create DC to RC
+                    </button>
+                    <button
+                      onClick={() => onOpenUnboxing(so)}
+                      title="Review CCTV Unboxing Logs"
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-slate-200 border border-[#1f2e5a] transition-colors"
+                    >
+                      <Video className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                ) : so.crm_status === 'Discrepancy Tagged' || activeSubTab === 'discrepancies' ? (
+                  /* 2. Discrepancy Queue */
+                  <>
+                    <button
+                      onClick={() => onOpenUnboxing(so)}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow transition-colors"
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      Inspect Discrepancies
+                    </button>
+                    <button
+                      onClick={() => onSelectOrder(so)}
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-[#2a1420] hover:bg-[#3d1c2e] text-rose-300 border border-rose-500/30 transition-colors"
+                    >
+                      View
+                    </button>
+                  </>
+                ) : activeSubTab === 'in_transit' || so.crm_status === 'In Transit' ? (
+                  /* 3. In Transit: Proceed for Unbox under CCTV */
+                  <>
+                    <button
+                      onClick={() => onOpenUnboxing(so)}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-colors"
+                    >
+                      <Video className="w-3.5 h-3.5" />
+                      Unbox Under CCTV
+                    </button>
+                    <button
+                      onClick={() => onOpenAwbModal(so)}
+                      title="Assign / Retoken AWB"
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-slate-200 border border-[#1f2e5a] transition-colors"
+                    >
+                      AWB
+                    </button>
+                  </>
+                ) : needsAwb ? (
+                  /* 4. Needs AWB Issue */
                   <button
                     onClick={() => onOpenAwbModal(so)}
                     className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow transition-all"
@@ -478,24 +563,14 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                     <Barcode className="w-3.5 h-3.5" />
                     Issue AWB
                   </button>
-                ) : !motoInfo.isDelivered && (
-                  <button
-                    onClick={() => onOpenAwbModal(so)}
-                    title="Assign / Retoken AWB"
-                    className="px-3 py-2 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-slate-200 border border-[#1f2e5a] transition-colors"
-                  >
-                    AWB
-                  </button>
-                )}
-
-                {/* If already delivered, show Review Manifest / View button */}
-                {motoInfo.isDelivered && (
+                ) : (
+                  /* 5. Delivered / History */
                   <button
                     onClick={() => onSelectOrder(so)}
                     className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-[#102a20] hover:bg-[#14382c] text-emerald-300 border border-emerald-500/30 transition-colors"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    Delivered to RC (View Details)
+                    {motoInfo.isDelivered ? 'Delivered to RC (View Details)' : 'View Consignment Details'}
                   </button>
                 )}
               </div>
@@ -521,6 +596,155 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
           </div>
         )}
       </div>
+
+      {/* Modal: Create DC to RC in Lenovo CRM */}
+      {dcModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="relative w-full max-w-xl rounded-2xl bg-[#0b1329] border border-blue-500/40 shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#1f2e5a] bg-gradient-to-r from-[#101a35] via-[#14234b] to-[#101a35]">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-blue-500/20 border border-blue-500/40 text-blue-400">
+                  <Send className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white font-mono">Create DC to RC (Lenovo CRM)</h3>
+                  <p className="text-xs text-blue-200">Outbound Dispatch from CWH to Repair Center</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDcModalOrder(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <form onSubmit={handleConfirmDcToRc} className="p-6 space-y-4">
+              {/* Consignment Quick Summary */}
+              <div className="p-3.5 rounded-xl bg-[#101a35] border border-[#1f2e5a] grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <span className="text-slate-400 block text-[10px]">SO Code</span>
+                  <span className="font-mono font-bold text-white text-xs">{dcModalOrder.so_code}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Origin Station</span>
+                  <span className="font-mono font-bold text-cyan-300 text-xs">{dcModalOrder.station_code}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Constituent Items</span>
+                  <span className="font-bold text-white text-xs">
+                    {items.filter((i) => (i.shipping_order_code || '').trim() === dcModalOrder.so_code.trim()).length} units
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Total Value</span>
+                  <span className="font-mono font-bold text-emerald-400 text-xs">{formatINR(dcModalOrder.total_declared_value)}</span>
+                </div>
+              </div>
+
+              {/* Lenovo DC Number */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-200 mb-1.5 flex items-center justify-between">
+                  <span>Lenovo CRM Delivery Challan (DC) Number <span className="text-rose-400">*</span></span>
+                  <span className="text-[10px] text-slate-400 font-normal">Generated in Lenovo CRM</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={lenovoDcNumber}
+                  onChange={(e) => setLenovoDcNumber(e.target.value)}
+                  placeholder="e.g. LEN-DC-2026-98901"
+                  className="w-full bg-[#101a35] border border-[#1f2e5a] rounded-xl px-3.5 py-2.5 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"
+                />
+              </div>
+
+              {/* Destination Repair Center & Courier */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-200 mb-1.5">
+                    Destination Repair Center (RC)
+                  </label>
+                  <select
+                    value={rcDestination}
+                    onChange={(e) => setRcDestination(e.target.value)}
+                    className="w-full bg-[#101a35] border border-[#1f2e5a] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-400"
+                  >
+                    <option value="Lenovo/Motorola Central RC (Mumbai)">Lenovo/Motorola Central RC (Mumbai)</option>
+                    <option value="Lenovo/Motorola North RC (Delhi/NCR)">Lenovo/Motorola North RC (Delhi/NCR)</option>
+                    <option value="Lenovo/Motorola South RC (Bangalore)">Lenovo/Motorola South RC (Bangalore)</option>
+                    <option value="Lenovo/Motorola East RC (Kolkata)">Lenovo/Motorola East RC (Kolkata)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-200 mb-1.5">
+                    Outbound Logistics Partner
+                  </label>
+                  <select
+                    value={dcCourier}
+                    onChange={(e) => setDcCourier(e.target.value)}
+                    className="w-full bg-[#101a35] border border-[#1f2e5a] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-400"
+                  >
+                    <option value="Bluedart Surface">Bluedart Surface</option>
+                    <option value="Safexpress Logistics">Safexpress Logistics</option>
+                    <option value="Delhivery Freight">Delhivery Freight</option>
+                    <option value="DTDC Express">DTDC Express</option>
+                    <option value="Gati KWE">Gati KWE</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Outbound Docket / AWB */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-200 mb-1.5">
+                  Outbound Docket / Courier AWB No. (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={dcDocket}
+                  onChange={(e) => setDcDocket(e.target.value)}
+                  placeholder="e.g. BD-RC-98327101"
+                  className="w-full bg-[#101a35] border border-[#1f2e5a] rounded-xl px-3.5 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"
+                />
+              </div>
+
+              {/* Remarks */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-200 mb-1.5">
+                  Dispatch Remarks / Transit Memo
+                </label>
+                <textarea
+                  rows={2}
+                  value={dcRemarks}
+                  onChange={(e) => setDcRemarks(e.target.value)}
+                  placeholder="e.g. Inward verified clean under CCTV Bay 4. Handed over for RC repair batching."
+                  className="w-full bg-[#101a35] border border-[#1f2e5a] rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-3 border-t border-[#1f2e5a] flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDcModalOrder(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800/80 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg flex items-center gap-1.5 transition-all"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  Confirm &amp; Dispatch to RC (Status: 4. ASP Send to RC)
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

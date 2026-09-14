@@ -8,7 +8,8 @@ import {
   Clock, 
   Layers, 
   FileText,
-  Barcode
+  Barcode,
+  AlertTriangle
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle, getScreeningStatusStyle } from '../../lib/utils';
@@ -125,7 +126,22 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
         {/* Modal Body & Metrics */}
         <div className="p-6 overflow-y-auto space-y-6">
           {/* Action Guidance Banner */}
-          {motoInfo.isDelivered ? (
+          {order.crm_status === 'Discrepancy Tagged' || motoInfo.code === 6 ? (
+            <div className="p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/40 flex items-start gap-3 text-xs">
+              <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-rose-300">Discrepancy Flagged during CWH CCTV Unboxing:</span>
+                <p className="text-slate-300 mt-1">
+                  This consignment has recorded quantity shortages, outer carton issues, or defective part mismatch/damage. Motorola parts status escalated to <strong className="text-rose-300">6. RC Received ASP(Negative)</strong>.
+                </p>
+                {order.cwh_evidence_ref && (
+                  <div className="mt-2 text-[11px] text-indigo-300 font-mono">
+                    📹 CCTV Verification Log attached: {order.cwh_evidence_ref}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : motoInfo.isDelivered ? (
             <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-3">
               <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
               <div className="text-xs">
@@ -307,6 +323,11 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getScreeningStatusStyle(item.screening_status)}`}>
                             {item.screening_status}
                           </span>
+                          {item.item_remarks && (
+                            <div className="text-[10px] text-rose-300 mt-1 max-w-[140px] truncate mx-auto" title={item.item_remarks}>
+                              ⚠️ {item.item_remarks}
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}

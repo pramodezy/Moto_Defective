@@ -102,18 +102,47 @@ export function App() {
     }
   };
 
-  // Inward verification handler
+  // Inward verification handler (Two-Stage: Qty & Part Matching)
   const handleCompleteInward = (
     soId: string,
-    screeningMap: Record<string, { status: ScreeningStatus; remarks?: string }>,
-    evidenceRef: string | null
+    screeningMap: Record<string, { status: ScreeningStatus; remarks?: string; partMatched?: boolean }>,
+    evidenceRef: string | null,
+    qtyVerification?: {
+      expectedQty: number;
+      receivedQty: number;
+      cartonCondition: string;
+      qtyDiscrepancyNote?: string;
+    }
   ) => {
     if (!currentUser) return;
     try {
-      crmDb.inwardVerifyConsignment(soId, screeningMap, evidenceRef, currentUser);
-      toast.success('Inward verification & CCTV logs recorded successfully!');
+      crmDb.inwardVerifyConsignment(soId, screeningMap, evidenceRef, currentUser, qtyVerification);
+      const isQtyMismatch = qtyVerification && qtyVerification.receivedQty !== qtyVerification.expectedQty;
+      const isCartonIssue = qtyVerification && qtyVerification.cartonCondition !== 'Intact & Sealed';
+      const hasItemDiscrepancy = Object.values(screeningMap).some(
+        (v) => ['Damaged', 'Missing', 'Failed'].includes(v.status) || v.partMatched === false
+      );
+      if (isQtyMismatch || isCartonIssue || hasItemDiscrepancy) {
+        toast.warning('Discrepancy tagged! Consignment routed to Discrepancies queue (Status: RC Received ASP Negative).');
+      } else {
+        toast.success('Inward verified clean! Consignment at CWH ready to Create DC to RC.');
+      }
     } catch (err: any) {
       toast.error(err.message || 'Verification failed');
+    }
+  };
+
+  // CWH Create DC to RC handler
+  const handleDispatchToRc = (
+    soId: string,
+    data: { dcNumber: string; courier?: string; remarks?: string }
+  ) => {
+    if (!currentUser) return;
+    try {
+      crmDb.dispatchOrderToRc(soId, data, currentUser);
+      toast.success(`Lenovo DC ${data.dcNumber} created! Consignment dispatched to RC.`);
+    } catch (err: any) {
+      toast.error(err.message || 'Dispatch to RC failed');
     }
   };
 
@@ -286,6 +315,7 @@ export function App() {
                 onOpenUnboxing={setUnboxingOrder}
                 onOpenAwbModal={setAwbModalOrder}
                 onSelectOrder={setSelectedOrder}
+                onDispatchToRc={handleDispatchToRc}
               />
             )}
             {activeTab === 'orders' && (

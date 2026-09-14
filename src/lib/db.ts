@@ -655,30 +655,62 @@ class CRMDatabase {
     };
   }
 
-  // --- CWH INWARD VERIFICATION & CCTV UNBOXING ---
+  // --- CWH INWARD VERIFICATION & CCTV UNBOXING (STAGE 1 QTY & STAGE 2 PART MATCHING) ---
   public inwardVerifyConsignment(
     soId: string,
-    screeningMap: Record<string, { status: ScreeningStatus; remarks?: string }>,
+    screeningMap: Record<string, { status: ScreeningStatus; remarks?: string; partMatched?: boolean }>,
     cwhEvidenceRef: string | null,
-    user: UserProfile
+    user: UserProfile,
+    qtyVerification?: {
+      expectedQty: number;
+      receivedQty: number;
+      cartonCondition: string;
+      qtyDiscrepancyNote?: string;
+    }
   ) {
     const so = this.shippingOrders.find((o) => o.id === soId || o.so_code === soId);
     if (!so) throw new Error('Shipping Order not found');
 
     const oldStatus = so.crm_status;
     let hasDiscrepancy = false;
+    const discrepancyNotes: string[] = [];
 
+    // Stage 1: Quantity & Carton Discrepancy Evaluation
+    if (qtyVerification) {
+      if (qtyVerification.receivedQty !== qtyVerification.expectedQty) {
+        hasDiscrepancy = true;
+        const diff = qtyVerification.receivedQty - qtyVerification.expectedQty;
+        discrepancyNotes.push(
+          `Stage 1 Qty Mismatch: Expected ${qtyVerification.expectedQty}, Received ${qtyVerification.receivedQty} (${diff > 0 ? `+${diff} Excess` : `${diff} Shortage`})`
+        );
+      }
+      if (qtyVerification.cartonCondition && qtyVerification.cartonCondition !== 'Intact & Sealed') {
+        hasDiscrepancy = true;
+        discrepancyNotes.push(`Carton Condition: ${qtyVerification.cartonCondition}`);
+      }
+      if (qtyVerification.qtyDiscrepancyNote?.trim()) {
+        discrepancyNotes.push(`Package Notes: ${qtyVerification.qtyDiscrepancyNote.trim()}`);
+      }
+    }
+
+    // Stage 2: Part-wise Matching & Physical Inspection
     Object.entries(screeningMap).forEach(([itemId, data]) => {
       const item = this.defectiveItems.find((i) => i.id === itemId);
       if (item) {
         item.screening_status = data.status;
         if (data.remarks) item.item_remarks = data.remarks;
-        item.motorola_parts_status = ['Failed', 'Damaged', 'Missing'].includes(data.status)
+        
+        const isItemDiscrepancy = ['Failed', 'Damaged', 'Missing'].includes(data.status) || data.partMatched === false;
+        item.motorola_parts_status = isItemDiscrepancy
           ? '6. RC Received ASP(Negative)'
           : '3. CWH Received';
         item.updated_at = new Date().toISOString();
-        if (['Failed', 'Damaged', 'Missing'].includes(data.status)) {
+
+        if (isItemDiscrepancy) {
           hasDiscrepancy = true;
+          discrepancyNotes.push(
+            `Part ${item.sr_part_number} (${item.sr_number}): ${data.status}${data.partMatched === false ? ' [Wrong Part]' : ''}${data.remarks ? ` - ${data.remarks}` : ''}`
+          );
         }
       }
     });
@@ -702,8 +734,8 @@ class CRMDatabase {
       old_status: oldStatus,
       new_status: newStatus,
       remarks: hasDiscrepancy 
-        ? `Consignment inward verified with Discrepancies noted under CCTV Bay. Evidence attached.`
-        : `Consignment inward verified successfully. All line items passed inspection under CCTV.`,
+        ? `Consignment inward verified with Discrepancies under CCTV Bay. Notes: ${discrepancyNotes.join('; ')}. Evidence attached.`
+        : `Consignment inward verified successfully. All ${qtyVerification?.expectedQty || so.total_items || 1} units and parts passed inspection under CCTV.`,
       created_at: new Date().toISOString(),
     });
 
@@ -726,6 +758,69 @@ class CRMDatabase {
         updated_at: so.updated_at,
       }).eq('shipping_order_code', so.so_code).then(({ error }) => {
         if (error) console.warn('Live Supabase defective items update failed:', error.message);
+      });
+    }
+
+    this.notify();
+    return so;
+  }
+
+  // --- CWH DISPATCH TO RC (Lenovo CRM Outbound) ---
+  public dispatchOrderToRc(
+    soId: string,
+    data: {
+      dcNumber: string;
+      courier?: string;
+      remarks?: string;
+    },
+    user: UserProfile
+  ): ShippingOrder {
+    const so = this.shippingOrders.find((o) => o.id === soId || o.so_code === soId);
+    if (!so) throw new Error('Shipping Order not found');
+
+    const oldStatus = so.crm_status;
+    so.crm_status = 'Dispatched to RC';
+    so.motorola_status = '4. ASP Send to RC';
+    if (data.courier) so.courier = data.courier;
+    so.updated_at = new Date().toISOString();
+
+    // Update constituent defective items
+    this.defectiveItems
+      .filter((i) => (i.shipping_order_code || '').trim() === so.so_code.trim())
+      .forEach((item) => {
+        item.motorola_parts_status = '4. ASP Send to RC';
+        item.updated_at = new Date().toISOString();
+      });
+
+    this.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      shipping_order_id: so.id,
+      so_code: so.so_code,
+      user_name: user.full_name,
+      user_role: user.role,
+      action: 'CWH_DISPATCH_TO_RC',
+      old_status: oldStatus,
+      new_status: 'Dispatched to RC',
+      remarks: `CWH created Delivery Challan to RC in Lenovo CRM: ${data.dcNumber} (${data.courier || so.courier}).${data.remarks ? ` Notes: ${data.remarks}` : ''}`,
+      created_at: new Date().toISOString(),
+    });
+
+    if (isSupabaseConfigured && supabase) {
+      const client = supabase;
+      client.from('shipping_orders').update({
+        crm_status: so.crm_status,
+        motorola_status: so.motorola_status,
+        courier: so.courier,
+        updated_at: so.updated_at,
+      }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(({ error }) => {
+        if (error) console.warn('Supabase update for dispatch to RC failed:', error.message);
+      });
+
+      client.from('defective_master').update({
+        motorola_parts_status: so.motorola_status,
+        updated_at: so.updated_at,
+      }).eq('shipping_order_code', so.so_code).then(({ error }) => {
+        if (error) console.warn('Supabase defective items update failed:', error.message);
       });
     }
 
