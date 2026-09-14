@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { 
   Store, 
   Search, 
@@ -6,21 +7,42 @@ import {
   User, 
   Phone, 
   CheckCircle2, 
-  XCircle,
-  Download,
-  Filter
+  Download, 
+  ChevronLeft, 
+  ChevronRight,
+  Building2,
+  X
 } from 'lucide-react';
 import { CCIMaster } from '../../types/crm';
-import { generateSampleRegionTemplateCSV } from '../../services/regionMappingIngestor';
 
 interface CciDirectoryProps {
   stations: CCIMaster[];
   onSelectStation?: (stationCode: string) => void;
 }
 
+const getRegionBadge = (region?: string) => {
+  const r = (region || '').trim().toLowerCase();
+  switch (r) {
+    case 'north':
+      return 'bg-blue-500/15 text-blue-300 border-blue-500/40';
+    case 'south':
+      return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40';
+    case 'west':
+      return 'bg-amber-500/15 text-amber-300 border-amber-500/40';
+    case 'east':
+      return 'bg-purple-500/15 text-purple-300 border-purple-500/40';
+    case 'central':
+      return 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40';
+    default:
+      return 'bg-slate-700/40 text-slate-300 border-slate-600/50';
+  }
+};
+
 export const CciDirectory: React.FC<CciDirectoryProps> = ({ stations, onSelectStation }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRegion, setSelectedRegion] = useState('ALL');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const availableRegions = useMemo(() => {
     const regSet = new Set<string>();
@@ -43,117 +65,295 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({ stations, onSelectSt
         const matchCode = st.station_code.toLowerCase().includes(q);
         const matchName = st.station_name.toLowerCase().includes(q);
         const matchCity = (st.city || '').toLowerCase().includes(q);
+        const matchState = (st.state || '').toLowerCase().includes(q);
         const matchUser = (st.username || '').toLowerCase().includes(q);
-        if (!matchCode && !matchName && !matchCity && !matchUser) return false;
+        const matchPerson = (st.contact_person || '').toLowerCase().includes(q);
+        const matchPhone = (st.contact_phone || '').toLowerCase().includes(q);
+        if (!matchCode && !matchName && !matchCity && !matchState && !matchUser && !matchPerson && !matchPhone) {
+          return false;
+        }
       }
       return true;
     });
   }, [stations, selectedRegion, searchTerm]);
 
+  // Reset to page 1 when search or region filter changes
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedRegion, pageSize]);
+
+  const totalPages = Math.ceil(filteredStations.length / pageSize) || 1;
+  const paginatedStations = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredStations.slice(start, start + pageSize);
+  }, [filteredStations, currentPage, pageSize]);
+
+  const handleExportExcel = () => {
+    const exportData = filteredStations.map((st) => ({
+      'Station Code': st.station_code,
+      'Portal Username': st.username || `cci_${st.station_code}`,
+      'Service Center Name': st.station_name,
+      'Region': st.region,
+      'City': st.city || '',
+      'State': st.state || '',
+      'Contact Person': st.contact_person || '',
+      'Contact Phone': st.contact_phone || '',
+      'Status': 'Active Node',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'CCI Stations');
+    XLSX.writeFile(wb, `Motorola_CCI_Stations_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Header & Controls */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl bg-[#101a35] border border-[#1c2b53]">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search station code, username (e.g. cci_65), name..."
-            className="w-full bg-[#0b1329] border border-[#1f2e5a] rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-cyan-500"
-          />
+    <div className="space-y-4">
+      {/* Header & Filter Controls Bar */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 rounded-xl bg-[#101a35] border border-[#1c2b53] shadow-md">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+          {/* Search Box with Clear Button */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search code, name, city, state, username..."
+              className="w-full bg-[#0b1329] border border-[#1f2e5a] rounded-lg pl-9 pr-8 py-2 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Region Dropdown Filter */}
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedRegion}
+              onChange={(e) => setSelectedRegion(e.target.value)}
+              className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-cyan-500"
+            >
+              <option value="ALL">All Regions ({stations.length})</option>
+              {availableRegions.map((reg) => {
+                const count = stations.filter((s) => s.region === reg).length;
+                return (
+                  <option key={reg} value={reg}>
+                    {reg} Region ({count})
+                  </option>
+                );
+              })}
+            </select>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <select
-            value={selectedRegion}
-            onChange={(e) => setSelectedRegion(e.target.value)}
-            className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
-          >
-            <option value="ALL">All Regions ({filteredStations.length})</option>
-            {availableRegions.map((reg) => (
-              <option key={reg} value={reg}>
-                {reg} Region
-              </option>
-            ))}
-          </select>
-
+        {/* Right Controls: Export & Scope Count */}
+        <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#1f2e5a]">
           <span className="text-xs text-slate-400 font-mono">
-            {filteredStations.length} of {stations.length} stations
+            Showing <strong className="text-white">{filteredStations.length}</strong> of {stations.length} stations
           </span>
+
+          <button
+            onClick={handleExportExcel}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#1a274c] hover:bg-[#233566] text-cyan-300 border border-cyan-500/30 transition-colors shadow-sm cursor-pointer"
+            title="Export filtered stations to Excel"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Export Excel
+          </button>
         </div>
       </div>
 
-      {/* Stations Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredStations.map((st) => (
-          <div
-            key={st.station_code}
-            className="p-4 rounded-xl border border-[#1c2b53] bg-[#101a35] hover:border-cyan-500/40 transition-colors flex flex-col justify-between shadow"
-          >
-            <div>
-              {/* Station Code & Dynamic Username */}
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm font-bold text-white">
+      {/* Stations Table */}
+      <div className="rounded-xl border border-[#1f2e5a] bg-[#0b1329] overflow-hidden shadow-lg">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead className="bg-[#101a35] text-slate-400 border-b border-[#1f2e5a] font-mono">
+              <tr>
+                <th className="py-3 px-3.5 uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">
+                  Station Code
+                </th>
+                <th className="py-3 px-3.5 uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">
+                  Portal Login
+                </th>
+                <th className="py-3 px-3.5 uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">
+                  Service Center Name
+                </th>
+                <th className="py-3 px-3.5 uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">
+                  Region
+                </th>
+                <th className="py-3 px-3.5 uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">
+                  Location (City, State)
+                </th>
+                <th className="py-3 px-3.5 uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">
+                  Contact Person
+                </th>
+                <th className="py-3 px-3.5 uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">
+                  Contact Phone
+                </th>
+                <th className="py-3 px-3.5 text-center uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">
+                  Status
+                </th>
+                {onSelectStation && (
+                  <th className="py-3 px-3.5 text-right uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">
+                    Action
+                  </th>
+                )}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#1f2e5a]/60 text-slate-300 bg-[#0d1630]">
+              {paginatedStations.map((st) => (
+                <tr 
+                  key={st.station_code} 
+                  className="hover:bg-[#142042] transition-colors"
+                >
+                  {/* Station Code */}
+                  <td className="py-3 px-3.5 whitespace-nowrap align-middle">
+                    <span className="font-mono font-bold text-white text-xs bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/60">
                       Station {st.station_code}
                     </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
+                  </td>
+
+                  {/* Portal Login (@username) */}
+                  <td className="py-3 px-3.5 whitespace-nowrap align-middle">
+                    <span className="font-mono text-xs text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/30">
                       @{st.username || `cci_${st.station_code}`}
                     </span>
-                  </div>
-                  <h4 className="text-xs font-semibold text-slate-300 mt-1" title={st.station_name}>
-                    {st.station_name}
-                  </h4>
-                </div>
-                <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 border border-slate-700 text-slate-300">
-                  {st.region}
-                </span>
-              </div>
+                  </td>
 
-              {/* Location & Details */}
-              <div className="mt-3 space-y-1.5 text-xs text-slate-400">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
-                  <span>
-                    {st.city ? `${st.city}, ` : ''}{st.state || 'India'}
-                  </span>
-                </div>
-                {st.contact_person && (
-                  <div className="flex items-center gap-2">
-                    <User className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-                    <span className="text-slate-300">{st.contact_person}</span>
-                  </div>
-                )}
-                {st.contact_phone && (
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-                    <span className="font-mono text-slate-300">{st.contact_phone}</span>
-                  </div>
-                )}
-              </div>
+                  {/* Service Center Name */}
+                  <td className="py-3 px-3.5 align-middle">
+                    <div className="font-semibold text-slate-100 max-w-xs truncate" title={st.station_name}>
+                      {st.station_name}
+                    </div>
+                  </td>
+
+                  {/* Region */}
+                  <td className="py-3 px-3.5 whitespace-nowrap align-middle">
+                    <span className={`px-2.5 py-0.5 rounded text-[10px] font-semibold border ${getRegionBadge(st.region)}`}>
+                      {st.region || 'West'}
+                    </span>
+                  </td>
+
+                  {/* Location (City, State) */}
+                  <td className="py-3 px-3.5 whitespace-nowrap align-middle">
+                    <div className="flex items-center gap-1.5 text-slate-300">
+                      <MapPin className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <span>
+                        {[st.city, st.state].filter(Boolean).join(', ') || 'India'}
+                      </span>
+                    </div>
+                  </td>
+
+                  {/* Contact Person */}
+                  <td className="py-3 px-3.5 whitespace-nowrap align-middle">
+                    {st.contact_person ? (
+                      <div className="flex items-center gap-1.5 text-slate-300">
+                        <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span>{st.contact_person}</span>
+                      </div>
+                    ) : (
+                      <span className="text-slate-500 italic text-[11px]">—</span>
+                    )}
+                  </td>
+
+                  {/* Contact Phone */}
+                  <td className="py-3 px-3.5 whitespace-nowrap align-middle">
+                    {st.contact_phone ? (
+                      <div className="flex items-center gap-1.5 text-slate-300 font-mono text-xs">
+                        <Phone className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span>{st.contact_phone}</span>
+                      </div>
+                    ) : (
+                      <span className="text-slate-500 italic text-[11px]">—</span>
+                    )}
+                  </td>
+
+                  {/* Status */}
+                  <td className="py-3 px-3.5 text-center whitespace-nowrap align-middle">
+                    <span className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full text-[10px] font-medium">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Active Node
+                    </span>
+                  </td>
+
+                  {/* Action (if applicable) */}
+                  {onSelectStation && (
+                    <td className="py-3 px-3.5 text-right whitespace-nowrap align-middle">
+                      <button
+                        onClick={() => onSelectStation(st.station_code)}
+                        className="text-xs text-cyan-400 hover:text-cyan-300 hover:underline cursor-pointer"
+                      >
+                        View as CCI →
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+
+              {filteredStations.length === 0 && (
+                <tr>
+                  <td colSpan={onSelectStation ? 9 : 8} className="py-12 text-center text-slate-400">
+                    <Store className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                    No service center stations match &quot;{searchTerm || selectedRegion}&quot;.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination & Page Size Footer */}
+        {filteredStations.length > 0 && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 bg-[#101a35] border-t border-[#1f2e5a] text-xs">
+            <div className="flex items-center gap-2 text-slate-400">
+              <span>Rows per page:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="bg-[#0b1329] border border-[#1f2e5a] text-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-cyan-500"
+              >
+                <option value={15}>15</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+              <span className="ml-2 font-mono">
+                {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredStations.length)} of {filteredStations.length}
+              </span>
             </div>
 
-            {/* Bottom active pill */}
-            <div className="mt-4 pt-2.5 border-t border-[#1c2b53] flex items-center justify-between text-xs">
-              <span className="flex items-center gap-1.5 text-emerald-400 text-[11px]">
-                <CheckCircle2 className="w-3 h-3" />
-                Active Node
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <span className="text-slate-400 font-mono mr-1">
+                Page {currentPage} of {totalPages}
               </span>
-              {onSelectStation && (
-                <button
-                  onClick={() => onSelectStation(st.station_code)}
-                  className="text-xs text-cyan-400 hover:underline"
-                >
-                  View as CCI →
-                </button>
-              )}
+              <button
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className="p-1 rounded bg-[#0b1329] border border-[#1f2e5a] text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                title="Previous page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                className="p-1 rounded bg-[#0b1329] border border-[#1f2e5a] text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                title="Next page"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
 };
+
