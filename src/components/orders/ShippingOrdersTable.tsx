@@ -11,7 +11,8 @@ import {
   AlertTriangle, 
   FileSpreadsheet,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Trash2
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster, PriorityTier, CRMStatus, UserRole } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
@@ -27,6 +28,7 @@ interface ShippingOrdersTableProps {
   onSelectOrder: (order: ShippingOrder) => void;
   onOpenAwbModal?: (order: ShippingOrder) => void;
   onOpenInward?: (order: ShippingOrder) => void;
+  onDeleteOrder?: (order: ShippingOrder) => void;
 }
 
 export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
@@ -38,6 +40,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
   onSelectOrder,
   onOpenAwbModal,
   onOpenInward,
+  onDeleteOrder,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRegion, setSelectedRegion] = useState<string>('ALL');
@@ -324,6 +327,16 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                             className="p-1 rounded bg-[#1f2e5a]/60 hover:bg-blue-500/20 text-slate-300 hover:text-blue-300 transition-colors"
                           >
                             <Barcode className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        {currentRole === 'ADMIN' && onDeleteOrder && (
+                          <button
+                            onClick={() => onDeleteOrder(so)}
+                            title="Delete Consignment (Admin Only)"
+                            className="p-1 rounded bg-[#1f2e5a]/60 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>

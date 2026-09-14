@@ -8,7 +8,8 @@ import {
   FileSpreadsheet, 
   ChevronLeft, 
   ChevronRight,
-  ShieldCheck
+  ShieldCheck,
+  Trash2
 } from 'lucide-react';
 import { DefectiveItem, CCIMaster, UserRole } from '../../types/crm';
 import { formatINR, formatDate, getScreeningStatusStyle } from '../../lib/utils';
@@ -18,6 +19,7 @@ interface DefectiveMasterVaultProps {
   stations: CCIMaster[];
   currentRole: UserRole;
   currentStation?: string;
+  onDeleteItem?: (item: DefectiveItem) => void;
 }
 
 export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
@@ -25,6 +27,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
   stations,
   currentRole,
   currentStation,
+  onDeleteItem,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRegion, setSelectedRegion] = useState('ALL');
@@ -208,6 +211,9 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
                 <th className="py-3 px-3 text-right">Est. Value</th>
                 <th className="py-3 px-3 text-center">Screening</th>
                 <th className="py-3 px-3">Motorola Status</th>
+                {currentRole === 'ADMIN' && (
+                  <th className="py-3 px-3 text-center">Actions</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1c2b53]/60 text-slate-300">
@@ -246,11 +252,24 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
                   <td className="py-2.5 px-3 text-slate-400 text-[11px] truncate max-w-[120px]" title={item.motorola_parts_status}>
                     {item.motorola_parts_status}
                   </td>
+                  {currentRole === 'ADMIN' && (
+                    <td className="py-2.5 px-3 text-center">
+                      {onDeleteItem && (
+                        <button
+                          onClick={() => onDeleteItem(item)}
+                          title="Delete Item (Admin Only)"
+                          className="p-1 rounded bg-[#1f2e5a]/60 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
               {paginatedItems.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-500">
+                  <td colSpan={currentRole === 'ADMIN' ? 11 : 10} className="py-12 text-center text-slate-500">
                     No defective items found matching your filters.
                   </td>
                 </tr>

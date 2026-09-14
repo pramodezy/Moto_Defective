@@ -502,20 +502,96 @@ class CRMDatabase {
     return so;
   }
 
-  // --- RESET TO SEED DATA ---
-  public resetToSeedData() {
-    localStorage.removeItem(STORAGE_KEYS.STATIONS);
-    localStorage.removeItem(STORAGE_KEYS.SHIPPING_ORDERS);
-    localStorage.removeItem(STORAGE_KEYS.DEFECTIVE_ITEMS);
-    localStorage.removeItem(STORAGE_KEYS.AUDIT_LOGS);
-    localStorage.removeItem(STORAGE_KEYS.AWB_HISTORY);
-    this.stations = INITIAL_STATIONS;
-    this.shippingOrders = INITIAL_SHIPPING_ORDERS;
-    this.defectiveItems = INITIAL_DEFECTIVE_ITEMS;
-    this.auditLogs = INITIAL_AUDIT_LOGS;
-    this.awbHistory = [];
-    this.saveToStorage();
+  // --- ADMIN DELETION METHODS (Strictly Admin Only) ---
+  public deleteShippingOrder(soId: string, user: UserProfile) {
+    if (user.role !== 'ADMIN') {
+      throw new Error('Unauthorized: Only Administrator is permitted to delete consignments.');
+    }
+
+    const orderIdx = this.shippingOrders.findIndex((o) => o.id === soId || o.so_code === soId);
+    if (orderIdx === -1) throw new Error('Shipping order not found');
+
+    const target = this.shippingOrders[orderIdx];
+
+    // Remove constituent line items
+    const beforeCount = this.defectiveItems.length;
+    this.defectiveItems = this.defectiveItems.filter((i) => i.shipping_order_code !== target.so_code);
+    const itemsRemoved = beforeCount - this.defectiveItems.length;
+
+    // Remove the shipping order
+    this.shippingOrders.splice(orderIdx, 1);
+
+    // Audit log
+    this.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      so_code: target.so_code,
+      user_name: user.full_name,
+      user_role: user.role,
+      action: 'CONSIGNMENT_DELETED',
+      remarks: `Admin deleted Consignment ${target.so_code} and ${itemsRemoved} associated defective line items.`,
+      created_at: new Date().toISOString(),
+    });
+
     this.notify();
+    return true;
+  }
+
+  public deleteDefectiveItem(itemId: string, user: UserProfile) {
+    if (user.role !== 'ADMIN') {
+      throw new Error('Unauthorized: Only Administrator is permitted to delete defective items.');
+    }
+
+    const itemIdx = this.defectiveItems.findIndex((i) => i.id === itemId);
+    if (itemIdx === -1) throw new Error('Defective line item not found');
+
+    const target = this.defectiveItems[itemIdx];
+    const parentSoCode = target.shipping_order_code;
+
+    // Remove the line item
+    this.defectiveItems.splice(itemIdx, 1);
+
+    // Recalculate parent shipping order
+    if (parentSoCode) {
+      this.recalculateShippingOrder(parentSoCode);
+    }
+
+    // Audit log
+    this.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      so_code: parentSoCode,
+      user_name: user.full_name,
+      user_role: user.role,
+      action: 'DEFECTIVE_ITEM_DELETED',
+      remarks: `Admin deleted defective line item ${target.sr_number} (${target.sr_part_number}) from SO ${parentSoCode}.`,
+      created_at: new Date().toISOString(),
+    });
+
+    this.notify();
+    return true;
+  }
+
+  public deleteStation(stationCode: string, user: UserProfile) {
+    if (user.role !== 'ADMIN') {
+      throw new Error('Unauthorized: Only Administrator is permitted to delete stations.');
+    }
+
+    const idx = this.stations.findIndex((s) => s.station_code === stationCode);
+    if (idx === -1) throw new Error('Station not found');
+
+    const st = this.stations[idx];
+    this.stations.splice(idx, 1);
+
+    this.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      user_name: user.full_name,
+      user_role: user.role,
+      action: 'STATION_DELETED',
+      remarks: `Admin deleted Station ${st.station_code} (${st.station_name}).`,
+      created_at: new Date().toISOString(),
+    });
+
+    this.notify();
+    return true;
   }
 }
 

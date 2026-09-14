@@ -27,7 +27,6 @@ interface NavbarProps {
   stations: CCIMaster[];
   activeTab: string;
   onTabChange: (tab: string) => void;
-  onResetData: () => void;
   searchTerm: string;
   onSearchChange: (q: string) => void;
 }
@@ -42,7 +41,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   stations,
   activeTab,
   onTabChange,
-  onResetData,
   searchTerm,
   onSearchChange,
 }) => {
@@ -152,14 +150,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             )}
 
-            {/* Reset data button */}
-            <button
-              onClick={onResetData}
-              title="Reset to fresh demo sample data"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-[#101a35] border border-transparent hover:border-[#1c2b53] transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
 
             {/* User Session & Logout */}
             <div className="flex items-center gap-2 pl-2 border-l border-[#1f2e5a]">

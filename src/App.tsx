@@ -4,6 +4,7 @@ import {
   UserRole, 
   UserProfile, 
   ShippingOrder, 
+  DefectiveItem,
   ScreeningStatus 
 } from './types/crm';
 import { crmDb } from './lib/db';
@@ -99,14 +100,6 @@ export function App() {
     }
   };
 
-  // Reset to seed data
-  const handleResetData = () => {
-    if (confirm('Reset entire system to initial seed data from Dump.xlsx?')) {
-      crmDb.resetToSeedData();
-      toast.success('Database reset to fresh Motorola seed state');
-    }
-  };
-
   // Inward verification handler
   const handleCompleteInward = (
     soId: string,
@@ -143,6 +136,38 @@ export function App() {
     }
   };
 
+  // Admin-only Delete Order handler
+  const handleDeleteOrder = (order: ShippingOrder) => {
+    if (currentUser?.role !== 'ADMIN') {
+      toast.error('Permission Denied: Only Admin can delete consignments.');
+      return;
+    }
+    if (window.confirm(`Are you sure you want to permanently delete shipping order ${order.so_code}? This action cannot be undone.`)) {
+      try {
+        crmDb.deleteShippingOrder(order.id, currentUser);
+        toast.success(`Consignment ${order.so_code} deleted successfully.`);
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to delete consignment');
+      }
+    }
+  };
+
+  // Admin-only Delete Defective Item handler
+  const handleDeleteItem = (item: DefectiveItem) => {
+    if (currentUser?.role !== 'ADMIN') {
+      toast.error('Permission Denied: Only Admin can delete defective items.');
+      return;
+    }
+    if (window.confirm(`Are you sure you want to permanently delete defective item ${item.sr_number} (${item.sr_part_number})? This action cannot be undone.`)) {
+      try {
+        crmDb.deleteDefectiveItem(item.id, currentUser);
+        toast.success(`Item ${item.sr_number} deleted successfully.`);
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to delete defective item');
+      }
+    }
+  };
+
   if (!currentUser) {
     return (
       <>
@@ -167,7 +192,6 @@ export function App() {
         stations={stations}
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        onResetData={handleResetData}
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
       />
@@ -195,6 +219,7 @@ export function App() {
                 onSelectOrder={setSelectedOrder}
                 onOpenAwbModal={setAwbModalOrder}
                 onOpenInward={setUnboxingOrder}
+                onDeleteOrder={handleDeleteOrder}
               />
             )}
             {activeTab === 'vault' && (
@@ -202,6 +227,7 @@ export function App() {
                 items={items}
                 stations={stations}
                 currentRole={currentRole}
+                onDeleteItem={handleDeleteItem}
               />
             )}
             {activeTab === 'ingestion' && (
