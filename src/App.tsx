@@ -19,11 +19,18 @@ import { AwbDispatchModal } from './components/cwh/AwbDispatchModal';
 import { CCIPortal } from './components/cci/CCIPortal';
 import { DefectiveMasterVault } from './components/vault/DefectiveMasterVault';
 import { AuditLogsViewer } from './components/audit/AuditLogsViewer';
+import { LoginPage } from './components/auth/LoginPage';
+import { getSavedSession, clearSession } from './services/authService';
 
 export function App() {
-  const [currentRole, setCurrentRole] = useState<UserRole>('ADMIN');
-  const [currentStation, setCurrentStation] = useState<string>('068');
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getSavedSession());
+  const [currentRole, setCurrentRole] = useState<UserRole>(() => currentUser?.role || 'ADMIN');
+  const [currentStation, setCurrentStation] = useState<string>(() => currentUser?.station_code || '068');
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (currentUser?.role === 'CWH') return 'cwh_inward';
+    if (currentUser?.role === 'CCI') return 'cci_consignments';
+    return 'dashboard';
+  });
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   // Modals state
@@ -48,13 +55,28 @@ export function App() {
   // Active Station object
   const activeStationObj = stations.find((s) => s.station_code === currentStation);
 
-  // Current User Profile based on role
-  const currentUser: UserProfile = {
-    id: currentRole === 'ADMIN' ? 'usr-admin-1' : currentRole === 'CWH' ? 'usr-cwh-1' : `usr-cci-${currentStation}`,
-    username: currentRole === 'ADMIN' ? 'admin_pramod' : currentRole === 'CWH' ? 'cwh_nilesh' : `cci_${currentStation}`,
-    full_name: currentRole === 'ADMIN' ? 'Pramod Kumar (Admin)' : currentRole === 'CWH' ? 'Nilesh Shinde (CWH Lead)' : `${activeStationObj?.station_name || `Station ${currentStation}`}`,
-    role: currentRole,
-    station_code: currentRole === 'CCI' ? currentStation : undefined,
+  // Handle Login Success
+  const handleLoginSuccess = (user: UserProfile) => {
+    setCurrentUser(user);
+    setCurrentRole(user.role);
+    if (user.station_code) {
+      setCurrentStation(user.station_code);
+    }
+    if (user.role === 'ADMIN') {
+      setActiveTab('dashboard');
+    } else if (user.role === 'CWH') {
+      setActiveTab('cwh_inward');
+    } else if (user.role === 'CCI') {
+      setActiveTab('cci_consignments');
+    }
+    toast.success(`Welcome, ${user.full_name}! Signed in as ${user.role}.`);
+  };
+
+  // Handle Logout
+  const handleLogout = () => {
+    clearSession();
+    setCurrentUser(null);
+    toast.info('Signed out of Motorola Returns CRM.');
   };
 
   // Handle role switch defaults
@@ -86,6 +108,7 @@ export function App() {
     screeningMap: Record<string, { status: ScreeningStatus; remarks?: string }>,
     evidenceRef: string | null
   ) => {
+    if (!currentUser) return;
     try {
       crmDb.inwardVerifyConsignment(soId, screeningMap, evidenceRef, currentUser);
       toast.success('Inward verification & CCTV logs recorded successfully!');
@@ -103,6 +126,7 @@ export function App() {
     ewayNumber?: string,
     ewayUrl?: string
   ) => {
+    if (!currentUser) return;
     try {
       crmDb.assignAwbToken(soId, courier, awbNumber, currentUser, cancellationReason);
       if (ewayNumber) {
@@ -114,12 +138,23 @@ export function App() {
     }
   };
 
+  if (!currentUser) {
+    return (
+      <>
+        <Toaster position="top-right" richColors theme="dark" />
+        <LoginPage onLoginSuccess={handleLoginSuccess} />
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#080d1e] text-slate-100 flex flex-col selection:bg-cyan-500/20 selection:text-cyan-300">
       <Toaster position="top-right" richColors theme="dark" />
 
       {/* Global Navigation Header */}
       <Navbar
+        currentUser={currentUser}
+        onLogout={handleLogout}
         currentRole={currentRole}
         onRoleChange={handleRoleChange}
         currentStation={currentStation}

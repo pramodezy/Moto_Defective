@@ -11,12 +11,15 @@ import {
   History, 
   Truck,
   Sparkles,
-  Search
+  Search,
+  LogOut
 } from 'lucide-react';
-import { UserRole, CCIMaster } from '../../types/crm';
+import { UserRole, CCIMaster, UserProfile } from '../../types/crm';
 import { isSupabaseConfigured } from '../../lib/supabase';
 
 interface NavbarProps {
+  currentUser: UserProfile;
+  onLogout: () => void;
   currentRole: UserRole;
   onRoleChange: (role: UserRole) => void;
   currentStation: string;
@@ -30,6 +33,8 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
+  currentUser,
+  onLogout,
   currentRole,
   onRoleChange,
   currentStation,
@@ -157,6 +162,26 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <RefreshCw className="w-4 h-4" />
             </button>
+
+            {/* User Session & Logout */}
+            <div className="flex items-center gap-2 pl-2 border-l border-[#1f2e5a]">
+              <div className="hidden sm:block text-right">
+                <div className="text-xs font-semibold text-white truncate max-w-[120px]">
+                  {currentUser.username}
+                </div>
+                <div className="text-[10px] text-cyan-400 font-mono">
+                  {currentUser.role}
+                </div>
+              </div>
+
+              <button
+                onClick={onLogout}
+                title="Sign Out / Switch Account"
+                className="flex items-center gap-1 p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/30 transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
 
