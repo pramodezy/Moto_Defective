@@ -14,37 +14,6 @@ export interface AuthResult {
   error?: string;
 }
 
-export const PRESET_ACCOUNTS = [
-  {
-    label: 'Admin',
-    description: 'Executive Control & Ingestion',
-    username: 'Admin',
-    password: 'Admin@@123',
-    role: 'ADMIN' as UserRole,
-  },
-  {
-    label: 'CWH 1 (Box Accept)',
-    description: 'Inward Receiving & Barcode Bay',
-    username: 'cwh_1',
-    password: 'Moto@@123',
-    role: 'CWH' as UserRole,
-  },
-  {
-    label: 'CWH 2 (Screener)',
-    description: 'Physical Condition & CCTV Bay',
-    username: 'cwh_2',
-    password: 'Moto@@123',
-    role: 'CWH' as UserRole,
-  },
-  {
-    label: 'CCI Station 65',
-    description: 'Service Center Station 65',
-    username: 'cci_65',
-    password: 'Moto@123',
-    role: 'CCI' as UserRole,
-    station_code: '068', // maps to active station
-  },
-];
 
 export function authenticateUser(creds: LoginCredentials): AuthResult {
   const username = creds.username.trim();
