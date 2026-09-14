@@ -1,5 +1,5 @@
-import { UserProfile, UserRole } from '../types/crm';
-import { crmDb } from '../lib/db';
+import { UserProfile } from '../types/crm';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const AUTH_STORAGE_KEY = 'moto_crm_auth_session_v1';
 
@@ -14,8 +14,11 @@ export interface AuthResult {
   error?: string;
 }
 
-
-export function authenticateUser(creds: LoginCredentials): AuthResult {
+/**
+ * Authenticate against Supabase PostgreSQL RPC function `verify_user_login`.
+ * Passwords are encrypted with bcrypt inside Supabase; no passwords are stored in code or HTML.
+ */
+export async function authenticateUser(creds: LoginCredentials): Promise<AuthResult> {
   const username = creds.username.trim();
   const password = creds.password.trim();
 
@@ -23,85 +26,53 @@ export function authenticateUser(creds: LoginCredentials): AuthResult {
     return { success: false, error: 'Please enter username and password.' };
   }
 
-  const uLower = username.toLowerCase();
+  // 1. Authenticate via Supabase RPC if configured
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase.rpc('verify_user_login', {
+        p_username: username,
+        p_password: password,
+      });
 
-  // 1. Admin Login: Admin / Admin@@123
-  if ((uLower === 'admin' || uLower === 'admin_pramod') && password === 'Admin@@123') {
-    const user: UserProfile = {
-      id: 'usr-admin-01',
-      username: 'Admin',
-      full_name: 'Pramod Kumar (System Admin)',
-      role: 'ADMIN',
-      created_at: new Date().toISOString(),
-    };
-    saveSession(user);
-    return { success: true, user };
-  }
+      if (error) {
+        // If RPC function hasn't been created yet, return helpful instructions
+        if (error.message.includes('function') || error.code === 'PGRST202') {
+          return {
+            success: false,
+            error: 'Authentication RPC function not yet initialized. Please run 20260914_profiles_and_auth.sql in Supabase SQL Editor.',
+          };
+        }
+        return { success: false, error: error.message };
+      }
 
-  // 2. CWH 1 (Box Accept): cwh_1 / Moto@@123
-  if ((uLower === 'cwh_1' || uLower === 'cwh1' || uLower === 'cwh_box') && password === 'Moto@@123') {
-    const user: UserProfile = {
-      id: 'usr-cwh-01',
-      username: 'cwh_1',
-      full_name: 'Nilesh Shinde (CWH Box Accept Lead)',
-      role: 'CWH',
-      created_at: new Date().toISOString(),
-    };
-    saveSession(user);
-    return { success: true, user };
-  }
-
-  // 3. CWH 2 (Screener): cwh_2 / Moto@@123
-  if ((uLower === 'cwh_2' || uLower === 'cwh2' || uLower === 'cwh_screener') && password === 'Moto@@123') {
-    const user: UserProfile = {
-      id: 'usr-cwh-02',
-      username: 'cwh_2',
-      full_name: 'Rajesh Patil (CWH Quality Screener)',
-      role: 'CWH',
-      created_at: new Date().toISOString(),
-    };
-    saveSession(user);
-    return { success: true, user };
-  }
-
-  // 4. CCI Stations: e.g. cci_65, cci_068, cci_071 / Moto@123
-  if (password === 'Moto@123') {
-    let stationCode = '';
-
-    if (uLower.startsWith('cci_')) {
-      stationCode = uLower.replace('cci_', '').trim();
-    } else if (/^\d+$/.test(username)) {
-      stationCode = username;
-    }
-
-    if (stationCode) {
-      // Normalize numeric station code (e.g. 65 or 068)
-      const stations = crmDb.getStations();
-      const matched = stations.find(
-        (s) => s.station_code === stationCode || 
-               s.station_code === stationCode.padStart(3, '0') || 
-               parseInt(s.station_code, 10) === parseInt(stationCode, 10)
-      );
-
-      const activeCode = matched ? matched.station_code : (stationCode.padStart(3, '0'));
-      const activeName = matched ? matched.station_name : `Motorola Service Station ${activeCode}`;
-
-      const user: UserProfile = {
-        id: `usr-cci-${activeCode}`,
-        username: `cci_${activeCode}`,
-        full_name: activeName,
-        role: 'CCI',
-        station_code: activeCode,
-        created_at: new Date().toISOString(),
+      if (data && data.success && data.user) {
+        const user: UserProfile = {
+          id: data.user.id,
+          username: data.user.username,
+          full_name: data.user.full_name,
+          role: data.user.role,
+          station_code: data.user.station_code || undefined,
+          created_at: new Date().toISOString(),
+        };
+        saveSession(user);
+        return { success: true, user };
+      } else {
+        return {
+          success: false,
+          error: data?.error || 'Invalid username or password.',
+        };
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.message || 'Supabase authentication failed. Please check connection.',
       };
-      saveSession(user);
-      return { success: true, user };
     }
   }
 
   return {
     success: false,
-    error: 'Invalid credentials. Please verify username and password format.',
+    error: 'Supabase is not configured. Please ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set.',
   };
 }
 

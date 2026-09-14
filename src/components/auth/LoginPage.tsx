@@ -21,21 +21,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      const res = authenticateUser({ username, password });
-      setIsSubmitting(false);
-
+    try {
+      const res = await authenticateUser({ username, password });
       if (res.success && res.user) {
         onLoginSuccess(res.user);
       } else {
         setErrorMessage(res.error || 'Invalid credentials. Please try again.');
       }
-    }, 200);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Authentication error.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
