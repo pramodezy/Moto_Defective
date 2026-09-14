@@ -155,6 +155,22 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 </button>
               )}
             </div>
+          ) : motoInfo.code === 2 ? (
+            <div className="p-3 rounded-xl bg-cyan-950/30 border border-cyan-500/40 flex items-center gap-3 text-xs">
+              <Truck className="w-5 h-5 text-cyan-400 shrink-0" />
+              <div>
+                <span className="font-bold text-cyan-300">
+                  {order.pickup_status === 'Pickup Done' 
+                    ? 'In-Transit Monitoring (CCI):' 
+                    : '⚡ Action for CCI — Pickup Handover Pending:'}
+                </span>
+                <span className="text-slate-300 ml-1.5">
+                  {order.pickup_status === 'Pickup Done'
+                    ? 'Consignment is in-transit to CWH. CCI to monitor shipment until delivery & updated as "CWH Received" in Moto CRM.'
+                    : 'AWB updated from CWH. Handover parcel to courier & update pickup status (Pickup Done / Not Done).'}
+                </span>
+              </div>
+            </div>
           ) : (
             <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center gap-3 text-xs text-slate-300">
               <span className="font-semibold text-indigo-300">Status Stage:</span>

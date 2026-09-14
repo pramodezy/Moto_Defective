@@ -186,47 +186,95 @@ export function isAwbIssueRequired(order: ShippingOrder): boolean {
   return !order.active_awb && !order.excel_ref_awb;
 }
 
+export type CciActionType = 
+  | 'CREATE_DC' 
+  | 'PICKUP_HANDOVER_PENDING' 
+  | 'AWAITING_CWH_AWB' 
+  | 'IN_TRANSIT_MONITOR' 
+  | 'CWH_RECEIVED' 
+  | 'DELIVERED_RC';
+
 /**
  * Action evaluation for CCI Service Centers:
- * - Not Return: Actionable -> Create DC in Moto CRM
- * - CCI Send to CWH + AWB issued + Pickup not done: Actionable -> Handover to Courier (Pickup Done / Not Done)
+ * 1. "Not Return" -> Actionable to CCI: Create DC in Moto CRM
+ * 2. "CCI send to CWH":
+ *    - If AWB updated from CWH -> Actionable to CCI: Pickup Handover Pending (Handover to courier, mark Pickup Done/Not Done)
+ *    - If AWB not yet updated -> Waiting for CWH to issue AWB
+ *    - Once pickup updated -> In-Transit: CCI need to monitor till delivery and updated as CWH Received
+ * 3. "CWH Received" onwards -> Arrived at CWH; monitoring completed.
  */
 export function getCciActionDetails(order: ShippingOrder): {
   isActionable: boolean;
-  actionType: 'CONFIRM_PICKUP' | 'CREATE_DC' | 'NONE';
+  actionType: CciActionType;
   title: string;
   description: string;
   badgeClass: string;
 } {
   const info = getMotorolaStatusInfo(order.motorola_status);
 
+  // 1. Not Return: CCI to Create DC in Moto CRM
   if (info.code === 1) {
     return {
       isActionable: true,
       actionType: 'CREATE_DC',
       title: 'Action: Create DC in Moto CRM',
       description: 'Defective units awaiting Delivery Challan creation by CCI',
-      badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+      badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold',
     };
   }
 
+  // 2. CCI send to CWH: Active Logistics
   if (info.code === 2) {
     const hasAwb = !!(order.active_awb || order.excel_ref_awb);
+
+    // If AWB updated from CWH then pickup handover pending
     if (hasAwb && order.pickup_status !== 'Pickup Done') {
       return {
         isActionable: true,
-        actionType: 'CONFIRM_PICKUP',
-        title: 'Action: Handover to Courier',
-        description: 'AWB issued. Handover consignment to courier & record pickup status',
-        badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 animate-pulse',
+        actionType: 'PICKUP_HANDOVER_PENDING',
+        title: 'Action: Pickup Handover Pending',
+        description: 'AWB updated from CWH. Handover parcel to courier & update pickup status',
+        badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse font-bold',
       };
     }
+
+    // If AWB not yet updated from CWH
+    if (!hasAwb) {
+      return {
+        isActionable: false,
+        actionType: 'AWAITING_CWH_AWB',
+        title: 'DC Created - Awaiting CWH AWB',
+        description: 'DC created in Moto CRM. Waiting for CWH to assign courier AWB token',
+        badgeClass: 'bg-slate-800 text-slate-300 border-slate-700',
+      };
+    }
+
+    // Once updated, In-Transit till delivery and updated as CWH Received: CCI need to monitor
+    return {
+      isActionable: false,
+      actionType: 'IN_TRANSIT_MONITOR',
+      title: 'In-Transit (Monitor till CWH Received)',
+      description: 'Consignment en route to CWH under courier tracking. Monitor until CWH Received is acknowledged',
+      badgeClass: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+    };
   }
 
+  // 3. CWH Received: Received by CWH in Moto CRM
+  if (info.code === 3 || order.crm_status === 'CWH Received') {
+    return {
+      isActionable: false,
+      actionType: 'CWH_RECEIVED',
+      title: 'CWH Received & Inwarded',
+      description: 'Consignment safely delivered to CWH. Inward verification completed',
+      badgeClass: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
+    };
+  }
+
+  // 4, 5, 6: Dispatched to RC / Delivered to RC
   return {
     isActionable: false,
-    actionType: 'NONE',
-    title: info.isDelivered ? 'Delivered / Completed' : 'In Progress',
+    actionType: 'DELIVERED_RC',
+    title: info.isDelivered ? 'Delivered to RC (Closed)' : 'In Progress at CWH/RC',
     description: info.meaning,
     badgeClass: info.badgeClass,
   };
