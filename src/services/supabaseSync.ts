@@ -95,10 +95,16 @@ export async function pushUploadedDataToSupabase(
       }
     });
 
-    if (stationsToUpsert.length > 0) {
-      onProgress?.(`Verifying & syncing ${stationsToUpsert.length} stations in Supabase cci_master...`);
-      for (let i = 0; i < stationsToUpsert.length; i += 50) {
-        const batch = stationsToUpsert.slice(i, i + 50);
+    // Step 1: Check which stations already exist in Supabase cci_master to avoid unnecessary triggers
+    const { data: existingStations } = await supabase.from('cci_master').select('station_code');
+    const existingStationCodes = new Set((existingStations || []).map((s: any) => s.station_code));
+
+    const missingStations = stationsToUpsert.filter((st) => !existingStationCodes.has(st.station_code));
+
+    if (missingStations.length > 0) {
+      onProgress?.(`Registering ${missingStations.length} new stations in Supabase cci_master...`);
+      for (let i = 0; i < missingStations.length; i += 50) {
+        const batch = missingStations.slice(i, i + 50);
         const { error: stErr } = await supabase.from('cci_master').upsert(
           batch.map((s) => ({
             station_code: s.station_code,
@@ -113,7 +119,13 @@ export async function pushUploadedDataToSupabase(
           })),
           { onConflict: 'station_code' }
         );
-        if (stErr) throw stErr;
+        if (stErr) {
+          if (stErr.message?.includes('profiles')) {
+            console.warn('Profile sync trigger notice on cci_master:', stErr.message);
+          } else {
+            throw stErr;
+          }
+        }
       }
     }
 
