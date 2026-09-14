@@ -109,6 +109,14 @@ export function normalizeMotoStatusKey(status?: string | null): string {
 }
 
 /**
+ * Checks if a Motorola status represents a completed finished journey (Code 5: RC Received ASP).
+ * Excludes RC Received ASP(Negative) which is a discrepancy.
+ */
+export function isCompletedJourneyStatus(status?: string | null): boolean {
+  return normalizeMotoStatusKey(status) === 'rc received asp';
+}
+
+/**
  * Returns metadata and actionable rules for a given Motorola parts status
  */
 export function getMotorolaStatusInfo(status?: string | null): MotorolaStatusDefinition {

@@ -54,6 +54,24 @@ export function App() {
   const orders = crmDb.getShippingOrders();
   const items = crmDb.getDefectiveItems();
   const logs = crmDb.getAuditLogs();
+  const isCompletedSessionLoaded = crmDb.isCompletedSessionLoaded;
+  const isCompletedSessionLoading = crmDb.isCompletedSessionLoading;
+  const completedCounts = crmDb.getCompletedArchivedCounts();
+
+  // Completed journey session handlers for Admin ID
+  const handleLoadCompletedSession = async () => {
+    try {
+      const res = await crmDb.loadCompletedSessionData();
+      toast.success(`Loaded ${res.orders} completed shipping orders (${res.items} items) for this active session.`);
+    } catch (err: any) {
+      toast.error('Failed to load completed journey orders: ' + (err.message || 'Error'));
+    }
+  };
+
+  const handleUnloadCompletedSession = () => {
+    crmDb.unloadCompletedSessionData();
+    toast.info('Completed shipping orders unloaded. Reverted to active operational pipeline.');
+  };
 
   // Active Station object
   const activeStationObj = stations.find((s) => s.station_code === currentStation);
@@ -248,6 +266,11 @@ export function App() {
         onTabChange={setActiveTab}
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
+        isCompletedSessionLoaded={isCompletedSessionLoaded}
+        isCompletedSessionLoading={isCompletedSessionLoading}
+        completedOrdersCount={completedCounts.orders}
+        onLoadCompletedSession={handleLoadCompletedSession}
+        onUnloadCompletedSession={handleUnloadCompletedSession}
       />
 
       {/* Main Content Area */}
@@ -262,6 +285,11 @@ export function App() {
                 stations={stations}
                 onNavigateTab={setActiveTab}
                 onSelectOrder={setSelectedOrder}
+                isCompletedSessionLoaded={isCompletedSessionLoaded}
+                isCompletedSessionLoading={isCompletedSessionLoading}
+                completedOrdersCount={completedCounts.orders}
+                onLoadCompletedSession={handleLoadCompletedSession}
+                onUnloadCompletedSession={handleUnloadCompletedSession}
               />
             )}
             {activeTab === 'orders' && (
@@ -275,6 +303,11 @@ export function App() {
                 onOpenInward={setUnboxingOrder}
                 onDeleteOrder={handleDeleteOrder}
                 onNavigateTab={setActiveTab}
+                isCompletedSessionLoaded={isCompletedSessionLoaded}
+                isCompletedSessionLoading={isCompletedSessionLoading}
+                completedOrdersCount={completedCounts.orders}
+                onLoadCompletedSession={handleLoadCompletedSession}
+                onUnloadCompletedSession={handleUnloadCompletedSession}
               />
             )}
             {activeTab === 'vault' && (
@@ -283,6 +316,10 @@ export function App() {
                 stations={stations}
                 currentRole={currentRole}
                 onDeleteItem={handleDeleteItem}
+                isCompletedSessionLoaded={isCompletedSessionLoaded}
+                isCompletedSessionLoading={isCompletedSessionLoading}
+                onLoadCompletedSession={handleLoadCompletedSession}
+                onUnloadCompletedSession={handleUnloadCompletedSession}
               />
             )}
             {activeTab === 'ingestion' && (

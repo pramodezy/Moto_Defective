@@ -14,7 +14,12 @@ import {
   ChevronRight,
   Trash2,
   Upload,
-  CheckCircle2
+  CheckCircle2,
+  Archive,
+  PackageCheck,
+  RefreshCw,
+  Info,
+  Layers
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster, PriorityTier, CRMStatus, UserRole } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
@@ -33,6 +38,11 @@ interface ShippingOrdersTableProps {
   onOpenInward?: (order: ShippingOrder) => void;
   onDeleteOrder?: (order: ShippingOrder) => void;
   onNavigateTab?: (tab: string) => void;
+  isCompletedSessionLoaded?: boolean;
+  isCompletedSessionLoading?: boolean;
+  completedOrdersCount?: number;
+  onLoadCompletedSession?: () => void;
+  onUnloadCompletedSession?: () => void;
 }
 
 export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
@@ -46,6 +56,11 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
   onOpenInward,
   onDeleteOrder,
   onNavigateTab,
+  isCompletedSessionLoaded,
+  isCompletedSessionLoading,
+  completedOrdersCount = 1375,
+  onLoadCompletedSession,
+  onUnloadCompletedSession,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRegion, setSelectedRegion] = useState<string>('ALL');
@@ -172,6 +187,59 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Admin-only Session Banner: Fetch Completed Journey (RC Received ASP) */}
+      {currentRole === 'ADMIN' && onLoadCompletedSession && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-[#0c1630] border border-[#1f2e5a] shadow-sm">
+          <div className="flex items-center gap-3 text-xs">
+            <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 shrink-0">
+              <Layers className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="font-bold text-white">
+                {isCompletedSessionLoaded
+                  ? `Active & Completed Consignments in Session (${orders.length} Total)`
+                  : `Active Operational Consignments (${orders.length} Active SOs)`}
+              </span>
+              <p className="text-slate-400 text-[11px] mt-0.5">
+                {isCompletedSessionLoaded
+                  ? `Completed journey orders (RC Received ASP) are populated for this active session only.`
+                  : `Completed journey orders (Code 5: RC Received ASP) are kept in Supabase to keep operational views snappy.`}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            {!isCompletedSessionLoaded ? (
+              <button
+                onClick={onLoadCompletedSession}
+                disabled={isCompletedSessionLoading}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 transition-colors cursor-pointer disabled:opacity-50"
+                title="Fetch completed journey orders (RC Received ASP) from Supabase for this session"
+              >
+                {isCompletedSessionLoading ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                    <span>Fetching Completed...</span>
+                  </>
+                ) : (
+                  <>
+                    <Archive className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Fetch Completed Journey ({completedOrdersCount})</span>
+                  </>
+                )}
+              </button>
+            ) : (
+              <button
+                onClick={onUnloadCompletedSession}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-slate-200 border border-[#1f2e5a] cursor-pointer"
+                title="Unload completed orders and revert to active pipeline"
+              >
+                <span>Unload Completed Records</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Controls & Filter Bar */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 rounded-xl bg-[#101a35] border border-[#1c2b53]">
         {/* Search */}
@@ -459,6 +527,21 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                   <td colSpan={10} className="py-12 text-center text-slate-400">
                     <Truck className="w-8 h-8 mx-auto text-slate-600 mb-2" />
                     <p className="text-sm">No shipping orders match your filter criteria.</p>
+                    {selectedMotoStatus === '5' && !isCompletedSessionLoaded && onLoadCompletedSession && (
+                      <div className="mt-3">
+                        <p className="text-xs text-amber-300/80 mb-2">
+                          Completed journey orders (RC Received ASP) are archived safely in Supabase.
+                        </p>
+                        <button
+                          onClick={onLoadCompletedSession}
+                          disabled={isCompletedSessionLoading}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 cursor-pointer"
+                        >
+                          <Archive className="w-3.5 h-3.5" />
+                          <span>Fetch Completed Journey for Active Session</span>
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               )}

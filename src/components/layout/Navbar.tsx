@@ -13,7 +13,8 @@ import {
   Sparkles,
   Search,
   LogOut,
-  Upload
+  Upload,
+  Archive
 } from 'lucide-react';
 import { UserRole, CCIMaster, UserProfile } from '../../types/crm';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -30,6 +31,11 @@ interface NavbarProps {
   onTabChange: (tab: string) => void;
   searchTerm: string;
   onSearchChange: (q: string) => void;
+  isCompletedSessionLoaded?: boolean;
+  isCompletedSessionLoading?: boolean;
+  completedOrdersCount?: number;
+  onLoadCompletedSession?: () => void;
+  onUnloadCompletedSession?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -44,6 +50,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   onTabChange,
   searchTerm,
   onSearchChange,
+  isCompletedSessionLoaded,
+  isCompletedSessionLoading,
+  completedOrdersCount = 1375,
+  onLoadCompletedSession,
+  onUnloadCompletedSession,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-[#0b1329]/95 backdrop-blur-md border-b border-[#1f2e5a]">
@@ -163,6 +174,46 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Upload className="w-3.5 h-3.5 text-cyan-300" />
                 <span className="hidden sm:inline">Upload & Ingest</span>
               </button>
+            )}
+
+            {/* Admin-only Link Button: Load Completed Journey (RC Received ASP) for Active Session */}
+            {currentUser.role === 'ADMIN' && onLoadCompletedSession && (
+              !isCompletedSessionLoaded ? (
+                <button
+                  onClick={onLoadCompletedSession}
+                  disabled={isCompletedSessionLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm cursor-pointer disabled:opacity-50"
+                  title="Fetch archived completed shipping orders (RC Received ASP) from Supabase for this session"
+                >
+                  {isCompletedSessionLoading ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                      <span className="hidden md:inline">Fetching Completed...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Archive className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="hidden md:inline">Fetch Completed Journey</span>
+                      <span className="md:hidden">Completed ({completedOrdersCount})</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border bg-emerald-500/15 text-emerald-300 border-emerald-500/40">
+                  <PackageCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span className="hidden md:inline">Completed Journey Loaded ({completedOrdersCount})</span>
+                  <span className="md:hidden">Loaded ({completedOrdersCount})</span>
+                  {onUnloadCompletedSession && (
+                    <button
+                      onClick={onUnloadCompletedSession}
+                      className="ml-1 text-[10px] text-slate-300 hover:text-white underline cursor-pointer font-normal"
+                      title="Unload completed orders and revert to active pipeline"
+                    >
+                      Unload
+                    </button>
+                  )}
+                </div>
+              )
             )}
 
 

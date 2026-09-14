@@ -9,7 +9,9 @@ import {
   ChevronLeft, 
   ChevronRight,
   ShieldCheck,
-  Trash2
+  Trash2,
+  Archive,
+  RefreshCw
 } from 'lucide-react';
 import { DefectiveItem, CCIMaster, UserRole } from '../../types/crm';
 import { formatINR, formatDate, getScreeningStatusStyle } from '../../lib/utils';
@@ -21,6 +23,10 @@ interface DefectiveMasterVaultProps {
   currentRole: UserRole;
   currentStation?: string;
   onDeleteItem?: (item: DefectiveItem) => void;
+  isCompletedSessionLoaded?: boolean;
+  isCompletedSessionLoading?: boolean;
+  onLoadCompletedSession?: () => void;
+  onUnloadCompletedSession?: () => void;
 }
 
 export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
@@ -29,6 +35,10 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
   currentRole,
   currentStation,
   onDeleteItem,
+  isCompletedSessionLoaded,
+  isCompletedSessionLoading,
+  onLoadCompletedSession,
+  onUnloadCompletedSession,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRegion, setSelectedRegion] = useState('ALL');
@@ -163,6 +173,58 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Admin-only Session Banner: Fetch Completed Journey (RC Received ASP) */}
+      {currentRole === 'ADMIN' && onLoadCompletedSession && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-[#0c1630] border border-[#1f2e5a] shadow-sm">
+          <div className="flex items-center gap-3 text-xs">
+            <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 shrink-0">
+              <Layers className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="font-bold text-white">
+                {isCompletedSessionLoaded
+                  ? `Active & Completed Line Items in Session (${items.length} Items)`
+                  : `Active Defective Line Items Vault (${items.length} Items)`}
+              </span>
+              <p className="text-slate-400 text-[11px] mt-0.5">
+                {isCompletedSessionLoaded
+                  ? `Completed journey defective items (RC Received ASP) are loaded for this session.`
+                  : `Completed journey items (Code 5: RC Received ASP) are safely kept in Supabase.`}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            {!isCompletedSessionLoaded ? (
+              <button
+                onClick={onLoadCompletedSession}
+                disabled={isCompletedSessionLoading}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 transition-colors cursor-pointer disabled:opacity-50"
+                title="Fetch completed journey items from Supabase for this session"
+              >
+                {isCompletedSessionLoading ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                    <span>Fetching Completed...</span>
+                  </>
+                ) : (
+                  <>
+                    <Archive className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Fetch Completed Items (Session Only)</span>
+                  </>
+                )}
+              </button>
+            ) : (
+              <button
+                onClick={onUnloadCompletedSession}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-slate-200 border border-[#1f2e5a] cursor-pointer"
+              >
+                <span>Unload Completed Records</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Search and Filters */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 rounded-xl bg-[#101a35] border border-[#1c2b53]">
         <div className="relative flex-1 max-w-md">

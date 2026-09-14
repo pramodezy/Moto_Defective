@@ -11,7 +11,10 @@ import {
   DollarSign, 
   Barcode, 
   ArrowUpRight,
-  TrendingUp
+  TrendingUp,
+  Archive,
+  PackageCheck,
+  RefreshCw
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster } from '../../types/crm';
 import { formatINR } from '../../lib/utils';
@@ -24,6 +27,11 @@ interface AdminDashboardProps {
   stations: CCIMaster[];
   onNavigateTab: (tab: string) => void;
   onSelectOrder: (order: ShippingOrder) => void;
+  isCompletedSessionLoaded?: boolean;
+  isCompletedSessionLoading?: boolean;
+  completedOrdersCount?: number;
+  onLoadCompletedSession?: () => void;
+  onUnloadCompletedSession?: () => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -32,6 +40,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   stations,
   onNavigateTab,
   onSelectOrder,
+  isCompletedSessionLoaded,
+  isCompletedSessionLoading,
+  completedOrdersCount = 1375,
+  onLoadCompletedSession,
+  onUnloadCompletedSession,
 }) => {
   // Aggregate KPI metrics
   const totalValue = useMemo(() => {
@@ -112,7 +125,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Completed Journey session fetch button */}
+            {onLoadCompletedSession && (
+              !isCompletedSessionLoaded ? (
+                <button
+                  onClick={onLoadCompletedSession}
+                  disabled={isCompletedSessionLoading}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-md transition-all hover:scale-[1.02] cursor-pointer disabled:opacity-50"
+                  title="Fetch completed journey shipping orders (RC Received ASP) from Supabase for this session"
+                >
+                  {isCompletedSessionLoading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 text-amber-400 animate-spin" />
+                      <span>Fetching Completed...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Archive className="w-4 h-4 text-amber-400" />
+                      <span>Fetch Completed Journey ({completedOrdersCount})</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 shadow-sm">
+                  <PackageCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Completed Loaded ({completedOrdersCount} SOs)</span>
+                  {onUnloadCompletedSession && (
+                    <button
+                      onClick={onUnloadCompletedSession}
+                      className="ml-1.5 text-[11px] text-slate-300 hover:text-white underline cursor-pointer font-normal"
+                      title="Unload completed orders and revert to active pipeline"
+                    >
+                      Unload
+                    </button>
+                  )}
+                </div>
+              )
+            )}
+
             <button
               onClick={() => onNavigateTab('ingestion')}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white shadow-lg shadow-cyan-500/20 transition-all hover:scale-[1.02]"

@@ -17,7 +17,7 @@ import {
   INITIAL_AUDIT_LOGS 
 } from '../data/seedData';
 import { supabase, isSupabaseConfigured } from './supabase';
-import { deriveCrmStatusFromMotorolaStatus } from './motorolaStatus';
+import { deriveCrmStatusFromMotorolaStatus, isCompletedJourneyStatus } from './motorolaStatus';
 
 const STORAGE_KEYS = {
   STATIONS: 'moto_crm_stations_v2',
@@ -41,6 +41,11 @@ class CRMDatabase {
   private auditLogs: AuditLog[] = [];
   private awbHistory: AWBHistory[] = [];
   private listeners: Set<() => void> = new Set();
+
+  // Admin on-demand session store for completed journey (RC Received ASP)
+  public isCompletedSessionLoaded: boolean = false;
+  public isCompletedSessionLoading: boolean = false;
+  private completedCountCache: { orders: number; items: number } = { orders: 1375, items: 6223 };
 
   constructor() {
     this.loadFromStorage();
@@ -96,12 +101,20 @@ class CRMDatabase {
   }
 
   // Helper to fetch all rows in parallel chunks (bypassing PostgREST 1000-row default limit)
-  private async fetchAllRowsParallel(tableName: string, orderBy = 'created_at'): Promise<any[]> {
+  private async fetchAllRowsParallel(
+    tableName: string, 
+    orderBy = 'created_at',
+    applyFilter?: (query: any) => any
+  ): Promise<any[]> {
     if (!isSupabaseConfigured || !supabase) return [];
     try {
-      const { count, error: countErr } = await supabase.from(tableName).select('*', { count: 'exact', head: true });
+      let countQuery = supabase.from(tableName).select('*', { count: 'exact', head: true });
+      if (applyFilter) countQuery = applyFilter(countQuery);
+      const { count, error: countErr } = await countQuery;
+
       if (countErr || !count || count <= 1000) {
         let query = supabase.from(tableName).select('*');
+        if (applyFilter) query = applyFilter(query);
         if (orderBy) query = query.order(orderBy, { ascending: false });
         const { data } = await query;
         return data || [];
@@ -113,6 +126,7 @@ class CRMDatabase {
         const from = i * BATCH_SIZE;
         const to = from + BATCH_SIZE - 1;
         let query = supabase.from(tableName).select('*');
+        if (applyFilter) query = applyFilter(query);
         if (orderBy) query = query.order(orderBy, { ascending: false });
         batchPromises.push(query.range(from, to));
       }
@@ -129,18 +143,29 @@ class CRMDatabase {
   }
 
   // Live Bidirectional Sync with Supabase Cloud (Single Source of Truth)
+  // NOTE: Completed journey orders (RC Received ASP) are not populated into normal app memory by default.
+  // They remain safely stored in Supabase and can be fetched on demand for active session by Admin ID.
   public async syncAllFromSupabase(): Promise<{ stations: number; orders: number; items: number }> {
     if (!isSupabaseConfigured || !supabase) {
       return { stations: this.stations.length, orders: this.shippingOrders.length, items: this.defectiveItems.length };
     }
 
     try {
-      const [stRes, soRows, itemRows, logRes] = await Promise.all([
+      const [stRes, soRows, itemRows, logRes, soCountRes, itemCountRes] = await Promise.all([
         supabase.from('cci_master').select('*').order('station_code', { ascending: true }),
-        this.fetchAllRowsParallel('shipping_orders', 'created_at'),
-        this.fetchAllRowsParallel('defective_master', 'created_at'),
+        this.fetchAllRowsParallel('shipping_orders', 'created_at', (q) => q.neq('motorola_status', 'RC Received ASP')),
+        this.fetchAllRowsParallel('defective_master', 'created_at', (q) => q.neq('motorola_parts_status', 'RC Received ASP')),
         supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100),
+        supabase.from('shipping_orders').select('id', { count: 'exact', head: true }).eq('motorola_status', 'RC Received ASP'),
+        supabase.from('defective_master').select('id', { count: 'exact', head: true }).eq('motorola_parts_status', 'RC Received ASP'),
       ]);
+
+      if (typeof soCountRes.count === 'number') {
+        this.completedCountCache.orders = soCountRes.count;
+      }
+      if (typeof itemCountRes.count === 'number') {
+        this.completedCountCache.items = itemCountRes.count;
+      }
 
       if (stRes.data && stRes.data.length > 0) {
         this.stations = stRes.data.map((d: any) => ({
@@ -158,62 +183,71 @@ class CRMDatabase {
         }));
       }
 
-      // Populate full shipping orders
-      if (soRows && soRows.length > 0) {
-        this.shippingOrders = soRows.map((so: any) => ({
-          id: so.id,
-          so_code: so.so_code,
-          station_code: so.station_code,
-          region: so.region || 'West',
-          state: so.state || '',
-          city: so.city || '',
-          motorola_status: so.motorola_status || 'CCI Send To CWH',
-          crm_status: (so.crm_status as CRMStatus) || 'AWB Pending',
-          excel_ref_awb: so.excel_ref_awb,
-          active_awb: so.active_awb,
-          courier: so.courier || 'BlueDart Express',
-          eway_bill_required: Boolean(so.eway_bill_required),
-          eway_bill_number: so.eway_bill_number,
-          eway_bill_url: so.eway_bill_url,
-          cwh_evidence_ref: so.cwh_evidence_ref,
-          total_declared_value: parseFloat(so.total_declared_value || 0),
-          max_sr_age: parseInt(so.max_sr_age || 0, 10),
-          priority_tier: parseInt(so.priority_tier || 3, 10) as any,
-          total_items: parseInt(so.total_items || 1, 10),
-          created_at: so.created_at,
-          updated_at: so.updated_at,
-        }));
-      }
+      // Populate active shipping orders (strictly excluding Code 5 RC Received ASP)
+      const activeSoRows = (soRows || []).filter((so: any) => !isCompletedJourneyStatus(so.motorola_status));
+      const activeMappedOrders: ShippingOrder[] = activeSoRows.map((so: any) => ({
+        id: so.id,
+        so_code: so.so_code,
+        station_code: so.station_code,
+        region: so.region || 'West',
+        state: so.state || '',
+        city: so.city || '',
+        motorola_status: so.motorola_status || 'CCI Send To CWH',
+        crm_status: (so.crm_status as CRMStatus) || 'AWB Pending',
+        excel_ref_awb: so.excel_ref_awb,
+        active_awb: so.active_awb,
+        courier: so.courier || 'BlueDart Express',
+        eway_bill_required: Boolean(so.eway_bill_required),
+        eway_bill_number: so.eway_bill_number,
+        eway_bill_url: so.eway_bill_url,
+        cwh_evidence_ref: so.cwh_evidence_ref,
+        total_declared_value: parseFloat(so.total_declared_value || 0),
+        max_sr_age: parseInt(so.max_sr_age || 0, 10),
+        priority_tier: parseInt(so.priority_tier || 3, 10) as any,
+        total_items: parseInt(so.total_items || 1, 10),
+        created_at: so.created_at,
+        updated_at: so.updated_at,
+      }));
 
-      // Populate full defective master items (all 7000+ items)
-      if (itemRows && itemRows.length > 0) {
-        this.defectiveItems = itemRows.map((it: any) => ({
-          id: it.id,
-          composite_key: it.composite_key,
-          sr_number: it.sr_number,
-          sr_part_number: it.sr_part_number,
-          new_part_number: it.new_part_number || '',
-          part_category: it.part_category || 'General Spare',
-          part_description: it.part_description || '',
-          quantity: parseInt(it.quantity || 1, 10),
-          station_code: it.station_code,
-          region: it.region,
-          state: it.state,
-          city: it.city,
-          shipping_order_code: it.shipping_order_code,
-          shipping_order_id: it.shipping_order_id,
-          sr_close_timestamp: it.sr_close_timestamp,
-          sr_model_name: it.sr_model_name,
-          sr_fault_description: it.sr_fault_description,
-          motorola_parts_status: it.motorola_parts_status || 'CCI Send To CWH',
-          excel_awb: it.excel_awb,
-          screening_status: it.screening_status || 'Pending',
-          item_remarks: it.item_remarks,
-          estimated_value: parseFloat(it.estimated_value || 8000),
-          last_synced_at: it.last_synced_at || it.created_at,
-          created_at: it.created_at,
-          updated_at: it.updated_at,
-        }));
+      // Populate active defective master items (strictly excluding Code 5 RC Received ASP)
+      const activeItemRows = (itemRows || []).filter((it: any) => !isCompletedJourneyStatus(it.motorola_parts_status));
+      const activeMappedItems: DefectiveItem[] = activeItemRows.map((it: any) => ({
+        id: it.id,
+        composite_key: it.composite_key,
+        sr_number: it.sr_number,
+        sr_part_number: it.sr_part_number,
+        new_part_number: it.new_part_number || '',
+        part_category: it.part_category || 'General Spare',
+        part_description: it.part_description || '',
+        quantity: parseInt(it.quantity || 1, 10),
+        station_code: it.station_code,
+        region: it.region,
+        state: it.state,
+        city: it.city,
+        shipping_order_code: it.shipping_order_code,
+        shipping_order_id: it.shipping_order_id,
+        sr_close_timestamp: it.sr_close_timestamp,
+        sr_model_name: it.sr_model_name,
+        sr_fault_description: it.sr_fault_description,
+        motorola_parts_status: it.motorola_parts_status || 'CCI Send To CWH',
+        excel_awb: it.excel_awb,
+        screening_status: it.screening_status || 'Pending',
+        item_remarks: it.item_remarks,
+        estimated_value: parseFloat(it.estimated_value || 8000),
+        last_synced_at: it.last_synced_at || it.created_at,
+        created_at: it.created_at,
+        updated_at: it.updated_at,
+      }));
+
+      if (this.isCompletedSessionLoaded) {
+        // If the Admin already loaded completed session data, preserve those completed records in memory
+        const existingCompletedOrders = this.shippingOrders.filter(so => isCompletedJourneyStatus(so.motorola_status));
+        const existingCompletedItems = this.defectiveItems.filter(it => isCompletedJourneyStatus(it.motorola_parts_status));
+        this.shippingOrders = [...activeMappedOrders, ...existingCompletedOrders];
+        this.defectiveItems = [...activeMappedItems, ...existingCompletedItems];
+      } else {
+        this.shippingOrders = activeMappedOrders;
+        this.defectiveItems = activeMappedItems;
       }
 
       if (logRes.data && logRes.data.length > 0) {
@@ -247,6 +281,111 @@ class CRMDatabase {
     }
   }
 
+  public getCompletedArchivedCounts(): { orders: number; items: number } {
+    return { ...this.completedCountCache };
+  }
+
+  // Load completed journey orders (RC Received ASP) for the active session in Admin ID only
+  public async loadCompletedSessionData(): Promise<{ orders: number; items: number }> {
+    if (!isSupabaseConfigured || !supabase) {
+      return { orders: 0, items: 0 };
+    }
+    this.isCompletedSessionLoading = true;
+    this.listeners.forEach((l) => l());
+
+    try {
+      const [completedSoRows, completedItemRows] = await Promise.all([
+        this.fetchAllRowsParallel('shipping_orders', 'created_at', (q) => q.eq('motorola_status', 'RC Received ASP')),
+        this.fetchAllRowsParallel('defective_master', 'created_at', (q) => q.eq('motorola_parts_status', 'RC Received ASP')),
+      ]);
+
+      const mappedCompletedOrders: ShippingOrder[] = (completedSoRows || []).map((so: any) => ({
+        id: so.id,
+        so_code: so.so_code,
+        station_code: so.station_code,
+        region: so.region || 'West',
+        state: so.state || '',
+        city: so.city || '',
+        motorola_status: so.motorola_status || 'RC Received ASP',
+        crm_status: (so.crm_status as CRMStatus) || 'Closed',
+        excel_ref_awb: so.excel_ref_awb,
+        active_awb: so.active_awb,
+        courier: so.courier || 'BlueDart Express',
+        eway_bill_required: Boolean(so.eway_bill_required),
+        eway_bill_number: so.eway_bill_number,
+        eway_bill_url: so.eway_bill_url,
+        cwh_evidence_ref: so.cwh_evidence_ref,
+        total_declared_value: parseFloat(so.total_declared_value || 0),
+        max_sr_age: parseInt(so.max_sr_age || 0, 10),
+        priority_tier: parseInt(so.priority_tier || 3, 10) as any,
+        total_items: parseInt(so.total_items || 1, 10),
+        created_at: so.created_at,
+        updated_at: so.updated_at,
+      }));
+
+      const mappedCompletedItems: DefectiveItem[] = (completedItemRows || []).map((it: any) => ({
+        id: it.id,
+        composite_key: it.composite_key,
+        sr_number: it.sr_number,
+        sr_part_number: it.sr_part_number,
+        new_part_number: it.new_part_number || '',
+        part_category: it.part_category || 'General Spare',
+        part_description: it.part_description || '',
+        quantity: parseInt(it.quantity || 1, 10),
+        station_code: it.station_code,
+        region: it.region,
+        state: it.state,
+        city: it.city,
+        shipping_order_code: it.shipping_order_code,
+        shipping_order_id: it.shipping_order_id,
+        sr_close_timestamp: it.sr_close_timestamp,
+        sr_model_name: it.sr_model_name,
+        sr_fault_description: it.sr_fault_description,
+        motorola_parts_status: it.motorola_parts_status || 'RC Received ASP',
+        excel_awb: it.excel_awb,
+        screening_status: it.screening_status || 'Approved',
+        item_remarks: it.item_remarks,
+        estimated_value: parseFloat(it.estimated_value || 8000),
+        last_synced_at: it.last_synced_at || it.created_at,
+        created_at: it.created_at,
+        updated_at: it.updated_at,
+      }));
+
+      // Merge into in-memory store for active session without duplicate ids
+      const existingSoIds = new Set(this.shippingOrders.map((o) => o.id));
+      const newOrders = mappedCompletedOrders.filter((o) => !existingSoIds.has(o.id));
+      this.shippingOrders = [...this.shippingOrders, ...newOrders];
+
+      const existingItemIds = new Set(this.defectiveItems.map((i) => i.id));
+      const newItems = mappedCompletedItems.filter((i) => !existingItemIds.has(i.id));
+      this.defectiveItems = [...this.defectiveItems, ...newItems];
+
+      this.isCompletedSessionLoaded = true;
+      this.completedCountCache.orders = mappedCompletedOrders.length;
+      this.completedCountCache.items = mappedCompletedItems.length;
+
+      this.reapplyStationLocationMappings();
+      this.listeners.forEach((l) => l());
+
+      return { orders: mappedCompletedOrders.length, items: mappedCompletedItems.length };
+    } catch (err) {
+      console.error('Failed to fetch completed session data:', err);
+      return { orders: 0, items: 0 };
+    } finally {
+      this.isCompletedSessionLoading = false;
+      this.listeners.forEach((l) => l());
+    }
+  }
+
+  // Unload completed session data (reverts in-memory view to active operational pipeline only)
+  public unloadCompletedSessionData(): void {
+    this.shippingOrders = this.shippingOrders.filter((so) => !isCompletedJourneyStatus(so.motorola_status));
+    this.defectiveItems = this.defectiveItems.filter((it) => !isCompletedJourneyStatus(it.motorola_parts_status));
+    this.isCompletedSessionLoaded = false;
+    this.saveToStorage();
+    this.listeners.forEach((l) => l());
+  }
+
   // Synchronize stations from Supabase cci_master table
   public async syncStationsFromSupabase(): Promise<number> {
     const res = await this.syncAllFromSupabase();
@@ -262,12 +401,14 @@ class CRMDatabase {
       const savedAwbHistory = localStorage.getItem(STORAGE_KEYS.AWB_HISTORY);
 
       this.stations = savedStations ? JSON.parse(savedStations) : INITIAL_STATIONS;
-      this.shippingOrders = savedOrders ? JSON.parse(savedOrders) : INITIAL_SHIPPING_ORDERS;
-      this.defectiveItems = savedItems ? JSON.parse(savedItems) : INITIAL_DEFECTIVE_ITEMS;
+      // Filter out any previously stored completed orders so default start is always active pipeline only
+      const rawOrders = savedOrders ? JSON.parse(savedOrders) : INITIAL_SHIPPING_ORDERS;
+      const rawItems = savedItems ? JSON.parse(savedItems) : INITIAL_DEFECTIVE_ITEMS;
+      this.shippingOrders = rawOrders.filter((so: any) => !isCompletedJourneyStatus(so.motorola_status));
+      this.defectiveItems = rawItems.filter((it: any) => !isCompletedJourneyStatus(it.motorola_parts_status));
       this.auditLogs = savedLogs ? JSON.parse(savedLogs) : INITIAL_AUDIT_LOGS;
       this.awbHistory = savedAwbHistory ? JSON.parse(savedAwbHistory) : [];
 
-      // If storage was empty, seed with initial data
       if (!savedStations) this.saveToStorage();
     } catch (e) {
       console.warn('Failed to load from localStorage, using initial seed data', e);
@@ -282,8 +423,11 @@ class CRMDatabase {
   private saveToStorage() {
     try {
       localStorage.setItem(STORAGE_KEYS.STATIONS, JSON.stringify(this.stations));
-      localStorage.setItem(STORAGE_KEYS.SHIPPING_ORDERS, JSON.stringify(this.shippingOrders));
-      localStorage.setItem(STORAGE_KEYS.DEFECTIVE_ITEMS, JSON.stringify(this.defectiveItems));
+      // Only persist active operational records to localStorage; completed records stay purely in Supabase and active session
+      const activeOrders = this.shippingOrders.filter((so) => !isCompletedJourneyStatus(so.motorola_status));
+      const activeItems = this.defectiveItems.filter((it) => !isCompletedJourneyStatus(it.motorola_parts_status));
+      localStorage.setItem(STORAGE_KEYS.SHIPPING_ORDERS, JSON.stringify(activeOrders));
+      localStorage.setItem(STORAGE_KEYS.DEFECTIVE_ITEMS, JSON.stringify(activeItems));
       localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(this.auditLogs));
       localStorage.setItem(STORAGE_KEYS.AWB_HISTORY, JSON.stringify(this.awbHistory));
     } catch (e) {
