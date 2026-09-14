@@ -56,7 +56,7 @@ BEGIN
     NEW.station_name,
     'CCI',
     NEW.station_code,
-    crypt('Moto@123', gen_salt('bf')),
+    crypt(COALESCE(NULLIF(current_setting('app.default_user_pwd', true), ''), 'SetStationPassword#'), gen_salt('bf')),
     COALESCE(NEW.is_active, true)
   )
   ON CONFLICT (username) DO UPDATE

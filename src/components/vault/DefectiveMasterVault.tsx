@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { DefectiveItem, CCIMaster, UserRole } from '../../types/crm';
 import { formatINR, formatDate, getScreeningStatusStyle } from '../../lib/utils';
-import { getMotorolaStatusInfo } from '../../lib/motorolaStatus';
+import { getMotorolaStatusInfo, isCompletedJourneyStatus } from '../../lib/motorolaStatus';
 
 interface DefectiveMasterVaultProps {
   items: DefectiveItem[];
@@ -88,6 +88,11 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
+      // Exclude Code 5 (RC Received ASP) unless explicitly loaded by Admin for active session
+      if (!isCompletedSessionLoaded && isCompletedJourneyStatus(item.motorola_parts_status)) {
+        return false;
+      }
+
       if (currentRole === 'CCI' && currentStation && item.station_code !== currentStation) {
         return false;
       }

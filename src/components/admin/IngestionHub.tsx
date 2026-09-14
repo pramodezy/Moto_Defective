@@ -116,6 +116,7 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
         );
         if (pushRes.success) {
           cloudFeedback = ` | Direct Cloud Push: ${pushRes.ordersCount} SOs, ${pushRes.itemsCount} Items Ingested to Supabase!`;
+          await crmDb.syncAllFromSupabase();
           refreshSupabase();
         } else {
           cloudFeedback = ` | Local store updated, but Supabase reported: ${pushRes.message}`;

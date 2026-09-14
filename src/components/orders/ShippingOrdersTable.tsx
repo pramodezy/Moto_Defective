@@ -24,7 +24,7 @@ import { ShippingOrder, DefectiveItem, CCIMaster, PriorityTier, CRMStatus, UserR
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
 import { printConsignmentManifest } from '../../services/manifestGenerator';
-import { getMotorolaStatusInfo, isAwbIssueRequired } from '../../lib/motorolaStatus';
+import { getMotorolaStatusInfo, isAwbIssueRequired, isCompletedJourneyStatus } from '../../lib/motorolaStatus';
 
 interface ShippingOrdersTableProps {
   orders: ShippingOrder[];
@@ -101,6 +101,11 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
   // Scoped filtering
   const filteredOrders = useMemo(() => {
     return orders.filter((so) => {
+      // Exclude Code 5 (RC Received ASP) unless explicitly loaded by Admin for active session
+      if (!isCompletedSessionLoaded && isCompletedJourneyStatus(so.motorola_status)) {
+        return false;
+      }
+
       // Role scoping: if CCI, only show own station
       if (currentRole === 'CCI' && currentStation && so.station_code !== currentStation) {
         return false;

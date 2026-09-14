@@ -17,14 +17,14 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
 CREATE OR REPLACE FUNCTION sync_cci_to_profile()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Insert or update user profile with default station password (Moto@123)
+  -- Insert or update user profile with station password placeholder
   INSERT INTO profiles (username, full_name, role, station_code, password_hash, is_active)
   VALUES (
     COALESCE(NEW.username, 'cci_' || NEW.station_code),
     NEW.station_name,
     'CCI',
     NEW.station_code,
-    crypt('Moto@123', gen_salt('bf')),
+    crypt(COALESCE(NULLIF(current_setting('app.default_station_pwd', true), ''), 'SetStationPassword#'), gen_salt('bf')),
     COALESCE(NEW.is_active, true)
   )
   ON CONFLICT (username) DO UPDATE
@@ -44,43 +44,42 @@ FOR EACH ROW
 EXECUTE FUNCTION sync_cci_to_profile();
 
 -- 4. Seed Standard Enterprise Profiles into `profiles` with bcrypt hashes
--- Admin (Password: Admin@@123)
+-- NOTE: Never commit production passwords to GitHub repository.
+-- Admin
 INSERT INTO profiles (username, full_name, role, password_hash, is_active)
 VALUES (
   'Admin',
   'Pramod Kumar (System Admin)',
   'ADMIN',
-  crypt('Admin@@123', gen_salt('bf')),
+  crypt(COALESCE(NULLIF(current_setting('app.admin_pwd', true), ''), 'SetAdminPassword#'), gen_salt('bf')),
   true
 )
 ON CONFLICT (username) DO UPDATE
-SET password_hash = EXCLUDED.password_hash;
+SET full_name = EXCLUDED.full_name;
 
--- CWH 1: Box Accept Lead (Password: Moto123#)
+-- CWH 1: Inward & Box Accept Lead
 INSERT INTO profiles (username, full_name, role, password_hash, is_active)
 VALUES (
   'CWH_1',
   'CWH Inward & Box Accept Lead',
   'CWH',
-  crypt('Moto123#', gen_salt('bf')),
+  crypt(COALESCE(NULLIF(current_setting('app.cwh_pwd', true), ''), 'SetCwhPassword#'), gen_salt('bf')),
   true
 )
 ON CONFLICT (username) DO UPDATE
-SET password_hash = EXCLUDED.password_hash,
-    full_name = EXCLUDED.full_name;
+SET full_name = EXCLUDED.full_name;
 
--- CWH 2: Quality Screener (Password: Moto123#)
+-- CWH 2: Quality Screener & Inspection
 INSERT INTO profiles (username, full_name, role, password_hash, is_active)
 VALUES (
   'CWH_2',
   'CWH Quality Screener & Inspection',
   'CWH',
-  crypt('Moto123#', gen_salt('bf')),
+  crypt(COALESCE(NULLIF(current_setting('app.cwh_pwd', true), ''), 'SetCwhPassword#'), gen_salt('bf')),
   true
 )
 ON CONFLICT (username) DO UPDATE
-SET password_hash = EXCLUDED.password_hash,
-    full_name = EXCLUDED.full_name;
+SET full_name = EXCLUDED.full_name;
 
 -- 5. Backfill all existing stations from cci_master into profiles
 INSERT INTO profiles (username, full_name, role, station_code, password_hash, is_active)
@@ -89,7 +88,7 @@ SELECT
   station_name,
   'CCI',
   station_code,
-  crypt('Moto@123', gen_salt('bf')),
+  crypt(COALESCE(NULLIF(current_setting('app.default_station_pwd', true), ''), 'SetStationPassword#'), gen_salt('bf')),
   is_active
 FROM cci_master
 ON CONFLICT (username) DO UPDATE

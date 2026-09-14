@@ -508,16 +508,28 @@ class CRMDatabase {
   }
 
   public getShippingOrders(stationCode?: string): ShippingOrder[] {
-    if (!stationCode) return [...this.shippingOrders];
-    return this.shippingOrders.filter((so) => so.station_code === stationCode);
+    let orders = this.shippingOrders;
+    if (!this.isCompletedSessionLoaded) {
+      orders = orders.filter((so) => !isCompletedJourneyStatus(so.motorola_status));
+    }
+    if (!stationCode) return [...orders];
+    return orders.filter((so) => so.station_code === stationCode);
   }
 
   public getShippingOrderById(id: string): ShippingOrder | undefined {
-    return this.shippingOrders.find((so) => so.id === id || so.so_code === id);
+    const found = this.shippingOrders.find((so) => so.id === id || so.so_code === id);
+    if (!found) return undefined;
+    if (!this.isCompletedSessionLoaded && isCompletedJourneyStatus(found.motorola_status)) {
+      return undefined;
+    }
+    return found;
   }
 
   public getDefectiveItems(stationCode?: string, soCode?: string): DefectiveItem[] {
     let result = this.defectiveItems;
+    if (!this.isCompletedSessionLoaded) {
+      result = result.filter((item) => !isCompletedJourneyStatus(item.motorola_parts_status));
+    }
     if (stationCode) {
       result = result.filter((item) => item.station_code === stationCode);
     }
@@ -676,6 +688,10 @@ class CRMDatabase {
       existingSo.state = state;
       existingSo.city = city;
       existingSo.updated_at = new Date().toISOString();
+
+      if (!this.isCompletedSessionLoaded && isCompletedJourneyStatus(existingSo.motorola_status)) {
+        this.shippingOrders = this.shippingOrders.filter((so) => so.so_code !== soCode);
+      }
     } else {
       const isDelivered = derivedCrmStatus === 'Closed' || latestMotoStatus?.toLowerCase().includes('rc received');
       const newSo: ShippingOrder = {
@@ -699,7 +715,9 @@ class CRMDatabase {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      this.shippingOrders.unshift(newSo);
+      if (this.isCompletedSessionLoaded || !isCompletedJourneyStatus(latestMotoStatus)) {
+        this.shippingOrders.unshift(newSo);
+      }
     }
   }
 
@@ -753,6 +771,9 @@ class CRMDatabase {
           existing.last_synced_at = new Date().toISOString();
           existing.updated_at = new Date().toISOString();
           
+          if (!this.isCompletedSessionLoaded && isCompletedJourneyStatus(existing.motorola_parts_status)) {
+            this.defectiveItems = this.defectiveItems.filter((it) => it.composite_key !== compositeKey);
+          }
           updated++;
         } else {
           // New Line Item
@@ -784,7 +805,9 @@ class CRMDatabase {
           };
 
           itemMap.set(compositeKey, newItem);
-          this.defectiveItems.unshift(newItem);
+          if (this.isCompletedSessionLoaded || !isCompletedJourneyStatus(newItem.motorola_parts_status)) {
+            this.defectiveItems.unshift(newItem);
+          }
           inserted++;
         }
 
@@ -800,10 +823,10 @@ class CRMDatabase {
       this.recalculateShippingOrder(soCode);
     });
 
-    // Live push to Supabase Cloud
+    // Live push to Supabase Cloud (push ALL processed items & orders so cloud has complete archive)
     if (isSupabaseConfigured && supabase) {
       const client = supabase;
-      const itemsToPush = this.defectiveItems.filter((i) => affectedSoCodes.has(i.shipping_order_code));
+      const itemsToPush = Array.from(itemMap.values()).filter((i) => affectedSoCodes.has(i.shipping_order_code));
       const ordersToPush = this.shippingOrders.filter((o) => affectedSoCodes.has(o.so_code));
 
       (async () => {
