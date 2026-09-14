@@ -228,7 +228,11 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
       const res = await crmDb.bulkAssignAwbTokens(recordsToUpdate, user);
 
       if (res.updatedCount > 0) {
-        toast.success(`Successfully assigned AWBs to ${res.updatedCount} shipping orders in database!`);
+        if (res.errors.length > 0) {
+          toast.warning(`Updated ${res.updatedCount} orders to "In Transit", with notices: ${res.errors.slice(0, 2).join('; ')}`);
+        } else {
+          toast.success(`Successfully assigned AWBs & updated ${res.updatedCount} orders to "In Transit" (synced to Supabase)!`);
+        }
         onSuccess?.(res.updatedCount);
         onClose();
       } else {

@@ -118,6 +118,20 @@ class CRMDatabase {
         so.crm_status = 'Create DC for RC';
         modified = true;
       }
+
+      // If consignment has an assigned active AWB and is not CWH received/discrepancy/closed, CRM status is 'In Transit'
+      const hasAwb = !!(so.active_awb && so.active_awb.trim());
+      const motoLower = (so.motorola_status || '').toLowerCase();
+      if (
+        hasAwb &&
+        (so.crm_status === 'AWB Pending' || !so.crm_status) &&
+        !motoLower.includes('cwh received') &&
+        !motoLower.includes('rc received') &&
+        !motoLower.includes('discrepanc')
+      ) {
+        so.crm_status = 'In Transit';
+        modified = true;
+      }
     });
 
     if (modified) {
@@ -1023,10 +1037,9 @@ class CRMDatabase {
       client.from('shipping_orders').update({
         crm_status: so.crm_status,
         motorola_status: so.motorola_status,
-        pickup_status: so.pickup_status,
         cwh_evidence_ref: so.cwh_evidence_ref,
         updated_at: so.updated_at,
-      }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(({ error }) => {
+      }).eq('so_code', so.so_code).then(({ error }) => {
         if (error) console.warn('Live Supabase update for inward verification failed:', error.message);
       });
 
@@ -1168,9 +1181,9 @@ class CRMDatabase {
       supabase.from('shipping_orders').update({
         active_awb: so.active_awb,
         courier: so.courier,
-        pickup_status: so.pickup_status,
+        crm_status: so.crm_status,
         updated_at: so.updated_at,
-      }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(({ error }) => {
+      }).eq('so_code', so.so_code).then(({ error }) => {
         if (error) console.warn('Live Supabase update for assign AWB failed:', error.message);
       });
     }
@@ -1247,6 +1260,7 @@ class CRMDatabase {
       // Update SO properties
       so.active_awb = cleanAwb;
       so.courier = cleanCourier;
+      so.crm_status = 'In Transit'; // Assigning AWB moves status to In Transit
       so.pickup_status = 'Pickup Pending'; // AWB assigned; awaiting pickup from station
       if (rec.ewayBillNumber && rec.ewayBillNumber.trim()) {
         so.eway_bill_number = rec.ewayBillNumber.trim();
@@ -1266,7 +1280,7 @@ class CRMDatabase {
         user_role: user.role,
         action: oldAwb ? 'AWB_RETOKENED' : 'AWB_ASSIGNED',
         awb: cleanAwb,
-        remarks: `Bulk AWB Update by CWH: Assigned ${cleanAwb} (${cleanCourier})`,
+        remarks: `Bulk AWB Update by CWH: Assigned ${cleanAwb} (${cleanCourier}). Status updated to In Transit.`,
         created_at: timestamp,
       });
 
@@ -1277,18 +1291,29 @@ class CRMDatabase {
     // Live update to Supabase Cloud in parallel batches
     if (isSupabaseConfigured && supabase && updatedSos.length > 0) {
       const client = supabase;
-      const updatePromises = updatedSos.map((so) =>
-        client.from('shipping_orders').update({
+      const updatePromises = updatedSos.map(async (so) => {
+        const updatePayload: Record<string, any> = {
           active_awb: so.active_awb,
           courier: so.courier,
-          pickup_status: so.pickup_status,
-          eway_bill_number: so.eway_bill_number,
-          eway_bill_required: so.eway_bill_required,
-          eway_bill_url: so.eway_bill_url,
+          crm_status: so.crm_status,
+          eway_bill_number: so.eway_bill_number || '',
+          eway_bill_required: Boolean(so.eway_bill_required),
+          eway_bill_url: so.eway_bill_url || '',
           updated_at: so.updated_at,
-        }).eq('id', so.id)
-      );
-      await Promise.allSettled(updatePromises);
+        };
+
+        const { error } = await client
+          .from('shipping_orders')
+          .update(updatePayload)
+          .eq('so_code', so.so_code);
+
+        if (error) {
+          console.error(`Supabase bulk AWB update failed for ${so.so_code}:`, error.message);
+          errors.push(`${so.so_code}: Supabase sync error - ${error.message}`);
+        }
+      });
+
+      await Promise.all(updatePromises);
     }
 
     this.notify();
@@ -1382,11 +1407,8 @@ class CRMDatabase {
         active_awb: so.active_awb,
         courier: so.courier,
         crm_status: so.crm_status,
-        pickup_status: so.pickup_status,
-        pickup_date: so.pickup_date,
-        pickup_remarks: so.pickup_remarks,
         updated_at: so.updated_at,
-      }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(({ error }) => {
+      }).eq('so_code', so.so_code).then(({ error }) => {
         if (error) console.warn('Live Supabase update for CCI pickup action failed:', error.message);
       });
     }
