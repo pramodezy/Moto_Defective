@@ -84,32 +84,42 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   }, [stationItems]);
 
   // 2. "CCI send to CWH" + AWB updated from CWH -> Action for CCI: Pickup Handover Pending
-  // Strictly only Code 2 (CCI send to CWH) - excludes ASP Send to RC, CWH Received, and RC Received
+  // Strictly orders with AWB where parcel has NOT yet been handed over to courier and is NOT yet in transit or CWH received
   const pickupHandoverOrders = useMemo(() => {
     return stationOrders.filter((o) => {
+      if (o.crm_status === 'In Transit' || o.crm_status === 'CWH Received' || o.crm_status === 'Dispatched to RC' || o.crm_status === 'Closed' || o.crm_status === 'Discrepancy Tagged') {
+        return false;
+      }
+      if (o.pickup_status === 'Pickup Done') return false;
       const moto = getMotorolaStatusInfo(o.motorola_status);
-      if (moto.code !== 2) return false;
+      if (moto.code === 3 || moto.code === 4 || moto.code === 5 || moto.code === 6) return false;
       const hasAwb = !!(o.active_awb || o.excel_ref_awb);
-      return hasAwb && o.pickup_status !== 'Pickup Done';
+      return hasAwb;
     });
   }, [stationOrders]);
 
   // 3. "CCI send to CWH" + once updated -> In-Transit till delivery & updated as CWH Received: CCI need to monitor
-  // Strictly only Code 2 (CCI send to CWH) en route to warehouse
+  // Strictly consignments en route to CWH (In Transit or Pickup Done), excluding CWH Received and closed
   const inTransitMonitorOrders = useMemo(() => {
     return stationOrders.filter((o) => {
+      if (o.crm_status === 'CWH Received' || o.crm_status === 'Dispatched to RC' || o.crm_status === 'Closed' || o.crm_status === 'Discrepancy Tagged') {
+        return false;
+      }
       const moto = getMotorolaStatusInfo(o.motorola_status);
-      if (moto.code !== 2) return false;
+      if (moto.code === 3 || moto.code === 4 || moto.code === 5 || moto.code === 6) return false;
       const hasAwb = !!(o.active_awb || o.excel_ref_awb);
-      return hasAwb && o.pickup_status === 'Pickup Done';
+      return hasAwb && (o.crm_status === 'In Transit' || o.pickup_status === 'Pickup Done');
     });
   }, [stationOrders]);
 
   // 4. "CCI send to CWH" + AWB not yet updated by CWH: DC created, waiting for CWH to issue AWB
   const awaitingCwhAwbOrders = useMemo(() => {
     return stationOrders.filter((o) => {
+      if (o.crm_status === 'In Transit' || o.crm_status === 'CWH Received' || o.crm_status === 'Dispatched to RC' || o.crm_status === 'Closed' || o.crm_status === 'Discrepancy Tagged') {
+        return false;
+      }
       const moto = getMotorolaStatusInfo(o.motorola_status);
-      if (moto.code !== 2) return false;
+      if (moto.code === 3 || moto.code === 4 || moto.code === 5 || moto.code === 6) return false;
       const hasAwb = !!(o.active_awb || o.excel_ref_awb);
       return !hasAwb;
     });
@@ -119,8 +129,9 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   // "ASP Send to RC is a dispatch from CWH to RC hence for CCI it is not actionable"
   const cwhStageOrders = useMemo(() => {
     return stationOrders.filter((o) => {
+      if (o.crm_status === 'Closed') return false;
       const moto = getMotorolaStatusInfo(o.motorola_status);
-      return moto.code === 3 || moto.code === 4 || o.crm_status === 'CWH Received' || o.crm_status === 'Dispatched to RC';
+      return moto.code === 3 || moto.code === 4 || o.crm_status === 'CWH Received' || o.crm_status === 'Dispatched to RC' || o.crm_status === 'Discrepancy Tagged';
     });
   }, [stationOrders]);
 

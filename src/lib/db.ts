@@ -673,6 +673,9 @@ class CRMDatabase {
       if (item) {
         item.screening_status = data.status;
         if (data.remarks) item.item_remarks = data.remarks;
+        item.motorola_parts_status = ['Failed', 'Damaged', 'Missing'].includes(data.status)
+          ? '6. RC Received ASP(Negative)'
+          : '3. CWH Received';
         item.updated_at = new Date().toISOString();
         if (['Failed', 'Damaged', 'Missing'].includes(data.status)) {
           hasDiscrepancy = true;
@@ -682,6 +685,8 @@ class CRMDatabase {
 
     const newStatus: CRMStatus = hasDiscrepancy ? 'Discrepancy Tagged' : 'CWH Received';
     so.crm_status = newStatus;
+    so.motorola_status = hasDiscrepancy ? '6. RC Received ASP(Negative)' : '3. CWH Received';
+    so.pickup_status = 'Pickup Done';
     if (cwhEvidenceRef) {
       so.cwh_evidence_ref = cwhEvidenceRef;
     }
@@ -701,6 +706,28 @@ class CRMDatabase {
         : `Consignment inward verified successfully. All line items passed inspection under CCTV.`,
       created_at: new Date().toISOString(),
     });
+
+    // Live update to Supabase Cloud if configured
+    if (isSupabaseConfigured && supabase) {
+      const client = supabase;
+      client.from('shipping_orders').update({
+        crm_status: so.crm_status,
+        motorola_status: so.motorola_status,
+        pickup_status: so.pickup_status,
+        cwh_evidence_ref: so.cwh_evidence_ref,
+        updated_at: so.updated_at,
+      }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(({ error }) => {
+        if (error) console.warn('Live Supabase update for inward verification failed:', error.message);
+      });
+
+      // Update constituent defective line items
+      client.from('defective_master').update({
+        motorola_parts_status: so.motorola_status,
+        updated_at: so.updated_at,
+      }).eq('shipping_order_code', so.so_code).then(({ error }) => {
+        if (error) console.warn('Live Supabase defective items update failed:', error.message);
+      });
+    }
 
     this.notify();
     return so;
@@ -746,9 +773,7 @@ class CRMDatabase {
 
     so.active_awb = newAwb;
     so.courier = courier;
-    if (so.crm_status === 'AWB Pending') {
-      so.crm_status = 'In Transit';
-    }
+    so.pickup_status = 'Pickup Pending'; // AWB assigned by CWH; awaiting handover from CCI
     so.updated_at = new Date().toISOString();
 
     this.auditLogs.unshift({
@@ -764,6 +789,18 @@ class CRMDatabase {
         : `New AWB ${newAwb} generated for ${courier}`,
       created_at: new Date().toISOString(),
     });
+
+    // Live update to Supabase Cloud
+    if (isSupabaseConfigured && supabase) {
+      supabase.from('shipping_orders').update({
+        active_awb: so.active_awb,
+        courier: so.courier,
+        pickup_status: so.pickup_status,
+        updated_at: so.updated_at,
+      }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(({ error }) => {
+        if (error) console.warn('Live Supabase update for assign AWB failed:', error.message);
+      });
+    }
 
     this.notify();
     return so;
@@ -856,8 +893,11 @@ class CRMDatabase {
         active_awb: so.active_awb,
         courier: so.courier,
         crm_status: so.crm_status,
+        pickup_status: so.pickup_status,
+        pickup_date: so.pickup_date,
+        pickup_remarks: so.pickup_remarks,
         updated_at: so.updated_at,
-      }).eq('so_code', so.so_code).then(({ error }) => {
+      }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(({ error }) => {
         if (error) console.warn('Live Supabase update for CCI pickup action failed:', error.message);
       });
     }
