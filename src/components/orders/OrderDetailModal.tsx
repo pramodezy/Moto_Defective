@@ -85,7 +85,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   const needsAwb = isAwbIssueRequired(order);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
       <div className="relative w-full max-w-5xl max-h-[90vh] flex flex-col rounded-2xl bg-[#0b1329] border border-[#1f2e5a] shadow-2xl overflow-hidden">
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#1f2e5a] bg-[#101a35]">
@@ -111,13 +111,16 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => printConsignmentManifest(order, orderItems, station)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-cyan-300 border border-cyan-500/30 transition-colors cursor-pointer"
-            >
-              <Printer className="w-4 h-4" />
-              Print Manifest
-            </button>
+            {orderItems.length > 0 && (
+              <button
+                onClick={() => printConsignmentManifest(order, orderItems, station)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-cyan-300 border border-cyan-500/30 transition-colors cursor-pointer"
+                title="Print physical manifest for dispatch"
+              >
+                <Printer className="w-4 h-4" />
+                Print Manifest
+              </button>
+            )}
 
             {onOpenPickupModal && motoInfo.code === 2 && !motoInfo.isDelivered && (order.active_awb || order.excel_ref_awb || order.crm_status !== 'AWB Pending') && (
               <button
@@ -162,17 +165,17 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
         {/* Modal Body & Metrics */}
         <div className="p-6 overflow-y-auto space-y-6">
           {/* Action Guidance Banner */}
-          {order.crm_status === 'Discrepancy Tagged' || motoInfo.code === 6 ? (
+          {order.crm_status === 'CWH Received - Discrepancies' || order.crm_status === 'Discrepancy Tagged' || motoInfo.code === 35 || motoInfo.code === 6 ? (
             <div className="p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/40 flex items-start gap-3 text-xs">
               <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold text-rose-300">Discrepancy Flagged during CWH CCTV Unboxing:</span>
+                <span className="font-bold text-rose-300">CWH Inward Discrepancy Flagged:</span>
                 <p className="text-slate-300 mt-1">
-                  This consignment has recorded quantity shortages, outer carton issues, or defective part mismatch/damage. Motorola parts status escalated to <strong className="text-rose-300">6. RC Received ASP(Negative)</strong>.
+                  This consignment recorded quantity shortage, outer carton issues, or defective part mismatch/damage. Status is <strong className="text-rose-300 font-mono">CWH Received - Discrepancies</strong>.
                 </p>
                 {order.cwh_evidence_ref && (
                   <div className="mt-2 text-[11px] text-indigo-300 font-mono">
-                    📹 CCTV Verification Log attached: {order.cwh_evidence_ref}
+                    📹 CCTV Reference / Link: {order.cwh_evidence_ref}
                   </div>
                 )}
               </div>
@@ -200,7 +203,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
           ) : needsAwb ? (
             <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5 text-xs">
-                <Barcode className="w-5 h-5 text-amber-400 shrink-0 animate-pulse" />
+                <Barcode className="w-5 h-5 text-amber-400 shrink-0" />
                 <div>
                   <span className="font-bold text-amber-300">AWB Issuance Required:</span>
                   <span className="text-slate-300 ml-1.5">

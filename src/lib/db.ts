@@ -811,7 +811,7 @@ class CRMDatabase {
         
         const isItemDiscrepancy = ['Failed', 'Damaged', 'Missing'].includes(data.status) || data.partMatched === false;
         item.motorola_parts_status = isItemDiscrepancy
-          ? '6. RC Received ASP(Negative)'
+          ? 'CWH Received - Discrepancies'
           : '3. CWH Received';
         item.updated_at = new Date().toISOString();
 
@@ -824,9 +824,9 @@ class CRMDatabase {
       }
     });
 
-    const newStatus: CRMStatus = hasDiscrepancy ? 'Discrepancy Tagged' : 'CWH Received';
+    const newStatus: CRMStatus = hasDiscrepancy ? 'CWH Received - Discrepancies' : 'CWH Received';
     so.crm_status = newStatus;
-    so.motorola_status = hasDiscrepancy ? '6. RC Received ASP(Negative)' : '3. CWH Received';
+    so.motorola_status = hasDiscrepancy ? 'CWH Received - Discrepancies' : '3. CWH Received';
     so.pickup_status = 'Pickup Done';
     if (cwhEvidenceRef) {
       so.cwh_evidence_ref = cwhEvidenceRef;

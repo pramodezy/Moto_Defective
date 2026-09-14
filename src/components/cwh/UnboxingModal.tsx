@@ -465,7 +465,7 @@ export const UnboxingModal: React.FC<UnboxingModalProps> = ({
               <span>
                 {isDiscrepancy ? (
                   <>
-                    <strong>Discrepancy Tagged:</strong> Consignment will be moved to <strong className="text-white">⚠️ Discrepancies</strong> queue (Status: <em>6. RC Received ASP(Negative)</em>).
+                    <strong>Discrepancy Tagged:</strong> Consignment will be moved to <strong className="text-white">⚠️ CWH Received - Discrepancies</strong> queue (Status: <em>CWH Received - Discrepancies</em>).
                   </>
                 ) : (
                   <>

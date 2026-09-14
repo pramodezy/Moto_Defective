@@ -161,9 +161,19 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   const inTransitOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
       if (isAwbIssueRequired(o)) return false;
-      if (o.crm_status === 'Closed' || o.crm_status === 'CWH Received' || o.crm_status === 'Discrepancy Tagged') return false;
+      if (
+        o.crm_status === 'Closed' || 
+        o.crm_status === 'CWH Received' || 
+        o.crm_status === 'CWH Received - Discrepancies' || 
+        o.crm_status === 'Discrepancy Tagged'
+      ) return false;
       const moto = (o.motorola_status || '').toLowerCase();
-      if (moto.includes('rc received') || moto.includes('cwh received') || moto.includes('send to rc')) return false;
+      if (
+        moto.includes('rc received') || 
+        moto.includes('cwh received') || 
+        moto.includes('send to rc') || 
+        moto.includes('discrepanc')
+      ) return false;
       return o.crm_status === 'In Transit' || !!(o.active_awb || o.excel_ref_awb);
     });
   }, [stationScopedOrders]);
@@ -172,6 +182,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   const atCwhOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
       const moto = (o.motorola_status || '').toLowerCase();
+      if (o.crm_status === 'CWH Received - Discrepancies' || moto.includes('discrepanc') || moto.includes('negative')) return false;
       return o.crm_status === 'CWH Received' || (moto.includes('cwh received') && o.crm_status !== 'Closed');
     });
   }, [stationScopedOrders]);
@@ -180,7 +191,12 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   const discrepancyOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
       const moto = (o.motorola_status || '').toLowerCase();
-      return o.crm_status === 'Discrepancy Tagged' || moto.includes('negative');
+      return (
+        o.crm_status === 'CWH Received - Discrepancies' ||
+        o.crm_status === 'Discrepancy Tagged' ||
+        moto.includes('discrepanc') ||
+        moto.includes('negative')
+      );
     });
   }, [stationScopedOrders]);
 
@@ -242,7 +258,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
           <form onSubmit={handleQuickScan} className="w-full lg:max-w-md">
             <div className="p-3.5 rounded-xl bg-[#0b1329] border-2 border-indigo-500/50 shadow-inner">
               <label className="text-[11px] font-semibold text-indigo-300 flex items-center gap-1.5 uppercase tracking-wider mb-2">
-                <Barcode className="w-4 h-4 text-indigo-400 animate-pulse" />
+                <Barcode className="w-4 h-4 text-indigo-400" />
                 Barcode Scanner / Rapid Inward Input
               </label>
               <div className="flex gap-2">
@@ -369,7 +385,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
           }`}
         >
           <AlertTriangle className="w-3.5 h-3.5" />
-          ⚠️ Discrepancies ({discrepancyOrders.length})
+          ⚠️ CWH Received - Discrepancies ({discrepancyOrders.length})
         </button>
 
         {/* Queue 5: Delivered Archive & History */}
@@ -386,225 +402,205 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         </button>
       </div>
 
-      {/* Cards Grid for Consignments */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {currentDisplayOrders.map((so) => {
-          const station = stationMap.get(so.station_code);
-          const normalize = (s?: string) => (s || '').trim().toLowerCase();
-          const orderItems = items.filter(
-            (i) =>
-              normalize(i.shipping_order_code) === normalize(so.so_code) ||
-              (i.shipping_order_id && i.shipping_order_id === so.id)
-          );
-          const isCritical = so.priority_tier === 1;
-          const motoInfo = getMotorolaStatusInfo(so.motorola_status);
-          const cwhAction = getCwhActionDetails(so);
-          const needsAwb = isAwbIssueRequired(so);
+      {/* Clean Data Table for Consignments */}
+      <div className="rounded-xl border border-[#1f2e5a] bg-[#0b1329] overflow-hidden shadow-lg">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-[#101a35] text-slate-400 border-b border-[#1f2e5a]">
+              <tr>
+                <th className="py-3 px-3.5 whitespace-nowrap">Shipping Order</th>
+                <th className="py-3 px-3.5 whitespace-nowrap">Origin Station &amp; Location</th>
+                <th className="py-3 px-3.5 whitespace-nowrap">Status (CRM &amp; Moto)</th>
+                <th className="py-3 px-3.5 whitespace-nowrap">Courier &amp; AWB</th>
+                <th className="py-3 px-3.5 text-center whitespace-nowrap">Items</th>
+                <th className="py-3 px-3.5 text-right whitespace-nowrap">Declared Value</th>
+                <th className="py-3 px-3.5 text-right whitespace-nowrap">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#1f2e5a]/60 text-slate-300 bg-[#0d1630]">
+              {currentDisplayOrders.map((so) => {
+                const station = stationMap.get(so.station_code);
+                const normalize = (s?: string) => (s || '').trim().toLowerCase();
+                const orderItems = items.filter(
+                  (i) =>
+                    normalize(i.shipping_order_code) === normalize(so.so_code) ||
+                    (i.shipping_order_id && i.shipping_order_id === so.id)
+                );
+                const motoInfo = getMotorolaStatusInfo(so.motorola_status);
+                const needsAwb = isAwbIssueRequired(so);
+                const isDiscrepancy = 
+                  so.crm_status === 'CWH Received - Discrepancies' || 
+                  so.crm_status === 'Discrepancy Tagged' || 
+                  activeSubTab === 'discrepancies';
 
-          return (
-            <div
-              key={so.id}
-              className={`rounded-xl border p-4 bg-[#101a35] transition-all hover:border-indigo-500/50 hover:shadow-lg flex flex-col justify-between ${
-                needsAwb
-                  ? 'border-amber-500/40 bg-gradient-to-b from-amber-950/20 to-[#101a35]'
-                  : isCritical
-                  ? 'border-red-500/40 bg-gradient-to-b from-red-950/20 to-[#101a35]'
-                  : 'border-[#1c2b53]'
-              }`}
-            >
-              <div>
-                {/* Header */}
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-                      Shipping Order
-                    </span>
-                    <button
-                      onClick={() => onSelectOrder(so)}
-                      className="block text-sm font-bold text-white font-mono hover:text-cyan-400 hover:underline text-left"
-                    >
-                      {so.so_code}
-                    </button>
-                  </div>
-                  <SlaBadge tier={so.priority_tier} ageDays={so.max_sr_age} />
-                </div>
-
-                {/* Motorola Status Badge & Action Prompt */}
-                <div className="mt-2.5 flex items-center justify-between gap-2">
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${motoInfo.badgeClass}`}
-                    title={motoInfo.meaning}
+                return (
+                  <tr 
+                    key={so.id}
+                    className={`hover:bg-[#142042] transition-colors ${
+                      isDiscrepancy ? 'bg-rose-950/15' : ''
+                    }`}
                   >
-                    {motoInfo.label}
-                  </span>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getCrmStatusStyle(so.crm_status)}`}>
-                    {so.crm_status}
-                  </span>
-                </div>
+                    {/* Column 1: SO Code & SLA Badge */}
+                    <td className="py-3 px-3.5 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => onSelectOrder(so)}
+                          className="font-mono font-bold text-white hover:text-cyan-400 hover:underline cursor-pointer"
+                        >
+                          {so.so_code}
+                        </button>
+                        <SlaBadge tier={so.priority_tier} ageDays={so.max_sr_age} />
+                      </div>
+                    </td>
 
-                {/* CWH Action Banner */}
-                {cwhAction.isActionable && (
-                  <div className={`mt-2 p-2 rounded-lg text-[11px] border ${
-                    cwhAction.actionType === 'ISSUE_AWB'
-                      ? 'bg-amber-500/15 border-amber-500/40 text-amber-200'
-                      : cwhAction.actionType === 'DISPATCH_TO_RC'
-                      ? 'bg-blue-500/15 border-blue-500/40 text-blue-200'
-                      : 'bg-indigo-500/15 border-indigo-500/40 text-indigo-200'
-                  }`}>
-                    <div className="font-semibold flex items-center gap-1">
-                      {cwhAction.actionType === 'ISSUE_AWB' && <Barcode className="w-3 h-3 text-amber-400" />}
-                      {cwhAction.actionType === 'DISPATCH_TO_RC' && <Send className="w-3 h-3 text-blue-400" />}
-                      {cwhAction.actionType === 'INWARD_VERIFY' && <Video className="w-3 h-3 text-indigo-400" />}
-                      {cwhAction.title}
-                    </div>
-                    <div className="text-[10px] text-slate-300 mt-0.5">{cwhAction.description}</div>
-                  </div>
-                )}
+                    {/* Column 2: Origin Station & Location */}
+                    <td className="py-3 px-3.5">
+                      <div className="font-semibold text-slate-200 whitespace-nowrap">
+                        Station {so.station_code} - {station?.station_name || 'Service Center'}
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-0.5 whitespace-nowrap">
+                        {[station?.city || so.city, station?.state || so.state].filter(Boolean).join(', ')} 
+                        <span className="text-cyan-400 ml-1.5 font-medium">({station?.region || so.region || 'West'})</span>
+                      </div>
+                    </td>
 
-                {/* Station & Region */}
-                <div className="mt-2.5 p-2 rounded-lg bg-[#0b1329] border border-[#1f2e5a] text-xs">
-                  <div className="flex justify-between items-center text-slate-300">
-                    <span>
-                      Station: <strong className="text-white font-mono">{so.station_code}</strong>
-                    </span>
-                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-cyan-300 font-medium">
-                      {station?.region || so.region || 'West'}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-400 truncate mt-0.5">
-                    {station?.station_name || 'Service Center'}
-                    {(station?.city || so.city) && (
-                      <span className="text-cyan-400/80"> • {[station?.city || so.city, station?.state || so.state].filter(Boolean).join(', ')}</span>
-                    )}
-                  </div>
-                </div>
+                    {/* Column 3: Status (CRM & Motorola) */}
+                    <td className="py-3 px-3.5 whitespace-nowrap">
+                      <div className="flex flex-col gap-1 items-start">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${motoInfo.badgeClass}`}>
+                          {motoInfo.label}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getCrmStatusStyle(so.crm_status)}`}>
+                          {so.crm_status}
+                        </span>
+                      </div>
+                    </td>
 
-                {/* Metrics */}
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <span className="text-slate-400 text-[11px]">Declared Value</span>
-                    <div className="font-mono font-bold text-emerald-400 mt-0.5">
+                    {/* Column 4: Courier & AWB */}
+                    <td className="py-3 px-3.5 whitespace-nowrap">
+                      <div className="text-slate-300 font-medium">{so.courier || 'BlueDart Express'}</div>
+                      <div className="font-mono text-cyan-400 text-[11px] mt-0.5">
+                        {so.active_awb || so.excel_ref_awb || (motoInfo.isDelivered ? 'Delivered' : 'Pending')}
+                      </div>
+                    </td>
+
+                    {/* Column 5: Items Count */}
+                    <td className="py-3 px-3.5 text-center font-mono font-bold text-white whitespace-nowrap">
+                      {orderItems.length || so.total_items || 1}
+                    </td>
+
+                    {/* Column 6: Declared Value */}
+                    <td className="py-3 px-3.5 text-right font-mono font-bold text-emerald-400 whitespace-nowrap">
                       {formatINR(so.total_declared_value)}
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 text-[11px]">Constituent Items</span>
-                    <div className="font-mono font-bold text-white mt-0.5">
-                      {orderItems.length} items
-                    </div>
-                  </div>
-                </div>
+                    </td>
 
-                {/* Active AWB & Pickup Status */}
-                <div className="mt-3 pt-2.5 border-t border-[#1c2b53] flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Courier AWB:</span>
-                  <span className="font-mono font-medium text-cyan-400">
-                    {so.active_awb || so.excel_ref_awb || (motoInfo.isDelivered ? 'Delivered (Direct)' : 'None')}
-                  </span>
-                </div>
-              </div>
+                    {/* Column 7: Required Actions */}
+                    <td className="py-3 px-3.5 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {/* 1. At CWH: Create DC to RC */}
+                        {so.crm_status === 'CWH Received' || activeSubTab === 'at_cwh' ? (
+                          <>
+                            <button
+                              onClick={() => handleOpenDcModal(so)}
+                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow transition-colors cursor-pointer"
+                            >
+                              <Send className="w-3 h-3" />
+                              Create DC to RC
+                            </button>
+                            <button
+                              onClick={() => onOpenUnboxing(so)}
+                              title="Review CCTV Inspection"
+                              className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                            >
+                              <Video className="w-3 h-3" />
+                            </button>
+                          </>
+                        ) : isDiscrepancy ? (
+                          /* 2. Discrepancy Queue */
+                          <>
+                            <button
+                              onClick={() => onOpenUnboxing(so)}
+                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow transition-colors cursor-pointer"
+                            >
+                              <AlertTriangle className="w-3 h-3" />
+                              Inspect Discrepancies
+                            </button>
+                            <button
+                              onClick={() => onSelectOrder(so)}
+                              className="px-2.5 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                            >
+                              View
+                            </button>
+                          </>
+                        ) : activeSubTab === 'in_transit' || so.crm_status === 'In Transit' ? (
+                          /* 3. In Transit: Unbox Under CCTV */
+                          <>
+                            <button
+                              onClick={() => onOpenUnboxing(so)}
+                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-colors cursor-pointer"
+                            >
+                              <Video className="w-3 h-3" />
+                              Unbox Under CCTV
+                            </button>
+                            <button
+                              onClick={() => onOpenAwbModal(so)}
+                              title="Assign / Retoken AWB"
+                              className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                            >
+                              AWB
+                            </button>
+                          </>
+                        ) : needsAwb ? (
+                          /* 4. Needs AWB Issue */
+                          <button
+                            onClick={() => onOpenAwbModal(so)}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white shadow transition-colors cursor-pointer"
+                          >
+                            <Barcode className="w-3 h-3" />
+                            Issue AWB
+                          </button>
+                        ) : (
+                          /* 5. Delivered / History */
+                          <button
+                            onClick={() => onSelectOrder(so)}
+                            className="px-3 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-emerald-400 transition-colors cursor-pointer"
+                          >
+                            View Details
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
 
-              {/* Action Buttons */}
-              <div className="mt-4 pt-3 border-t border-[#1c2b53] flex items-center gap-2">
-                {/* 1. At CWH: Create DC to RC (Primary action requested by user) */}
-                {so.crm_status === 'CWH Received' || activeSubTab === 'at_cwh' ? (
-                  <>
-                    <button
-                      onClick={() => handleOpenDcModal(so)}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg transition-all"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      Create DC to RC
-                    </button>
-                    <button
-                      onClick={() => onOpenUnboxing(so)}
-                      title="Review CCTV Unboxing Logs"
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-slate-200 border border-[#1f2e5a] transition-colors"
-                    >
-                      <Video className="w-3.5 h-3.5" />
-                    </button>
-                  </>
-                ) : so.crm_status === 'Discrepancy Tagged' || activeSubTab === 'discrepancies' ? (
-                  /* 2. Discrepancy Queue */
-                  <>
-                    <button
-                      onClick={() => onOpenUnboxing(so)}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow transition-colors"
-                    >
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      Inspect Discrepancies
-                    </button>
-                    <button
-                      onClick={() => onSelectOrder(so)}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-[#2a1420] hover:bg-[#3d1c2e] text-rose-300 border border-rose-500/30 transition-colors"
-                    >
-                      View
-                    </button>
-                  </>
-                ) : activeSubTab === 'in_transit' || so.crm_status === 'In Transit' ? (
-                  /* 3. In Transit: Proceed for Unbox under CCTV */
-                  <>
-                    <button
-                      onClick={() => onOpenUnboxing(so)}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-colors"
-                    >
-                      <Video className="w-3.5 h-3.5" />
-                      Unbox Under CCTV
-                    </button>
-                    <button
-                      onClick={() => onOpenAwbModal(so)}
-                      title="Assign / Retoken AWB"
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-slate-200 border border-[#1f2e5a] transition-colors"
-                    >
-                      AWB
-                    </button>
-                  </>
-                ) : needsAwb ? (
-                  /* 4. Needs AWB Issue */
-                  <button
-                    onClick={() => onOpenAwbModal(so)}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow transition-all"
-                  >
-                    <Barcode className="w-3.5 h-3.5" />
-                    Issue AWB
-                  </button>
-                ) : (
-                  /* 5. Delivered / History */
-                  <button
-                    onClick={() => onSelectOrder(so)}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-[#102a20] hover:bg-[#14382c] text-emerald-300 border border-emerald-500/30 transition-colors"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    {motoInfo.isDelivered ? 'Delivered to RC (View Details)' : 'View Consignment Details'}
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-
-        {currentDisplayOrders.length === 0 && (
-          <div className="col-span-full py-16 text-center text-slate-400">
-            <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-2 opacity-80" />
-            <h4 className="text-base font-semibold text-white">All caught up!</h4>
-            <p className="text-xs text-slate-400 mt-1">
-              {activeSubTab === 'needs_awb'
-                ? 'No active consignments currently require AWB issuance from CWH.'
-                : activeSubTab === 'in_transit'
-                ? 'No consignments currently in transit awaiting inward verification.'
-                : activeSubTab === 'at_cwh'
-                ? 'No consignments currently at CWH awaiting DC creation to RC.'
-                : activeSubTab === 'discrepancies'
-                ? 'No discrepancies flagged currently.'
-                : 'No historical delivered records found matching the filter.'}
-            </p>
-          </div>
-        )}
+              {currentDisplayOrders.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                    <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-500 mb-1.5 opacity-80" />
+                    <h4 className="text-sm font-semibold text-white">All caught up!</h4>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {activeSubTab === 'needs_awb'
+                        ? 'No active consignments currently require AWB issuance from CWH.'
+                        : activeSubTab === 'in_transit'
+                        ? 'No consignments currently in transit awaiting inward verification.'
+                        : activeSubTab === 'at_cwh'
+                        ? 'No consignments currently at CWH awaiting DC creation to RC.'
+                        : activeSubTab === 'discrepancies'
+                        ? 'No discrepancies flagged currently.'
+                        : 'No historical delivered records found matching the filter.'}
+                    </p>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Modal: Create DC to RC in Lenovo CRM */}
       {dcModalOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="relative w-full max-w-xl rounded-2xl bg-[#0b1329] border border-blue-500/40 shadow-2xl overflow-hidden">
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-[#1f2e5a] bg-gradient-to-r from-[#101a35] via-[#14234b] to-[#101a35]">

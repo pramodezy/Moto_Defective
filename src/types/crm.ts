@@ -5,6 +5,7 @@ export type ScreeningStatus = 'Pending' | 'Passed' | 'Failed' | 'Missing' | 'Dam
 export type MotorolaPartsStatus = 
   | 'CCI Send To CWH'
   | 'CWH Received'
+  | 'CWH Received - Discrepancies'
   | 'ASP Send To RC'
   | 'RC Received ASP'
   | 'RC Received ASP(Negative)'
@@ -14,6 +15,7 @@ export type CRMStatus =
   | 'AWB Pending'
   | 'In Transit'
   | 'CWH Received'
+  | 'CWH Received - Discrepancies'
   | 'Screening In Progress'
   | 'Discrepancy Tagged'
   | 'Dispatched to RC'

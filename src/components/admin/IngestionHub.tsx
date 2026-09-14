@@ -337,7 +337,7 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
           )}
 
           {isSyncingSupabase && syncProgress && (
-            <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center gap-2 text-xs text-blue-300 animate-pulse">
+            <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center gap-2 text-xs text-blue-300">
               <RefreshCw className="w-4 h-4 animate-spin" />
               <span>{syncProgress}</span>
             </div>
@@ -432,7 +432,7 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
             </button>
 
             {isProcessingReport && (
-              <div className="mt-4 p-4 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center gap-3 text-xs text-blue-300 animate-pulse">
+              <div className="mt-4 p-4 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center gap-3 text-xs text-blue-300">
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 <span>Reading sheet, executing composite key deduplication, and ingesting to Supabase...</span>
               </div>
@@ -539,7 +539,7 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
             </button>
 
             {isProcessingRegion && (
-              <div className="mt-4 p-4 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center gap-3 text-xs text-teal-300 animate-pulse">
+              <div className="mt-4 p-4 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center gap-3 text-xs text-teal-300">
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 <span>Parsing region definitions and updating station master...</span>
               </div>

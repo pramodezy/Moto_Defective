@@ -106,7 +106,7 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
   const isAwbChanged = awbNumber.trim() !== currentAwbNumber.trim();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
       <div className="relative w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl bg-[#0b1329] border border-[#1f2e5a] shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#1f2e5a] bg-[#101a35]">
@@ -214,7 +214,7 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
 
           {/* Conditional Step 1b: Reason for Pickup Not Done */}
           {pickupStatus === 'Pickup Not Done' && (
-            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-3 animate-fade-in">
+            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-3">
               <label className="block text-xs font-semibold text-rose-200">
                 Reason for Delayed / Missed Pickup:
               </label>

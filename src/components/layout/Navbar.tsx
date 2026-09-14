@@ -54,8 +54,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center gap-3">
             <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-600/30 border border-cyan-500/40 shadow-sm shadow-cyan-500/10">
               <span className="font-extrabold text-cyan-400 text-lg tracking-wider font-['Outfit']">M</span>
-              <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-cyan-400 rounded-full animate-ping" />
-              <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-cyan-400 rounded-full" />
+              <div className="absolute -top-0.5 -right-0.5 w-2 bg-cyan-400 rounded-full" />
             </div>
             <div>
               <div className="flex items-center gap-2">

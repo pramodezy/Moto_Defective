@@ -51,7 +51,7 @@ export function getPriorityBadge(tier: PriorityTier, ageDays: number) {
     case 1:
       return {
         label: `Critical (${ageDays}d)`,
-        badgeClass: 'bg-red-500/15 text-red-400 border border-red-500/30 animate-pulse-subtle',
+        badgeClass: 'bg-red-500/15 text-red-400 border border-red-500/30 font-semibold',
         dotClass: 'bg-red-500',
       };
     case 2:

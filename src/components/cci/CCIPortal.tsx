@@ -248,7 +248,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
         {/* Banner 2: CCI send to CWH -> AWB updated from CWH -> Pickup Handover Pending */}
         {pickupHandoverOrders.length > 0 && (
-          <div className="p-4 rounded-xl bg-gradient-to-r from-amber-950/40 via-amber-900/30 to-[#101a35] border-2 border-amber-500/60 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-pulse">
+          <div className="p-4 rounded-xl bg-gradient-to-r from-amber-950/40 via-amber-900/30 to-[#101a35] border-2 border-amber-500/60 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-start gap-3">
               <Truck className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
               <div className="text-xs">
@@ -510,7 +510,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                         {/* 6. CCI Stage (Clean typography without redundant pill borders) */}
                         <td className="py-3 px-3.5 whitespace-nowrap align-middle">
                           {cciAction.actionType === 'PICKUP_HANDOVER_PENDING' ? (
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
                               <Clock className="w-3 h-3 text-amber-400 shrink-0" />
                               Pickup Pending
                             </span>
@@ -593,7 +593,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                             {isPickupPending ? (
                               <button
                                 onClick={() => onOpenPickupModal?.(so)}
-                                className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-sm transition-all hover:scale-[1.02] cursor-pointer animate-pulse"
+                                className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-sm transition-all hover:scale-[1.02] cursor-pointer"
                                 title="AWB issued from CWH: Handover consignment to courier & record pickup status"
                               >
                                 <Truck className="w-3.5 h-3.5" />

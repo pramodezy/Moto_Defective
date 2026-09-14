@@ -46,6 +46,17 @@ export const MOTOROLA_STATUS_DEFINITIONS: Record<string, MotorolaStatusDefinitio
     isAwbRequired: false,
     actionPrompt: 'Action required by CWH: Unbox, verify and create DC to RC in Lenovo CRM',
   },
+  'cwh received - discrepancies': {
+    statusKey: 'CWH Received - Discrepancies',
+    code: 35,
+    label: 'CWH Received - Discrepancies',
+    meaning: 'Inward verified at CWH with Discrepancies (Shortage / Damage / Mismatch)',
+    responsibleRole: 'CWH',
+    badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+    isDelivered: false,
+    isAwbRequired: false,
+    actionPrompt: 'Discrepancy recorded at CWH unboxing station. Review inspection & escalate.',
+  },
   'asp send to rc': {
     statusKey: 'ASP Send To RC',
     code: 4,
@@ -87,6 +98,7 @@ export const MOTOROLA_STATUS_DEFINITIONS: Record<string, MotorolaStatusDefinitio
 export function normalizeMotoStatusKey(status?: string | null): string {
   if (!status) return 'cci send to cwh';
   const clean = status.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (clean.includes('discrepanc')) return 'cwh received - discrepancies';
   if (clean.includes('negative') || clean.includes('(negative)')) return 'rc received asp(negative)';
   if (clean.includes('rc received')) return 'rc received asp';
   if (clean.includes('send to rc')) return 'asp send to rc';
@@ -281,7 +293,7 @@ export function getCciActionDetails(order: ShippingOrder): {
       actionType: 'PICKUP_HANDOVER_PENDING',
       title: 'Action: Pickup Handover Pending',
       description: 'AWB updated from CWH. Handover parcel to courier & update pickup status',
-      badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse font-bold',
+      badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold',
     };
   }
 
@@ -300,10 +312,11 @@ export function getCciActionDetails(order: ShippingOrder): {
  * - AWB Issuance: Consignments with CCI Send to CWH lacking AWB
  * - Inward Verification: Consignments in Transit to CWH
  * - Create DC to RC: Consignments with CWH Received status
+ * - Discrepancy Inspection: Consignments with CWH Received - Discrepancies
  */
 export function getCwhActionDetails(order: ShippingOrder): {
   isActionable: boolean;
-  actionType: 'ISSUE_AWB' | 'INWARD_VERIFY' | 'DISPATCH_TO_RC' | 'NONE';
+  actionType: 'ISSUE_AWB' | 'INWARD_VERIFY' | 'DISPATCH_TO_RC' | 'INSPECT_DISCREPANCY' | 'NONE';
   title: string;
   description: string;
 } {
@@ -316,6 +329,21 @@ export function getCwhActionDetails(order: ShippingOrder): {
       actionType: 'NONE',
       title: 'Completed at RC',
       description: 'Consignment acknowledged and closed at Repair Center',
+    };
+  }
+
+  // Discrepancy tagged cases
+  if (
+    order.crm_status === 'CWH Received - Discrepancies' || 
+    order.crm_status === 'Discrepancy Tagged' || 
+    info.code === 35 || 
+    info.code === 6
+  ) {
+    return {
+      isActionable: true,
+      actionType: 'INSPECT_DISCREPANCY',
+      title: 'Action: Inspect Discrepancies',
+      description: 'Physical discrepancies/shortage recorded at CWH bay. Review logs and escalate',
     };
   }
 
@@ -345,7 +373,7 @@ export function getCwhActionDetails(order: ShippingOrder): {
       isActionable: true,
       actionType: 'DISPATCH_TO_RC',
       title: 'Action: Create DC to RC',
-      description: 'Parts verified at CWH; create DC to RC in Lenovo CRM',
+      description: 'Parts verified clean at CWH; create DC to RC in Lenovo CRM',
     };
   }
 
