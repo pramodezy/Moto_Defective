@@ -54,11 +54,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return orders.filter((so) => so.eway_bill_required);
   }, [orders]);
 
-  // Regional Aggregations
+  // Regional Aggregations mapped dynamically from CCI Master stations
   const regionalMetrics = useMemo(() => {
-    const regions = ['North', 'South', 'West', 'East'];
+    const normalizeCode = (c: string) => String(c || '').trim().replace(/^0+/, '') || String(c || '').trim();
+    const stationMap = new Map<string, CCIMaster>();
+    stations.forEach((st) => {
+      stationMap.set(st.station_code, st);
+      stationMap.set(st.station_code.padStart(3, '0'), st);
+      stationMap.set(normalizeCode(st.station_code), st);
+    });
+
+    const regSet = new Set<string>();
+    stations.forEach((s) => {
+      if (s.region?.trim()) regSet.add(s.region.trim());
+    });
+    if (regSet.size === 0) {
+      ['Central', 'East', 'North', 'South', 'West'].forEach((r) => regSet.add(r));
+    }
+    const regions = Array.from(regSet).sort();
+
     return regions.map((region) => {
-      const regionOrders = orders.filter((o) => o.region === region);
+      const regionOrders = orders.filter((o) => {
+        const st = stationMap.get(o.station_code) || 
+                   stationMap.get(o.station_code.padStart(3, '0')) || 
+                   stationMap.get(normalizeCode(o.station_code));
+        const effectiveRegion = st?.region || o.region || 'West';
+        return effectiveRegion === region;
+      });
       const val = regionOrders.reduce((sum, o) => sum + (o.total_declared_value || 0), 0);
       const critical = regionOrders.filter((o) => o.priority_tier === 1).length;
       return {
@@ -68,7 +90,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         critical,
       };
     });
-  }, [orders]);
+  }, [orders, stations]);
 
   return (
     <div className="space-y-8">

@@ -36,6 +36,35 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 20;
 
+  // Station map lookup with normalization
+  const stationMap = useMemo(() => {
+    const normalizeCode = (c: string) => String(c || '').trim().replace(/^0+/, '') || String(c || '').trim();
+    const map = new Map<string, CCIMaster>();
+    stations.forEach((st) => {
+      map.set(st.station_code, st);
+      map.set(st.station_code.padStart(3, '0'), st);
+      map.set(normalizeCode(st.station_code), st);
+    });
+    return map;
+  }, [stations]);
+
+  // Dynamic regions derived from CCI Master
+  const availableRegions = useMemo(() => {
+    const regSet = new Set<string>();
+    stations.forEach((st) => {
+      if (st.region?.trim()) regSet.add(st.region.trim());
+    });
+    items.forEach((item) => {
+      const st = stationMap.get(item.station_code);
+      const reg = st?.region || item.region;
+      if (reg?.trim()) regSet.add(reg.trim());
+    });
+    if (regSet.size === 0) {
+      ['Central', 'East', 'North', 'South', 'West'].forEach((r) => regSet.add(r));
+    }
+    return Array.from(regSet).sort();
+  }, [stations, items, stationMap]);
+
   // Distinct categories for dropdown
   const categories = useMemo(() => {
     const set = new Set<string>();
@@ -50,7 +79,12 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
       if (currentRole === 'CCI' && currentStation && item.station_code !== currentStation) {
         return false;
       }
-      if (selectedRegion !== 'ALL' && item.region !== selectedRegion) {
+
+      // Strictly resolve region from CCI master station mapping
+      const st = stationMap.get(item.station_code);
+      const effectiveRegion = st?.region || item.region || 'West';
+
+      if (selectedRegion !== 'ALL' && effectiveRegion !== selectedRegion) {
         return false;
       }
       if (selectedScreening !== 'ALL' && item.screening_status !== selectedScreening) {
@@ -68,27 +102,22 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
         const matchSo = item.shipping_order_code.toLowerCase().includes(q);
         const matchDesc = (item.part_description || '').toLowerCase().includes(q);
         const matchStation = item.station_code.toLowerCase().includes(q);
-        if (!matchSr && !matchSrPart && !matchNewPart && !matchSo && !matchDesc && !matchStation) {
+        const matchStationName = (st?.station_name || '').toLowerCase().includes(q);
+        const matchCity = (st?.city || item.city || '').toLowerCase().includes(q);
+        if (!matchSr && !matchSrPart && !matchNewPart && !matchSo && !matchDesc && !matchStation && !matchStationName && !matchCity) {
           return false;
         }
       }
 
       return true;
     });
-  }, [items, currentRole, currentStation, selectedRegion, selectedScreening, selectedCategory, searchTerm]);
+  }, [items, currentRole, currentStation, selectedRegion, selectedScreening, selectedCategory, searchTerm, stationMap]);
 
   const totalPages = Math.ceil(filteredItems.length / pageSize) || 1;
   const paginatedItems = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return filteredItems.slice(start, start + pageSize);
   }, [filteredItems, currentPage, pageSize]);
-
-  // Station map lookup
-  const stationMap = useMemo(() => {
-    const map = new Map<string, CCIMaster>();
-    stations.forEach((st) => map.set(st.station_code, st));
-    return map;
-  }, [stations]);
 
   // Export to Excel
   const handleExport = () => {
@@ -153,12 +182,12 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
             aria-label="Filter by Region"
             className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
           >
-            <option value="ALL">All Regions</option>
-            <option value="North">North</option>
-            <option value="South">South</option>
-            <option value="East">East</option>
-            <option value="West">West</option>
-            <option value="Central">Central</option>
+            <option value="ALL">All Regions ({filteredItems.length})</option>
+            {availableRegions.map((reg) => (
+              <option key={reg} value={reg}>
+                {reg} Region
+              </option>
+            ))}
           </select>
 
           {/* Screening Status */}

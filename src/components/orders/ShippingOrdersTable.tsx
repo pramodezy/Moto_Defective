@@ -49,12 +49,34 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 15;
 
-  // Station name lookup
+  // Station name lookup with code normalization
   const stationMap = useMemo(() => {
+    const normalizeCode = (c: string) => String(c || '').trim().replace(/^0+/, '') || String(c || '').trim();
     const map = new Map<string, CCIMaster>();
-    stations.forEach((st) => map.set(st.station_code, st));
+    stations.forEach((st) => {
+      map.set(st.station_code, st);
+      map.set(st.station_code.padStart(3, '0'), st);
+      map.set(normalizeCode(st.station_code), st);
+    });
     return map;
   }, [stations]);
+
+  // Dynamic regions derived from CCI Master stations
+  const availableRegions = useMemo(() => {
+    const regSet = new Set<string>();
+    stations.forEach((st) => {
+      if (st.region?.trim()) regSet.add(st.region.trim());
+    });
+    orders.forEach((so) => {
+      const st = stationMap.get(so.station_code);
+      const reg = st?.region || so.region;
+      if (reg?.trim()) regSet.add(reg.trim());
+    });
+    if (regSet.size === 0) {
+      ['Central', 'East', 'North', 'South', 'West'].forEach((r) => regSet.add(r));
+    }
+    return Array.from(regSet).sort();
+  }, [stations, orders, stationMap]);
 
   // Scoped filtering
   const filteredOrders = useMemo(() => {
@@ -64,7 +86,11 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
         return false;
       }
 
-      if (selectedRegion !== 'ALL' && so.region !== selectedRegion) {
+      // Strictly resolve region from CCI master station mapping
+      const st = stationMap.get(so.station_code);
+      const effectiveRegion = st?.region || so.region || 'West';
+
+      if (selectedRegion !== 'ALL' && effectiveRegion !== selectedRegion) {
         return false;
       }
 
@@ -80,13 +106,15 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
         const q = searchTerm.toLowerCase();
         const matchSo = so.so_code.toLowerCase().includes(q);
         const matchStation = so.station_code.toLowerCase().includes(q);
+        const matchStationName = (st?.station_name || '').toLowerCase().includes(q);
+        const matchCity = (st?.city || so.city || '').toLowerCase().includes(q);
         const matchAwb = (so.active_awb || so.excel_ref_awb || '').toLowerCase().includes(q);
-        if (!matchSo && !matchStation && !matchAwb) return false;
+        if (!matchSo && !matchStation && !matchStationName && !matchCity && !matchAwb) return false;
       }
 
       return true;
     });
-  }, [orders, currentRole, currentStation, selectedRegion, selectedTier, selectedStatus, searchTerm]);
+  }, [orders, currentRole, currentStation, selectedRegion, selectedTier, selectedStatus, searchTerm, stationMap]);
 
   // Pagination
   const totalPages = Math.ceil(filteredOrders.length / pageSize) || 1;
@@ -157,12 +185,12 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
             aria-label="Filter by Region"
             className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
           >
-            <option value="ALL">All Regions</option>
-            <option value="North">North</option>
-            <option value="South">South</option>
-            <option value="East">East</option>
-            <option value="West">West</option>
-            <option value="Central">Central</option>
+            <option value="ALL">All Regions ({filteredOrders.length})</option>
+            {availableRegions.map((reg) => (
+              <option key={reg} value={reg}>
+                {reg} Region
+              </option>
+            ))}
           </select>
 
           {/* Priority SLA Tier */}

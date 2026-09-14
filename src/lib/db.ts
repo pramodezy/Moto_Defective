@@ -41,13 +41,21 @@ class CRMDatabase {
 
   // Ensure all defective items and shipping orders have city, state, and region mapped from stations
   public reapplyStationLocationMappings() {
+    const normalizeCode = (c: string) => String(c || '').trim().replace(/^0+/, '') || String(c || '').trim();
+
     const stationMap = new Map<string, CCIMaster>();
-    this.stations.forEach((st) => stationMap.set(st.station_code, st));
+    this.stations.forEach((st) => {
+      stationMap.set(st.station_code, st);
+      stationMap.set(st.station_code.padStart(3, '0'), st);
+      stationMap.set(normalizeCode(st.station_code), st);
+    });
 
     let modified = false;
 
     this.defectiveItems.forEach((item) => {
-      const st = stationMap.get(item.station_code);
+      const st = stationMap.get(item.station_code) || 
+                 stationMap.get(item.station_code.padStart(3, '0')) || 
+                 stationMap.get(normalizeCode(item.station_code));
       if (st) {
         if (item.region !== st.region || item.state !== st.state || item.city !== st.city) {
           item.region = st.region;
@@ -59,7 +67,9 @@ class CRMDatabase {
     });
 
     this.shippingOrders.forEach((so) => {
-      const st = stationMap.get(so.station_code);
+      const st = stationMap.get(so.station_code) || 
+                 stationMap.get(so.station_code.padStart(3, '0')) || 
+                 stationMap.get(normalizeCode(so.station_code));
       if (st) {
         if (so.region !== st.region || so.state !== st.state || so.city !== st.city) {
           so.region = st.region;

@@ -22,6 +22,17 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({ stations, onSelectSt
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRegion, setSelectedRegion] = useState('ALL');
 
+  const availableRegions = useMemo(() => {
+    const regSet = new Set<string>();
+    stations.forEach((st) => {
+      if (st.region?.trim()) regSet.add(st.region.trim());
+    });
+    if (regSet.size === 0) {
+      ['Central', 'East', 'North', 'South', 'West'].forEach((r) => regSet.add(r));
+    }
+    return Array.from(regSet).sort();
+  }, [stations]);
+
   const filteredStations = useMemo(() => {
     return stations.filter((st) => {
       if (selectedRegion !== 'ALL' && st.region !== selectedRegion) {
@@ -60,12 +71,12 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({ stations, onSelectSt
             onChange={(e) => setSelectedRegion(e.target.value)}
             className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
           >
-            <option value="ALL">All Regions</option>
-            <option value="North">North</option>
-            <option value="South">South</option>
-            <option value="East">East</option>
-            <option value="West">West</option>
-            <option value="Central">Central</option>
+            <option value="ALL">All Regions ({filteredStations.length})</option>
+            {availableRegions.map((reg) => (
+              <option key={reg} value={reg}>
+                {reg} Region
+              </option>
+            ))}
           </select>
 
           <span className="text-xs text-slate-400 font-mono">
