@@ -32,8 +32,8 @@ jobs:
 
       - name: Build production bundle
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://rippjixfknqwptbcruux.supabase.co' }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_8SHTqSbUKTZDgi98sXA3Ew_N12-TRE8' }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: npm run build
 
       # Deploy using GitHub Pages Artifact (for Source: GitHub Actions)
