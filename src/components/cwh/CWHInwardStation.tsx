@@ -61,7 +61,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   const [selectedStation, setSelectedStation] = useState<string>('ALL');
   const [selectedRegion, setSelectedRegion] = useState<string>('ALL');
   const [activeSubTab, setActiveSubTab] = useState<
-    'needs_awb' | 'awb_reissue' | 'in_transit' | 'at_cwh' | 'discrepancies' | 'outbound_rc' | 'history'
+    'needs_awb' | 'pickup_pending' | 'in_transit' | 'awb_reissue' | 'at_cwh' | 'discrepancies' | 'outbound_rc' | 'history'
   >('needs_awb');
   const [isBulkAwbModalOpen, setIsBulkAwbModalOpen] = useState(false);
 
@@ -178,7 +178,37 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     });
   }, [stationScopedOrders]);
 
-  // 3. In Transit / Pickup Pending: AWB token active, en route from CCI to CWH (Leg 1 Inbound only!)
+  // 2. Pickup Pending: AWB assigned, awaiting courier physical pickup from CCI service center
+  const pickupPendingOrders = useMemo(() => {
+    return stationScopedOrders.filter((o) => {
+      const moto = (o.motorola_status || '').toLowerCase();
+      const motoInfo = getMotorolaStatusInfo(o.motorola_status);
+      // Strictly exclude downstream warehouse / RC stages
+      if (
+        motoInfo.code >= 3 || 
+        motoInfo.code === 35 || 
+        motoInfo.isDelivered || 
+        moto.includes('cwh received') || 
+        moto.includes('send to rc') || 
+        moto.includes('rc received')
+      ) {
+        return false;
+      }
+      // Exclude exception (re-issue)
+      if (o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done') return false;
+      // Exclude unassigned AWB
+      if (o.crm_status === 'Pending AWB' && !o.active_awb && !o.excel_ref_awb) return false;
+      if (isAwbIssueRequired(o) && !o.active_awb && !o.excel_ref_awb) return false;
+
+      // If already marked Pickup Done / In Transit, belongs to in_transit
+      if (o.pickup_status === 'Pickup Done' || o.crm_status === 'In Transit') return false;
+
+      // Has AWB assigned and awaiting pickup
+      return o.pickup_status === 'Pickup Pending' || o.crm_status === 'Pickup Pending' || !!(o.active_awb || o.excel_ref_awb);
+    });
+  }, [stationScopedOrders]);
+
+  // 3. In Transit (Leg 1 Inbound): CCI confirmed "Pickup Done" (or courier in-scan); parcel en route to CWH
   const inTransitOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
       const moto = (o.motorola_status || '').toLowerCase();
@@ -195,8 +225,9 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         return false;
       }
       if (o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done') return false;
-      if (isAwbIssueRequired(o)) return false;
-      return o.crm_status === 'Pickup Pending' || o.crm_status === 'In Transit' || !!(o.active_awb || o.excel_ref_awb);
+      
+      // Strictly only orders where pickup is done / en route
+      return o.pickup_status === 'Pickup Done' || o.crm_status === 'In Transit';
     });
   }, [stationScopedOrders]);
 
@@ -268,10 +299,12 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     switch (activeSubTab) {
       case 'needs_awb':
         return needsAwbOrders;
-      case 'awb_reissue':
-        return awbReissueOrders;
+      case 'pickup_pending':
+        return pickupPendingOrders;
       case 'in_transit':
         return inTransitOrders;
+      case 'awb_reissue':
+        return awbReissueOrders;
       case 'at_cwh':
         return atCwhOrders;
       case 'discrepancies':
@@ -283,7 +316,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       default:
         return needsAwbOrders;
     }
-  }, [activeSubTab, needsAwbOrders, awbReissueOrders, inTransitOrders, atCwhOrders, discrepancyOrders, outboundRcOrders, historyOrders]);
+  }, [activeSubTab, needsAwbOrders, pickupPendingOrders, inTransitOrders, awbReissueOrders, atCwhOrders, discrepancyOrders, outboundRcOrders, historyOrders]);
 
   const filteredOrders = useMemo(() => {
     if (!searchQuery.trim()) return currentDisplayOrders;
@@ -315,6 +348,24 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       activePill: 'bg-amber-500 text-white',
     },
     {
+      id: 'pickup_pending',
+      label: 'Pickup Pending',
+      sublabel: 'Awaiting Courier at CCI',
+      count: pickupPendingOrders.length,
+      icon: Clock,
+      activeClasses: 'border-blue-500 bg-blue-50/70 shadow-sm ring-1 ring-blue-500',
+      activePill: 'bg-blue-600 text-white',
+    },
+    {
+      id: 'in_transit',
+      label: 'In-Transit',
+      sublabel: 'En Route: CCI → CWH',
+      count: inTransitOrders.length,
+      icon: Truck,
+      activeClasses: 'border-sky-500 bg-sky-50/70 shadow-sm ring-1 ring-sky-500',
+      activePill: 'bg-sky-600 text-white',
+    },
+    {
       id: 'awb_reissue',
       label: 'Re-Issue AWB',
       sublabel: 'Pickup Not Done',
@@ -323,15 +374,6 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       activeClasses: 'border-rose-500 bg-rose-50/70 shadow-sm ring-1 ring-rose-500',
       activePill: 'bg-rose-600 text-white',
       isException: awbReissueOrders.length > 0,
-    },
-    {
-      id: 'in_transit',
-      label: 'In-Transit',
-      sublabel: 'CCI → CWH Inbound',
-      count: inTransitOrders.length,
-      icon: Truck,
-      activeClasses: 'border-sky-500 bg-sky-50/70 shadow-sm ring-1 ring-sky-500',
-      activePill: 'bg-sky-600 text-white',
     },
     {
       id: 'at_cwh',
@@ -405,8 +447,8 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         </div>
       </div>
 
-      {/* 2. Interactive KPI Metric Pipeline Cards (7 Distinct Stages) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
+      {/* 2. Interactive KPI Metric Pipeline Cards (8 Distinct Stages) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2.5">
         {kpiTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeSubTab === tab.id;
@@ -552,6 +594,38 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
             </p>
             <p className="text-amber-800/90 mt-0.5">
               Service centers created shipping orders in Moto CRM. Generate AWB tokens on courier portal and issue here for pickup.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {activeSubTab === 'pickup_pending' && (
+        <div className="p-3.5 rounded-xl bg-blue-50/80 border border-blue-200 flex items-center gap-2.5 shadow-xs">
+          <span className="p-1.5 rounded-lg bg-blue-100 text-blue-800 shrink-0">
+            <Clock className="w-4 h-4" />
+          </span>
+          <div className="text-xs">
+            <p className="font-semibold text-blue-950">
+              Stage 3: Pickup Pending (Awaiting Courier at CCI)
+            </p>
+            <p className="text-blue-900/90 mt-0.5">
+              AWB token issued by CWH. Awaiting courier physical pickup and service center handover confirmation (&quot;Pickup Done&quot;).
+            </p>
+          </div>
+        </div>
+      )}
+
+      {activeSubTab === 'in_transit' && (
+        <div className="p-3.5 rounded-xl bg-sky-50/80 border border-sky-300 flex items-center gap-2.5 shadow-xs">
+          <span className="p-1.5 rounded-lg bg-sky-100 text-sky-800 shrink-0">
+            <Truck className="w-4 h-4" />
+          </span>
+          <div className="text-xs">
+            <p className="font-semibold text-sky-950">
+              Stage 5: In-Transit (En Route: CCI → CWH)
+            </p>
+            <p className="text-sky-900/90 mt-0.5">
+              CCI confirmed &quot;Pickup Done&quot; / courier scan completed. Consignment is actively on the vehicle en route to CWH.
             </p>
           </div>
         </div>
@@ -793,10 +867,12 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                         </>
                       ) : activeSubTab === 'needs_awb'
                         ? 'No active consignments currently require initial AWB issuance from CWH.'
+                        : activeSubTab === 'pickup_pending'
+                        ? 'No consignments currently awaiting courier pickup at CCI service centers.'
+                        : activeSubTab === 'in_transit'
+                        ? 'No consignments currently in transit en route to CWH.'
                         : activeSubTab === 'awb_reissue'
                         ? 'No consignments currently in the AWB re-issue exception queue.'
-                        : activeSubTab === 'in_transit'
-                        ? 'No consignments currently in transit or awaiting courier pickup.'
                         : activeSubTab === 'at_cwh'
                         ? 'No consignments currently at CWH awaiting CCTV inward screening or DC creation.'
                         : activeSubTab === 'discrepancies'
