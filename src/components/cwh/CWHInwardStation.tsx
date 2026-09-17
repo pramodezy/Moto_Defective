@@ -586,14 +586,16 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
 
                     {/* Column 4: Courier & AWB */}
                     <td className="py-3 px-3.5 whitespace-nowrap">
-                      <div className="text-slate-800 font-medium">{so.courier || 'BlueDart Express'}</div>
+                      <div className="text-slate-800 font-medium">
+                        {(so.active_awb || so.excel_ref_awb) ? (so.courier || '-') : '-'}
+                      </div>
                       <div className="font-mono text-sky-800 text-[11px] mt-0.5 font-medium">
                         {so.active_awb || so.excel_ref_awb || (
                           so.crm_status === 'CWH to Create DC'
                             ? <span className="text-purple-800 font-sans font-medium">CWH Inward Done</span>
                             : motoInfo.isDelivered 
                               ? <span className="text-emerald-800 font-sans font-medium">Delivered</span> 
-                              : <span className="text-amber-800 font-sans font-medium">Pending AWB</span>
+                              : <span className="text-amber-800 font-sans font-medium">Pending CWH AWB</span>
                         )}
                       </div>
                     </td>

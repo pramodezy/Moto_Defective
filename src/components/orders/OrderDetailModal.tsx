@@ -290,12 +290,10 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
               <span className="text-xs text-slate-500">Active AWB &amp; Courier</span>
               <div className="text-sm font-bold text-sky-800 font-mono mt-1 truncate">
-                {motoInfo.code === 1
-                  ? '-'
-                  : (order.active_awb || order.excel_ref_awb || (motoInfo.isDelivered ? 'Delivered (Direct)' : 'None Assigned'))}
+                {order.active_awb || order.excel_ref_awb || (motoInfo.isDelivered ? 'Delivered' : 'Pending CWH AWB')}
               </div>
               <span className="text-[10px] text-slate-500">
-                {motoInfo.code === 1 ? 'Awaiting DC creation' : (order.courier || 'BlueDart Express')}
+                {(order.active_awb || order.excel_ref_awb) ? (order.courier || '-') : '-'}
               </span>
             </div>
 
@@ -376,13 +374,13 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                   <div>
                     <span className="text-slate-400 block text-[10px]">Logistics Partner</span>
                     <span className="font-medium text-slate-800">
-                      {motoInfo.code === 1 ? '-' : (order.courier || 'BlueDart Express')}
+                      {(order.active_awb || order.excel_ref_awb) ? (order.courier || '-') : '-'}
                     </span>
                   </div>
                   <div>
                     <span className="text-slate-400 block text-[10px]">AWB Tracking Token</span>
                     <span className="font-mono font-medium text-sky-700">
-                      {motoInfo.code === 1 ? '-' : (order.active_awb || order.excel_ref_awb || 'Pending')}
+                      {order.active_awb || order.excel_ref_awb || (motoInfo.isDelivered ? 'Delivered' : 'Pending CWH AWB')}
                     </span>
                   </div>
                   <div>

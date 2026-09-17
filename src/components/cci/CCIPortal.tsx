@@ -533,10 +533,21 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
                         {/* 2. Courier & AWB */}
                         <td className="py-3 px-3.5 whitespace-nowrap align-middle">
-                          <div className="text-slate-800 font-medium text-xs">{so.courier || '-'}</div>
-                          <div className="font-mono text-sky-800 text-[11px] mt-0.5 font-medium">
-                            {so.active_awb || so.excel_ref_awb || (motoInfo.isDelivered ? 'Delivered' : '-')}
-                          </div>
+                          {hasAwb ? (
+                            <>
+                              <div className="text-slate-800 font-medium text-xs">{so.courier || '-'}</div>
+                              <div className="font-mono text-sky-800 text-[11px] mt-0.5 font-medium">
+                                {so.active_awb || so.excel_ref_awb}
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="text-slate-400 font-medium text-xs">-</div>
+                              <div className="text-amber-800 font-medium text-[11px] mt-0.5">
+                                {motoInfo.isDelivered ? 'Delivered' : 'Pending CWH AWB'}
+                              </div>
+                            </>
+                          )}
                         </td>
 
                         {/* 3. Units */}
