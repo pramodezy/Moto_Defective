@@ -27,7 +27,8 @@ import { SlaBadge } from '../layout/SlaBadge';
 import { 
   getMotorolaStatusInfo, 
   isAwbIssueRequired, 
-  getCwhActionDetails 
+  getCwhActionDetails,
+  getUnifiedStageDetails
 } from '../../lib/motorolaStatus';
 import { BulkAwbUploadModal } from './BulkAwbUploadModal';
 
@@ -605,19 +606,22 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
 
                     {/* Column 3: Status (CRM & Motorola) */}
                     <td className="py-3 px-3.5 whitespace-nowrap">
-                      <div className="flex flex-col gap-1 items-start">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${motoInfo.badgeClass}`}>
-                          {motoInfo.label}
-                        </span>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getCrmStatusStyle(so.crm_status)}`}>
-                          {so.crm_status}
-                        </span>
-                        {isReissue && (
-                          <span className="text-[9px] text-rose-700 font-bold bg-rose-50 px-1 py-0.2 rounded border border-rose-200">
-                            Pickup Not Done (Re-Issue Required)
-                          </span>
-                        )}
-                      </div>
+                      {(() => {
+                        const stage = getUnifiedStageDetails(so);
+                        return (
+                          <div className="flex flex-col gap-1 items-start">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${motoInfo.badgeClass}`}>
+                              {motoInfo.label}
+                            </span>
+                            <span 
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${stage.badgeClass}`}
+                              title={stage.meaning}
+                            >
+                              {stage.stageName}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </td>
 
                     {/* Column 4: Courier & AWB */}

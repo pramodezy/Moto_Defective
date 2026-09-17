@@ -18,13 +18,21 @@ import {
   PackageCheck,
   RefreshCw,
   Info,
-  Layers
+  Layers,
+  Clock
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster, PriorityTier, CRMStatus, UserRole } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
 import { printConsignmentManifest } from '../../services/manifestGenerator';
-import { getMotorolaStatusInfo, isAwbIssueRequired, isCompletedJourneyStatus, normalizeMotoStatusKey } from '../../lib/motorolaStatus';
+import { 
+  getMotorolaStatusInfo, 
+  isAwbIssueRequired, 
+  isCompletedJourneyStatus, 
+  normalizeMotoStatusKey,
+  getUnifiedStageDetails,
+  getUnifiedPickupStatus
+} from '../../lib/motorolaStatus';
 
 interface ShippingOrdersTableProps {
   orders: ShippingOrder[];
@@ -457,46 +465,56 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                     </td>
 
                     {/* CRM Status */}
-                    <td className="py-3 px-4">
+                    <td className="py-3 px-4 whitespace-nowrap">
                       {(() => {
-                        const effectiveCrmStatus: CRMStatus = normalizeMotoStatusKey(so.motorola_status) === 'not return'
-                          ? 'CCI to Create DC'
-                          : ((so.crm_status as string) === 'AWB Pending' ? 'Pending AWB' : so.crm_status);
-
+                        const stage = getUnifiedStageDetails(so);
                         return (
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${getCrmStatusStyle(effectiveCrmStatus)}`}>
-                            {effectiveCrmStatus}
+                          <span 
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${stage.badgeClass}`}
+                            title={stage.meaning}
+                          >
+                            {stage.stageName}
                           </span>
                         );
                       })()}
                     </td>
 
                     {/* Active AWB & Pickup */}
-                    <td className="py-3 px-4 font-mono text-slate-700">
+                    <td className="py-3 px-4 font-mono text-slate-700 whitespace-nowrap">
                       {so.active_awb || so.excel_ref_awb ? (
                         <div>
                           <div className="text-blue-800 flex items-center gap-1 font-semibold">
                             <Barcode className="w-3.5 h-3.5 text-blue-700" />
                             <span>{so.active_awb || so.excel_ref_awb}</span>
                           </div>
-                          {currentRole === 'CCI' && (motoInfo.code >= 3 || motoInfo.code === 35 || motoInfo.isDelivered) ? (
-                            <span className="text-slate-400 font-mono text-xs font-semibold" title="No action required from CCI">-</span>
-                          ) : so.pickup_status === 'Pickup Done' ? (
-                            <span className="inline-flex items-center gap-0.5 text-[9px] text-emerald-700 font-sans font-medium mt-0.5">
-                              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" /> Pickup Done
-                            </span>
-                          ) : so.pickup_status === 'Pickup Not Done' ? (
-                            <span className="inline-flex items-center gap-0.5 text-[9px] text-rose-700 font-sans font-medium mt-0.5" title={so.pickup_remarks}>
-                              <AlertTriangle className="w-2.5 h-2.5 text-rose-600" /> Pickup Failed
-                            </span>
-                          ) : null}
+                          {(() => {
+                            const pickup = getUnifiedPickupStatus(so);
+                            if (pickup === 'Pickup Done') {
+                              return (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] text-emerald-700 font-sans font-medium mt-0.5">
+                                  <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" /> Pickup Done
+                                </span>
+                              );
+                            }
+                            if (pickup === 'Pickup Not Done') {
+                              return (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] text-rose-700 font-sans font-medium mt-0.5" title={so.pickup_remarks}>
+                                  <AlertTriangle className="w-2.5 h-2.5 text-rose-600" /> Pickup Failed
+                                </span>
+                              );
+                            }
+                            if (pickup === 'Pickup Pending') {
+                              return (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] text-amber-700 font-sans font-medium mt-0.5">
+                                  <Clock className="w-2.5 h-2.5 text-amber-600" /> Pickup Pending
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
-                      ) : motoInfo.isDelivered ? (
-                        <span className="text-emerald-700 text-[11px] font-sans font-medium">Delivered (Closed)</span>
-                      ) : so.crm_status === 'CWH to Create DC' || so.crm_status === 'Delivered at CWH' || so.crm_status === 'Pending Inward at CWH' ? (
-                        <span className="text-purple-700 text-[11px] font-sans font-medium">CWH Inward Done</span>
                       ) : (
-                        <span className="text-slate-400 italic">Unassigned</span>
+                        <span className="text-amber-800 text-[11px] font-sans font-medium">Pending CWH AWB</span>
                       )}
                     </td>
 

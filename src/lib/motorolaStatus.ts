@@ -249,6 +249,236 @@ export function isAwbIssueRequired(order: ShippingOrder): boolean {
   return order.crm_status === 'Pending AWB' && !order.active_awb && !order.excel_ref_awb;
 }
 
+export interface UnifiedStage {
+  key: string;
+  stageName: string;
+  badgeClass: string;
+  meaning: string;
+  stageNumber: number;
+}
+
+/**
+ * Single source of truth for the Unified CRM Journey Stage across CCI, CWH, and Admin.
+ * Returns consistent stage name, badge styling, and explanation.
+ */
+export function getUnifiedStageDetails(order: {
+  crm_status?: string | null;
+  motorola_status?: string | null;
+  pickup_status?: string | null;
+  active_awb?: string | null;
+  excel_ref_awb?: string | null;
+}): UnifiedStage {
+  const normMoto = normalizeMotoStatusKey(order.motorola_status);
+  const motoInfo = getMotorolaStatusInfo(order.motorola_status);
+  const crm = (order.crm_status || '').trim();
+
+  // Stage 10: Delivered to RC (Discrepancies)
+  if (
+    motoInfo.code === 6 ||
+    crm === 'Delivered to RC (Discrepancies)' ||
+    normMoto.includes('negative')
+  ) {
+    return {
+      key: 'delivered_rc_discrepancy',
+      stageName: 'Delivered to RC (Discrepancies)',
+      badgeClass: 'bg-rose-50 text-rose-800 border-rose-300 font-medium',
+      meaning: 'Consignment received at Repair Center with flagged discrepancies.',
+      stageNumber: 10,
+    };
+  }
+
+  // Stage 9: Delivered to RC (Completed)
+  if (
+    motoInfo.code === 5 ||
+    motoInfo.isDelivered ||
+    crm === 'Delivered to RC' ||
+    normMoto.includes('rc received')
+  ) {
+    return {
+      key: 'delivered_rc',
+      stageName: 'Delivered to RC',
+      badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-300 font-medium',
+      meaning: 'Consignment delivery confirmed and closed at Repair Center.',
+      stageNumber: 9,
+    };
+  }
+
+  // Stage 8: CWH Shipped to RC (ASP Send to RC - Outbound Leg 2)
+  if (
+    motoInfo.code === 4 ||
+    normMoto === 'asp send to rc' ||
+    normMoto.includes('send to rc') ||
+    crm === 'In Transit to RC' ||
+    crm === 'Pickup Pending for RC' ||
+    crm === 'CWH Shipped to RC'
+  ) {
+    return {
+      key: 'cwh_shipped_to_rc',
+      stageName: 'CWH Shipped to RC',
+      badgeClass: 'bg-blue-50 text-blue-800 border-blue-300 font-medium',
+      meaning: 'Consignment outbound dispatch created by CWH and shipped to Repair Center.',
+      stageNumber: 8,
+    };
+  }
+
+  // Stage 7: Discrepancy Flagged at CWH Bay
+  if (
+    motoInfo.code === 35 ||
+    crm === 'Discrepancies' ||
+    normMoto.includes('discrepanc')
+  ) {
+    return {
+      key: 'discrepancy_cwh',
+      stageName: 'Discrepancy Flagged',
+      badgeClass: 'bg-rose-50 text-rose-800 border-rose-300 font-medium',
+      meaning: 'Physical package or unit count mismatch recorded during CWH screening.',
+      stageNumber: 7,
+    };
+  }
+
+  // Stage 6: At CWH (Inward & Screening)
+  if (
+    motoInfo.code === 3 ||
+    normMoto.includes('cwh received') ||
+    crm === 'Delivered at CWH' ||
+    crm === 'Pending Inward at CWH' ||
+    crm === 'CWH to Create DC'
+  ) {
+    return {
+      key: 'at_cwh',
+      stageName: 'At CWH (Inward & Screening)',
+      badgeClass: 'bg-purple-50 text-purple-800 border-purple-300 font-medium',
+      meaning: 'Consignment arrived at CWH bay for unboxing, CCTV inspection, and staging.',
+      stageNumber: 6,
+    };
+  }
+
+  // Stage 5: In-Transit to CWH (Leg 1 Inbound Transit)
+  if (
+    order.pickup_status === 'Pickup Done' ||
+    crm === 'In Transit'
+  ) {
+    return {
+      key: 'in_transit_cwh',
+      stageName: 'In-Transit to CWH',
+      badgeClass: 'bg-sky-50 text-sky-800 border-sky-300 font-medium',
+      meaning: 'Courier picked up consignment from service center; en route to CWH.',
+      stageNumber: 5,
+    };
+  }
+
+  // Stage 4: Pending AWB Re-Issue (Exception Queue)
+  if (
+    order.pickup_status === 'Pickup Not Done' ||
+    crm === 'Pending AWB Re-Issue'
+  ) {
+    return {
+      key: 'awb_reissue',
+      stageName: 'Pending AWB Re-Issue',
+      badgeClass: 'bg-rose-50 text-rose-900 border-rose-300 font-bold',
+      meaning: 'Service center reported Pickup Not Done. Courier token must be re-issued.',
+      stageNumber: 4,
+    };
+  }
+
+  // Stage 3: Pickup Pending (AWB assigned, awaiting handover)
+  if (
+    crm === 'Pickup Pending' ||
+    (order.active_awb && order.active_awb.trim()) ||
+    (order.excel_ref_awb && order.excel_ref_awb.trim())
+  ) {
+    return {
+      key: 'pickup_pending',
+      stageName: 'Pickup Pending',
+      badgeClass: 'bg-amber-50 text-amber-900 border-amber-300 font-semibold',
+      meaning: 'AWB token issued by CWH. Awaiting service center handover to courier.',
+      stageNumber: 3,
+    };
+  }
+
+  // Stage 2: Pending CWH AWB (DC created, awaiting CWH courier token)
+  if (
+    normMoto === 'cci send to cwh' ||
+    crm === 'Pending AWB' ||
+    crm === 'AWB Pending'
+  ) {
+    return {
+      key: 'pending_awb',
+      stageName: 'Pending CWH AWB',
+      badgeClass: 'bg-amber-50 text-amber-800 border-amber-200 font-medium',
+      meaning: 'Delivery Challan created in Motorola CRM. Awaiting AWB token issuance from CWH.',
+      stageNumber: 2,
+    };
+  }
+
+  // Stage 1: CCI to Create DC
+  if (
+    normMoto === 'not return' ||
+    crm === 'CCI to Create DC'
+  ) {
+    return {
+      key: 'create_dc',
+      stageName: 'CCI to Create DC',
+      badgeClass: 'bg-amber-50 text-amber-900 border-amber-300 font-medium',
+      meaning: 'Defective units awaiting Delivery Challan creation by service center in Motorola CRM.',
+      stageNumber: 1,
+    };
+  }
+
+  // Fallback
+  return {
+    key: 'pending_awb',
+    stageName: crm || 'Pending CWH AWB',
+    badgeClass: 'bg-slate-50 text-slate-700 border-slate-300 font-medium',
+    meaning: 'Consignment processing in CRM.',
+    stageNumber: 2,
+  };
+}
+
+/**
+ * Single source of truth for Pickup Status across all roles.
+ * Once shipment reaches CWH Received or further, Pickup Status is '-' for everyone.
+ */
+export function getUnifiedPickupStatus(order: {
+  motorola_status?: string | null;
+  crm_status?: string | null;
+  pickup_status?: string | null;
+}): string {
+  const moto = (order.motorola_status || '').toLowerCase();
+  const motoInfo = getMotorolaStatusInfo(order.motorola_status);
+
+  // STRICT RULE: Once shipment reaches CWH Received or further (Code >= 3, CWH Received, ASP Send to RC, RC Received),
+  // Pickup from CCI has concluded -> return '-' across all roles
+  if (
+    motoInfo.code >= 3 ||
+    motoInfo.code === 35 ||
+    motoInfo.isDelivered ||
+    moto.includes('cwh received') ||
+    moto.includes('send to rc') ||
+    moto.includes('rc received')
+  ) {
+    return '-';
+  }
+
+  // If Code 1 (Not Return): DC not created yet -> '-'
+  if (motoInfo.code === 1 || moto.includes('not return')) {
+    return '-';
+  }
+
+  // During Leg 1 (CCI Send to CWH):
+  if (order.pickup_status === 'Pickup Done') {
+    return 'Pickup Done';
+  }
+  if (order.pickup_status === 'Pickup Not Done' || order.crm_status === 'Pending AWB Re-Issue') {
+    return 'Pickup Not Done';
+  }
+  if (order.pickup_status === 'Pickup Pending' || order.crm_status === 'Pickup Pending') {
+    return 'Pickup Pending';
+  }
+
+  return '-';
+}
+
 export type CciActionType = 
   | 'CREATE_DC' 
   | 'PICKUP_HANDOVER_PENDING' 

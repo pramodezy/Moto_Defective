@@ -21,7 +21,9 @@ import {
   getMotorolaStatusInfo, 
   isAwbIssueRequired,
   getCciActionDetails,
-  getCwhActionDetails
+  getCwhActionDetails,
+  getUnifiedStageDetails,
+  getUnifiedPickupStatus
 } from '../../lib/motorolaStatus';
 
 interface OrderDetailModalProps {
@@ -45,8 +47,8 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
 }) => {
   if (!order) return null;
 
-  const normalize = (s?: string) => (s || '').trim().toLowerCase();
   const initialMatched = useMemo(() => {
+    const normalize = (s?: string) => (s || '').trim().toLowerCase();
     return items.filter(
       (i) =>
         normalize(i.shipping_order_code) === normalize(order.so_code) ||
@@ -83,6 +85,8 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   const totalValue = orderItems.reduce((acc, item) => acc + ((item.estimated_value || 8000) * (item.quantity || 1)), 0);
   const motoInfo = getMotorolaStatusInfo(order.motorola_status);
   const needsAwb = isAwbIssueRequired(order);
+  const stage = getUnifiedStageDetails(order);
+  const unifiedPickup = getUnifiedPickupStatus(order);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
@@ -97,8 +101,8 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-slate-900 font-mono">{order.so_code}</h2>
                 <SlaBadge tier={order.priority_tier} ageDays={order.max_sr_age} />
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getCrmStatusStyle(order.crm_status)}`}>
-                  {order.crm_status}
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${stage.badgeClass}`} title={stage.meaning}>
+                  {stage.stageName}
                 </span>
                 <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${motoInfo.badgeClass}`}>
                   {motoInfo.label}
@@ -300,39 +304,30 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
               <span className="text-xs text-slate-500">Pickup Status</span>
               <div className="mt-1">
-                {motoInfo.code === 1 ? (
+                {unifiedPickup === '-' ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500 border border-slate-200">
                     -
                   </span>
-                ) : order.pickup_status === 'Pickup Done' ? (
+                ) : unifiedPickup === 'Pickup Done' ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-300">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                     Pickup Done
                   </span>
-                ) : order.pickup_status === 'Pickup Not Done' ? (
+                ) : unifiedPickup === 'Pickup Not Done' ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-800 border border-rose-300">
                     <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
                     Pickup Not Done
                   </span>
-                ) : motoInfo.isDelivered ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-300">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                    Delivered
-                  </span>
-                ) : motoInfo.code >= 3 ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500 border border-slate-200">
-                    -
-                  </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-300">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-300">
                     <Clock className="w-3.5 h-3.5" />
-                    Awaiting Pickup
+                    Pickup Pending
                   </span>
                 )}
               </div>
               <span className="text-[10px] text-slate-500 mt-1 block truncate" title={order.pickup_remarks || ''}>
-                {motoInfo.code === 1
-                  ? 'CCI to create DC in Moto CRM'
+                {unifiedPickup === '-'
+                  ? 'No action required from service center'
                   : motoInfo.code >= 3
                   ? (order.pickup_date ? formatDate(order.pickup_date) : 'No CCI action required')
                   : (order.pickup_date ? formatDate(order.pickup_date) : order.pickup_remarks || 'Handover pending')}

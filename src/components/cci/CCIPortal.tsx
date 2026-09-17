@@ -20,7 +20,9 @@ import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
 import { 
   getMotorolaStatusInfo, 
-  getCciActionDetails 
+  getCciActionDetails,
+  getUnifiedStageDetails,
+  getUnifiedPickupStatus
 } from '../../lib/motorolaStatus';
 
 interface CCIPortalProps {
@@ -500,7 +502,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                     <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Courier &amp; AWB</th>
                     <th className="py-3 px-3 text-center uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Units</th>
                     <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Motorola Status</th>
-                    <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">CCI Stage</th>
+                    <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">CRM Stage</th>
                     <th className="py-3 px-3.5 text-left uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Pickup Status</th>
                     <th className="py-3 px-3.5 text-center uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">Actions</th>
                   </tr>
@@ -515,6 +517,8 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                     const cciAction = getCciActionDetails(so);
                     const hasAwb = !!(so.active_awb || so.excel_ref_awb);
                     const isPickupPending = cciAction.actionType === 'PICKUP_HANDOVER_PENDING';
+                    const unifiedStage = getUnifiedStageDetails(so);
+                    const unifiedPickup = getUnifiedPickupStatus(so);
 
                     return (
                       <tr key={so.id} className="hover:bg-slate-50/80 transition-colors">
@@ -565,58 +569,23 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                           </span>
                         </td>
 
-                        {/* 6. CCI Stage */}
+                        {/* 5. CRM Stage */}
                         <td className="py-3 px-3.5 whitespace-nowrap align-middle">
-                          {motoInfo.code === 5 || motoInfo.code === 6 || (so.motorola_status || '').toLowerCase().includes('rc received') || cciAction.actionType === 'DELIVERED_RC' || so.crm_status === 'Delivered to RC' ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-800 font-medium">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                              Delivered to RC
-                            </span>
-                          ) : motoInfo.code === 4 || (so.motorola_status || '').toLowerCase().includes('send to rc') || cciAction.actionType === 'DISPATCHED_TO_RC' || so.crm_status === 'Pickup Pending for RC' || so.crm_status === 'In Transit to RC' ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-blue-800 font-medium">
-                              <Send className="w-3.5 h-3.5 text-blue-700 shrink-0" />
-                              CWH Shipped to RC
-                            </span>
-                          ) : motoInfo.code === 3 || motoInfo.code === 35 || (so.motorola_status || '').toLowerCase().includes('cwh received') || cciAction.actionType === 'DELIVERED_CWH' || so.crm_status === 'Delivered at CWH' || so.crm_status === 'Pending Inward at CWH' || so.crm_status === 'CWH to Create DC' ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-purple-800 font-medium">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-purple-700 shrink-0" />
-                              At CWH (Verified)
-                            </span>
-                          ) : so.crm_status === 'Pending AWB Re-Issue' || so.pickup_status === 'Pickup Not Done' || cciAction.actionType === 'AWAITING_REISSUE' ? (
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-50 text-rose-900 border border-rose-300">
-                              <AlertTriangle className="w-3 h-3 text-rose-700 shrink-0" />
-                              Waiting AWB Re-Issue
-                            </span>
-                          ) : cciAction.actionType === 'PICKUP_HANDOVER_PENDING' || so.crm_status === 'Pickup Pending' ? (
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-50 text-amber-900 border border-amber-300">
-                              <Clock className="w-3 h-3 text-amber-700 shrink-0" />
-                              Pickup Pending
-                            </span>
-                          ) : cciAction.actionType === 'IN_TRANSIT_MONITOR' || so.crm_status === 'In Transit' ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-sky-800 font-medium">
-                              <Truck className="w-3.5 h-3.5 text-sky-700 shrink-0" />
-                              In-Transit (Monitor)
-                            </span>
-                          ) : cciAction.actionType === 'AWAITING_CWH_AWB' || so.crm_status === 'Pending AWB' ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-                              <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              Waiting CWH AWB
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-amber-800 font-medium">
-                              <Clock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                              CCI to Create DC
-                            </span>
-                          )}
+                          <span 
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${unifiedStage.badgeClass} inline-block whitespace-nowrap`}
+                            title={unifiedStage.meaning}
+                          >
+                            {unifiedStage.stageName}
+                          </span>
                         </td>
 
-                        {/* 7. Pickup Status */}
+                        {/* 6. Pickup Status */}
                         <td className="py-3 px-3.5 whitespace-nowrap align-middle">
-                          {motoInfo.code >= 3 || motoInfo.code === 35 || motoInfo.isDelivered || (so.motorola_status || '').toLowerCase().includes('cwh received') || (so.motorola_status || '').toLowerCase().includes('rc received') || (so.motorola_status || '').toLowerCase().includes('send to rc') ? (
+                          {unifiedPickup === '-' ? (
                             <span className="text-slate-400 font-mono text-sm px-2 font-semibold inline-block" title="No action required from CCI (Shipment is at CWH Received or further)">
                               -
                             </span>
-                          ) : so.pickup_status === 'Pickup Done' ? (
+                          ) : unifiedPickup === 'Pickup Done' ? (
                             <div className="flex flex-col">
                               <span className="inline-flex items-center gap-1.5 text-xs text-emerald-800 font-medium">
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -628,7 +597,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                                 </span>
                               )}
                             </div>
-                          ) : so.pickup_status === 'Pickup Not Done' ? (
+                          ) : unifiedPickup === 'Pickup Not Done' ? (
                             <div className="flex flex-col">
                               <span className="inline-flex items-center gap-1.5 text-xs text-rose-800 font-medium">
                                 <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
@@ -641,9 +610,9 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                               )}
                             </div>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-                              <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              {hasAwb ? 'Handover Pending' : (motoInfo.code === 1 ? 'CCI to Create DC' : 'Pending AWB')}
+                            <span className="inline-flex items-center gap-1.5 text-xs text-amber-800 font-medium">
+                              <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              Pickup Pending
                             </span>
                           )}
                         </td>
