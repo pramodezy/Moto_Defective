@@ -253,143 +253,206 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
         </div>
       </div>
 
-      {/* Action & Monitoring Banners for CCI */}
-      <div className="space-y-3">
-        {/* Banner 1: Not Return -> Create DC */}
-        {notReturnItems.length > 0 && (
-          <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-              <div className="text-xs">
-                <h4 className="font-bold text-amber-900">
-                  ⚠️ Action Required for CCI: {notReturnItems.length} Defective Part{notReturnItems.length > 1 ? 's' : ''} in &quot;Not Return&quot; Status
-                </h4>
-                <p className="text-amber-800/90 mt-0.5">
-                  Parts are at the station with no Delivery Challan created yet. Please create a DC in Motorola CRM to begin dispatch.
-                </p>
+      {/* Action Hub for CCI (Side-by-Side Action Cards) */}
+      {(notReturnItems.length > 0 || pickupHandoverOrders.length > 0 || pendingReissueOrders.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          {/* Action Card 1: Not Return -> Create DC */}
+          {notReturnItems.length > 0 && (
+            <div className="p-4 rounded-xl bg-gradient-to-br from-amber-50/90 to-amber-100/50 border border-amber-300 flex flex-col justify-between gap-3 shadow-xs">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-amber-200/70 text-amber-800 shrink-0 mt-0.5">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <div className="text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-amber-950 text-sm">Action: Create Delivery Challan (DC)</span>
+                    <span className="px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 font-mono font-bold text-[11px]">
+                      {notReturnItems.length}
+                    </span>
+                  </div>
+                  <p className="text-amber-900/80 mt-1 leading-relaxed">
+                    {notReturnItems.length} defective part{notReturnItems.length > 1 ? 's are' : ' is'} at the station in <strong>&quot;Not Return&quot;</strong> status. Create an official DC in Motorola CRM to begin dispatch.
+                  </p>
+                </div>
+              </div>
+              <div className="flex justify-end pt-1">
+                <button
+                  onClick={() => {
+                    handleViewChange('items');
+                    setItemStatusFilter('1');
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition-colors shadow-xs cursor-pointer"
+                >
+                  View Parts &amp; Create DC ({notReturnItems.length})
+                </button>
               </div>
             </div>
-            <button
-              onClick={() => {
-                handleViewChange('items');
-                setItemStatusFilter('1');
-              }}
-              className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shrink-0 transition-colors shadow-xs cursor-pointer"
-            >
-              View Parts &amp; Create DC ({notReturnItems.length})
-            </button>
-          </div>
-        )}
+          )}
 
-        {/* Banner 2: CCI send to CWH -> AWB updated from CWH -> Pickup Handover Pending */}
-        {pickupHandoverOrders.length > 0 && (
-          <div className="p-4 rounded-xl bg-amber-50 border-2 border-amber-400 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <Truck className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-              <div className="text-xs">
-                <h4 className="font-bold text-amber-950">
-                  ⚡ Action Required for CCI: {pickupHandoverOrders.length} Consignment{pickupHandoverOrders.length > 1 ? 's' : ''} with AWB Updated — Pickup Handover Pending
-                </h4>
-                <p className="text-amber-900/90 mt-0.5">
-                  CWH has assigned the courier AWB. Handover parcel to courier and record pickup status (Pickup Done / Pickup Not Done).
-                </p>
+          {/* Action Card 2: AWB Ready -> Handover to Courier */}
+          {pickupHandoverOrders.length > 0 && (
+            <div className="p-4 rounded-xl bg-gradient-to-br from-sky-50/90 to-blue-100/50 border border-sky-300 flex flex-col justify-between gap-3 shadow-xs">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-sky-200/70 text-sky-800 shrink-0 mt-0.5">
+                  <Truck className="w-5 h-5" />
+                </div>
+                <div className="text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sky-950 text-sm">Action: Courier Pickup Handover</span>
+                    <span className="px-1.5 py-0.5 rounded-full bg-sky-200 text-sky-900 font-mono font-bold text-[11px]">
+                      {pickupHandoverOrders.length}
+                    </span>
+                  </div>
+                  <p className="text-sky-900/80 mt-1 leading-relaxed">
+                    AWB token assigned for {pickupHandoverOrders.length} consignment{pickupHandoverOrders.length > 1 ? 's' : ''}. Handover parcel to BlueDart and record status (Pickup Done / Not Done).
+                  </p>
+                </div>
+              </div>
+              <div className="flex justify-end pt-1">
+                <button
+                  onClick={() => {
+                    handleViewChange('consignments');
+                    setConsignmentFilter('action_pickup');
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-[#001489] hover:bg-[#08209e] text-white transition-colors shadow-xs cursor-pointer"
+                >
+                  Handover Parcels ({pickupHandoverOrders.length})
+                </button>
               </div>
             </div>
-            <button
-              onClick={() => {
-                handleViewChange('consignments');
-                setConsignmentFilter('action_pickup');
-              }}
-              className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shrink-0 transition-colors shadow-xs cursor-pointer"
-            >
-              Handover Parcels ({pickupHandoverOrders.length})
-            </button>
-          </div>
-        )}
+          )}
 
-        {/* Banner 3: In-Transit Monitoring till delivery and updated as CWH Received */}
-        {inTransitMonitorOrders.length > 0 && (
-          <div className="p-3.5 rounded-xl bg-sky-50 border border-sky-200 flex items-center justify-between gap-3 text-xs shadow-xs">
-            <div className="flex items-center gap-2.5">
-              <Truck className="w-4 h-4 text-sky-700 shrink-0" />
-              <div>
-                <span className="font-bold text-sky-900">In-Transit Monitoring:</span>
-                <span className="text-sky-800/90 ml-1.5">
-                  {inTransitMonitorOrders.length} consignment{inTransitMonitorOrders.length > 1 ? 's' : ''} handed over to courier. Monitor shipments until delivery &amp; updated as &quot;CWH Received&quot; in Moto CRM.
-                </span>
+          {/* Exception Card: Pickup Not Done */}
+          {pendingReissueOrders.length > 0 && (
+            <div className={`p-4 rounded-xl bg-rose-50 border-2 border-rose-400 shadow-xs flex flex-col justify-between gap-3 ${
+              (notReturnItems.length > 0 && pickupHandoverOrders.length > 0) ? 'col-span-1 md:col-span-2' : ''
+            }`}>
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-rose-100 text-rose-700 shrink-0 mt-0.5">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div className="text-xs">
+                  <h4 className="font-bold text-rose-950">
+                    Pickup Exception: {pendingReissueOrders.length} Consignment{pendingReissueOrders.length > 1 ? 's' : ''} Marked &quot;Pickup Not Done&quot;
+                  </h4>
+                  <p className="text-rose-900/90 mt-0.5">
+                    Courier pickup failed. CWH logistics has been notified to cancel previous tokens and re-issue fresh AWBs for your station.
+                  </p>
+                </div>
+              </div>
+              <div className="flex justify-end pt-1">
+                <button
+                  onClick={() => {
+                    handleViewChange('consignments');
+                    setConsignmentFilter('pending_reissue');
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-700 hover:bg-rose-800 text-white transition-colors shadow-xs cursor-pointer"
+                >
+                  View Exceptions ({pendingReissueOrders.length})
+                </button>
               </div>
             </div>
-            <button
-              onClick={() => {
-                handleViewChange('consignments');
-                setConsignmentFilter('in_transit_monitor');
-              }}
-              className="text-[#001489] hover:underline shrink-0 text-xs font-semibold cursor-pointer"
-            >
-              View In-Transit ({inTransitMonitorOrders.length})
-            </button>
-          </div>
-        )}
+          )}
+        </div>
+      )}
 
-        {/* Banner 4: Pickup Not Done -> Waiting CWH Re-issue */}
-        {pendingReissueOrders.length > 0 && (
-          <div className="p-4 rounded-xl bg-rose-50 border-2 border-rose-400 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-rose-700 shrink-0 mt-0.5" />
-              <div className="text-xs">
-                <h4 className="font-bold text-rose-950">
-                  ⚠️ Pickup Exception: {pendingReissueOrders.length} Consignment{pendingReissueOrders.length > 1 ? 's' : ''} Marked &quot;Pickup Not Done&quot;
-                </h4>
-                <p className="text-rose-900/90 mt-0.5">
-                  Courier pickup failed. The CWH logistics team has been notified to cancel previous tokens and re-issue fresh AWBs for your station.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                handleViewChange('consignments');
-                setConsignmentFilter('pending_reissue');
-              }}
-              className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-700 hover:bg-rose-800 text-white shrink-0 transition-colors shadow-xs cursor-pointer"
-            >
-              View Exceptions ({pendingReissueOrders.length})
-            </button>
+      {/* 5-Stage Station Pipeline Lifecycle Metrics */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {/* Total Consignments */}
+        <div 
+          onClick={() => { handleViewChange('consignments'); setConsignmentFilter('all'); }}
+          className={`p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer ${
+            consignmentFilter === 'all'
+              ? 'bg-slate-50 border-slate-400 ring-1 ring-slate-300'
+              : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span className="font-medium">Total Orders</span>
+            <Store className="w-4 h-4 text-slate-400" />
           </div>
-        )}
-      </div>
-
-      {/* KPI Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs">
-          <span className="text-xs text-slate-500">Total Consignments</span>
           <div className="text-2xl font-bold font-mono text-slate-900 mt-1">
             {stationOrders.length}
           </div>
-          <span className="text-[10px] text-slate-500">Station lifetime record</span>
+          <span className="text-[10px] text-slate-500 block truncate">Station lifetime record</span>
         </div>
 
-        <div className="p-4 rounded-xl bg-amber-50/50 border border-amber-300 shadow-xs">
-          <span className="text-xs text-amber-900 font-semibold">⚡ Action: Pickup Pending</span>
+        {/* Stage 1: Waiting CWH AWB */}
+        <div 
+          onClick={() => { handleViewChange('consignments'); setConsignmentFilter('waiting_awb'); }}
+          className={`p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer ${
+            consignmentFilter === 'waiting_awb'
+              ? 'bg-slate-100 border-slate-400 ring-1 ring-slate-300'
+              : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs text-slate-600">
+            <span className="font-medium">Awaiting AWB</span>
+            <Clock className="w-4 h-4 text-slate-400" />
+          </div>
+          <div className="text-2xl font-bold font-mono text-slate-800 mt-1">
+            {awaitingCwhAwbOrders.length}
+          </div>
+          <span className="text-[10px] text-slate-500 block truncate">DC created; pending AWB</span>
+        </div>
+
+        {/* Stage 2: Ready for Pickup (Action) */}
+        <div 
+          onClick={() => { handleViewChange('consignments'); setConsignmentFilter('action_pickup'); }}
+          className={`p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer ${
+            consignmentFilter === 'action_pickup'
+              ? 'bg-amber-100/80 border-amber-400 ring-1 ring-amber-300'
+              : pickupHandoverOrders.length > 0 
+              ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-200 hover:bg-amber-50' 
+              : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-semibold text-amber-900">
+            <span>Action: Pickup</span>
+            <Truck className="w-4 h-4 text-amber-600" />
+          </div>
           <div className="text-2xl font-bold font-mono text-amber-800 mt-1">
             {pickupHandoverOrders.length}
           </div>
-          <span className="text-[10px] text-amber-700/80">AWB updated; handover pending</span>
+          <span className="text-[10px] text-amber-700/80 block truncate">Handover to courier</span>
         </div>
 
-        <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs">
-          <span className="text-xs text-slate-500">🚚 In-Transit (Monitor)</span>
+        {/* Stage 3: In-Transit */}
+        <div 
+          onClick={() => { handleViewChange('consignments'); setConsignmentFilter('in_transit_monitor'); }}
+          className={`p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer ${
+            consignmentFilter === 'in_transit_monitor'
+              ? 'bg-sky-100/70 border-sky-400 ring-1 ring-sky-300'
+              : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs text-slate-600">
+            <span className="font-medium">In-Transit</span>
+            <Send className="w-4 h-4 text-sky-600" />
+          </div>
           <div className="text-2xl font-bold font-mono text-sky-700 mt-1">
             {inTransitMonitorOrders.length}
           </div>
-          <span className="text-[10px] text-slate-500">Monitor till CWH Received</span>
+          <span className="text-[10px] text-slate-500 block truncate">En route to CWH</span>
         </div>
 
-        <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs">
-          <span className="text-xs text-slate-500">🏢 CWH &amp; RC Processed</span>
+        {/* Stage 4: At CWH & RC (Delivered) */}
+        <div 
+          onClick={() => { handleViewChange('consignments'); setConsignmentFilter('cwh_received'); }}
+          className={`p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer ${
+            consignmentFilter === 'cwh_received' || consignmentFilter === 'delivered'
+              ? 'bg-purple-50 border-purple-300 ring-1 ring-purple-300'
+              : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs text-slate-600">
+            <span className="font-medium">At CWH &amp; RC</span>
+            <PackageCheck className="w-4 h-4 text-emerald-600" />
+          </div>
           <div className="text-2xl font-bold font-mono text-slate-800 mt-1">
             {cwhStageOrders.length + deliveredOrders.length}
           </div>
-          <span className="text-[10px] text-slate-500">No action for CCI (CWH / RC stage)</span>
+          <span className="text-[10px] text-slate-500 block truncate">Delivered / No action</span>
         </div>
       </div>
 
@@ -428,90 +491,115 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
       {/* Consignments Subtabs & Table */}
       {activeView === 'consignments' && (
         <div className="space-y-4">
-          {/* Subtabs for Consignments */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Subtabs for Consignments - Clean Single Segmented Strip */}
+          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100/90 rounded-xl border border-slate-200">
             <button
               onClick={() => setConsignmentFilter('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
                 consignmentFilter === 'all'
-                  ? 'bg-[#001489] text-white shadow-xs font-semibold'
-                  : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  ? 'bg-white text-slate-900 font-bold shadow-xs border border-slate-200'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 font-medium'
               }`}
             >
-              All Consignments ({stationOrders.length})
+              All
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${consignmentFilter === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                {stationOrders.length}
+              </span>
             </button>
 
             <button
               onClick={() => setConsignmentFilter('action_pickup')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
                 consignmentFilter === 'action_pickup'
-                  ? 'bg-amber-600 text-white shadow-xs font-semibold'
-                  : 'bg-white text-amber-900 hover:bg-amber-50 border border-amber-300'
+                  ? 'bg-amber-600 text-white font-bold shadow-xs'
+                  : pickupHandoverOrders.length > 0
+                  ? 'bg-amber-100/70 text-amber-900 hover:bg-amber-100 border border-amber-200/80 font-medium'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 font-medium'
               }`}
             >
               <Truck className="w-3.5 h-3.5" />
-              ⚡ Action: Pickup Handover Pending ({pickupHandoverOrders.length})
+              Pickup Pending
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${consignmentFilter === 'action_pickup' ? 'bg-white text-amber-900' : 'bg-amber-200/80 text-amber-950 font-bold'}`}>
+                {pickupHandoverOrders.length}
+              </span>
             </button>
 
+            {pendingReissueOrders.length > 0 && (
+              <button
+                onClick={() => setConsignmentFilter('pending_reissue')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                  consignmentFilter === 'pending_reissue'
+                    ? 'bg-rose-700 text-white font-bold shadow-xs'
+                    : 'bg-rose-100/70 text-rose-900 hover:bg-rose-100 border border-rose-200 font-medium'
+                }`}
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                AWB Re-Issue
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-rose-200 text-rose-950 font-bold">
+                  {pendingReissueOrders.length}
+                </span>
+              </button>
+            )}
+
             <button
-              onClick={() => setConsignmentFilter('pending_reissue')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                consignmentFilter === 'pending_reissue'
-                  ? 'bg-rose-700 text-white shadow-xs font-semibold'
-                  : pendingReissueOrders.length > 0
-                  ? 'bg-rose-50 text-rose-900 hover:bg-rose-100 border border-rose-300 font-semibold'
-                  : 'bg-white text-rose-800 hover:bg-rose-50 border border-rose-200'
+              onClick={() => setConsignmentFilter('waiting_awb')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                consignmentFilter === 'waiting_awb'
+                  ? 'bg-white text-slate-900 font-bold shadow-xs border border-slate-200'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 font-medium'
               }`}
             >
-              <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
-              ⚠️ Waiting AWB Re-Issue ({pendingReissueOrders.length})
+              <Clock className="w-3.5 h-3.5 text-slate-400" />
+              Awaiting AWB
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${consignmentFilter === 'waiting_awb' ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                {awaitingCwhAwbOrders.length}
+              </span>
             </button>
 
             <button
               onClick={() => setConsignmentFilter('in_transit_monitor')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
                 consignmentFilter === 'in_transit_monitor'
-                  ? 'bg-sky-700 text-white shadow-xs font-semibold'
-                  : 'bg-white text-sky-900 hover:bg-sky-50 border border-sky-300'
+                  ? 'bg-white text-sky-900 font-bold shadow-xs border border-slate-200'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 font-medium'
               }`}
             >
-              <Truck className="w-3.5 h-3.5" />
-              🚚 In-Transit (Monitor till CWH Received) ({inTransitMonitorOrders.length})
-            </button>
-
-            <button
-              onClick={() => setConsignmentFilter('waiting_awb')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                consignmentFilter === 'waiting_awb'
-                  ? 'bg-slate-700 text-white shadow-xs'
-                  : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5" />
-              ⏳ DC Created - Waiting CWH AWB ({awaitingCwhAwbOrders.length})
+              <Send className="w-3.5 h-3.5 text-sky-600" />
+              In-Transit
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${consignmentFilter === 'in_transit_monitor' ? 'bg-sky-700 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                {inTransitMonitorOrders.length}
+              </span>
             </button>
 
             <button
               onClick={() => setConsignmentFilter('cwh_received')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
                 consignmentFilter === 'cwh_received'
-                  ? 'bg-purple-700 text-white shadow-xs'
-                  : 'bg-white text-purple-900 hover:bg-purple-50 border border-purple-300'
+                  ? 'bg-white text-purple-900 font-bold shadow-xs border border-slate-200'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 font-medium'
               }`}
-              title="CWH Received & ASP Send to RC (Dispatched from CWH to RC in Lenovo CRM — No Action for CCI)"
+              title="At CWH or dispatched to RC by CWH (No action for CCI)"
             >
-              🏢 At CWH / Dispatched to RC (No CCI Action) ({cwhStageOrders.length})
+              <CheckCircle2 className="w-3.5 h-3.5 text-purple-600" />
+              At CWH
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${consignmentFilter === 'cwh_received' ? 'bg-purple-700 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                {cwhStageOrders.length}
+              </span>
             </button>
 
             <button
               onClick={() => setConsignmentFilter('delivered')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
                 consignmentFilter === 'delivered'
-                  ? 'bg-emerald-700 text-white shadow-xs'
-                  : 'bg-white text-emerald-900 hover:bg-emerald-50 border border-emerald-300'
+                  ? 'bg-white text-emerald-900 font-bold shadow-xs border border-slate-200'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 font-medium'
               }`}
             >
-              ✓ Delivered to RC ({deliveredOrders.length})
+              <PackageCheck className="w-3.5 h-3.5 text-emerald-600" />
+              Delivered RC
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${consignmentFilter === 'delivered' ? 'bg-emerald-700 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                {deliveredOrders.length}
+              </span>
             </button>
           </div>
 
