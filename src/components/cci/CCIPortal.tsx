@@ -567,7 +567,22 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
                         {/* 6. CCI Stage */}
                         <td className="py-3 px-3.5 whitespace-nowrap align-middle">
-                          {so.crm_status === 'Pending AWB Re-Issue' || so.pickup_status === 'Pickup Not Done' || cciAction.actionType === 'AWAITING_REISSUE' ? (
+                          {motoInfo.code === 5 || motoInfo.code === 6 || (so.motorola_status || '').toLowerCase().includes('rc received') || cciAction.actionType === 'DELIVERED_RC' || so.crm_status === 'Delivered to RC' ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-800 font-medium">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              Delivered to RC
+                            </span>
+                          ) : motoInfo.code === 4 || (so.motorola_status || '').toLowerCase().includes('send to rc') || cciAction.actionType === 'DISPATCHED_TO_RC' || so.crm_status === 'Pickup Pending for RC' || so.crm_status === 'In Transit to RC' ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs text-blue-800 font-medium">
+                              <Send className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                              CWH Shipped to RC
+                            </span>
+                          ) : motoInfo.code === 3 || motoInfo.code === 35 || (so.motorola_status || '').toLowerCase().includes('cwh received') || cciAction.actionType === 'DELIVERED_CWH' || so.crm_status === 'Delivered at CWH' || so.crm_status === 'Pending Inward at CWH' || so.crm_status === 'CWH to Create DC' ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs text-purple-800 font-medium">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                              At CWH (Verified)
+                            </span>
+                          ) : so.crm_status === 'Pending AWB Re-Issue' || so.pickup_status === 'Pickup Not Done' || cciAction.actionType === 'AWAITING_REISSUE' ? (
                             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-50 text-rose-900 border border-rose-300">
                               <AlertTriangle className="w-3 h-3 text-rose-700 shrink-0" />
                               Waiting AWB Re-Issue
@@ -587,20 +602,10 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                               <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                               Waiting CWH AWB
                             </span>
-                          ) : cciAction.actionType === 'DELIVERED_CWH' || so.crm_status === 'Delivered at CWH' || so.crm_status === 'Pending Inward at CWH' || so.crm_status === 'CWH to Create DC' ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-purple-800 font-medium">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-purple-700 shrink-0" />
-                              At CWH (Verified)
-                            </span>
-                          ) : cciAction.actionType === 'DISPATCHED_TO_RC' || so.crm_status === 'Pickup Pending for RC' || so.crm_status === 'In Transit to RC' ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-blue-800 font-medium">
-                              <Send className="w-3.5 h-3.5 text-blue-700 shrink-0" />
-                              Dispatched CWH → RC
-                            </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-800 font-medium">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                              Delivered to RC
+                            <span className="inline-flex items-center gap-1.5 text-xs text-amber-800 font-medium">
+                              <Clock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                              CCI to Create DC
                             </span>
                           )}
                         </td>

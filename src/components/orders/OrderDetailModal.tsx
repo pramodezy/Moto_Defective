@@ -206,7 +206,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-center gap-3 text-xs shadow-xs">
               <Truck className="w-5 h-5 text-blue-600 shrink-0" />
               <div>
-                <span className="font-bold text-blue-900">Dispatched CWH → RC (Lenovo CRM) — Not Actionable for CCI:</span>
+                <span className="font-bold text-blue-900">CWH Shipped to RC (Lenovo CRM) — Not Actionable for CCI:</span>
                 <span className="text-blue-800 ml-1.5">
                   This consignment is an outbound dispatch created by CWH to the Repair Center (RC) in Lenovo CRM. Hence, <strong>it is not actionable for CCI</strong>. Awaiting RC receipt confirmation in Motorola CRM.
                 </span>

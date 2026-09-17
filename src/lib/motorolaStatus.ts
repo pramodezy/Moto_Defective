@@ -302,7 +302,7 @@ export function getCciActionDetails(order: ShippingOrder): {
     return {
       isActionable: false,
       actionType: 'DISPATCHED_TO_RC',
-      title: 'Dispatched CWH → RC (No CCI Action)',
+      title: 'CWH Shipped to RC',
       description: 'Dispatched from CWH to Repair Center (RC) in Lenovo CRM. CCI has no action to take.',
       badgeClass: 'bg-blue-50 text-blue-800 border-blue-200',
     };
