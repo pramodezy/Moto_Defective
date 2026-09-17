@@ -82,7 +82,18 @@ export async function parseDefectiveReportFile(file: File): Promise<ParseResult>
     else if (catLower.includes('battery')) estimatedVal = 1800;
     else if (catLower.includes('cable') || catLower.includes('adapter') || catLower.includes('charger')) estimatedVal = 750;
 
-    const compositeKey = `${srNumber}_${srPartNumber}_${newPartNumber}`;
+    // Leg 2 Outbound Hub Transfer (CWH -> RC) columns
+    const aspRcSo = getColVal(r, ['asprcshippingordercode', 'asprcshippingorder', 'asprcsocode', 'asprcso']);
+    const aspRcShipDate = getColVal(r, ['asprcshipdatetime', 'asprcshipdate']);
+    const aspRcPickupDate = getColVal(r, ['asprclogisticspickupdatetime', 'asprclogisticspickupdate', 'asprcpickupdate']);
+    const aspRcDeliveredDate = getColVal(r, ['asprclogisticsdelivereddatetime', 'asprclogisticsdelivereddate', 'asprcdelivereddate']);
+    const rcRemark = getColVal(r, ['rcreceiveremark', 'rcremark', 'rccomments', 'rcremark2']);
+
+    const finalStation = stationCode || '068';
+    const effectiveSoCode = soCode || `SO-PENDING-${finalStation}`;
+
+    // Match Key = SR Number + SR Part Number + CCI-ASP Shipping Order Code
+    const compositeKey = `${srNumber}_${srPartNumber}_${effectiveSoCode}`;
 
     items.push({
       composite_key: compositeKey,
@@ -92,14 +103,19 @@ export async function parseDefectiveReportFile(file: File): Promise<ParseResult>
       part_category: category || 'Spare Part',
       part_description: partDesc,
       quantity: qty,
-      station_code: stationCode || '068',
-      shipping_order_code: soCode || `SO-MANUAL-${Date.now()}`,
+      station_code: finalStation,
+      shipping_order_code: effectiveSoCode,
       sr_close_timestamp: srCloseDate,
       sr_model_name: modelName,
       sr_fault_description: faultDesc,
-      motorola_parts_status: partsStatus || 'CCI Send To CWH',
+      motorola_parts_status: partsStatus || 'Not Return',
       excel_awb: excelAwb,
       estimated_value: estimatedVal,
+      asp_rc_shipping_order_code: aspRcSo || undefined,
+      asp_rc_ship_date: aspRcShipDate || undefined,
+      asp_rc_pickup_date: aspRcPickupDate || undefined,
+      asp_rc_delivered_date: aspRcDeliveredDate || undefined,
+      rc_receive_remark: rcRemark || undefined,
     });
   }
 

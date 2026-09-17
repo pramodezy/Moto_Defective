@@ -106,55 +106,55 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
   const isAwbChanged = awbNumber.trim() !== currentAwbNumber.trim();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="relative w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl bg-[#0b1329] border border-[#1f2e5a] shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+      <div className="relative w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1f2e5a] bg-[#101a35]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+            <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200">
               <Truck className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-base font-bold font-mono text-white">{order.so_code}</span>
+                <span className="text-base font-bold font-mono text-slate-900">{order.so_code}</span>
                 <SlaBadge tier={order.priority_tier} ageDays={order.max_sr_age} />
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${getCrmStatusStyle(order.crm_status)}`}>
                   {order.crm_status}
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                CCI Station: <strong className="text-emerald-300 font-mono">{order.station_code}</strong> ({station?.station_name || 'Service Center'}) • Action by <strong className="text-white">{user.full_name}</strong>
+              <p className="text-xs text-slate-500 mt-0.5">
+                CCI Station: <strong className="text-slate-800 font-mono">{order.station_code}</strong> ({station?.station_name || 'Service Center'}) • Action by <strong className="text-slate-900">{user.full_name}</strong>
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6 text-xs text-slate-300">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6 text-xs text-slate-700">
           {/* Quick Consignment Summary */}
-          <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl bg-[#070e20] border border-[#1c2b53]">
+          <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
             <div>
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider">Defective Units</span>
-              <div className="text-sm font-bold font-mono text-white mt-0.5">
+              <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Defective Units</span>
+              <div className="text-sm font-bold font-mono text-slate-900 mt-0.5">
                 {totalUnits} items
               </div>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider">Declared Value</span>
-              <div className="text-sm font-bold font-mono text-emerald-400 mt-0.5">
+              <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Declared Value</span>
+              <div className="text-sm font-bold font-mono text-emerald-700 mt-0.5">
                 {formatINR(order.total_declared_value)}
               </div>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider">Active AWB (CWH Issued)</span>
-              <div className="text-sm font-bold font-mono text-cyan-400 mt-0.5 truncate" title={currentAwbNumber || 'Pending'}>
+              <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Active AWB (CWH Issued)</span>
+              <div className="text-sm font-bold font-mono text-blue-700 mt-0.5 truncate" title={currentAwbNumber || 'Pending'}>
                 {currentAwbNumber || 'Pending'}
               </div>
             </div>
@@ -162,8 +162,8 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
 
           {/* Action Step 1: Pickup Status Toggle */}
           <div className="space-y-2">
-            <label className="block text-xs font-semibold text-white uppercase tracking-wider">
-              1. Courier Pickup Status <span className="text-red-400">*</span>
+            <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+              1. Courier Pickup Status <span className="text-rose-500">*</span>
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Option A: Pickup Done */}
@@ -171,18 +171,18 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
                 onClick={() => setPickupStatus('Pickup Done')}
                 className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
                   pickupStatus === 'Pickup Done'
-                    ? 'bg-emerald-500/15 border-emerald-500 text-white shadow-lg shadow-emerald-500/10'
-                    : 'bg-[#101a35] border-[#1c2b53] text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                    ? 'bg-emerald-50 border-emerald-500 text-slate-900 shadow-xs ring-1 ring-emerald-400/20'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${pickupStatus === 'Pickup Done' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-400'}`}>
+                  <div className={`p-2 rounded-lg ${pickupStatus === 'Pickup Done' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>
                     <CheckCircle2 className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-sm text-emerald-300">Pickup Done</h4>
-                    <p className="text-[11px] text-slate-300 mt-0.5">
-                      Handed over to courier. Status updates to <strong>In Transit</strong>.
+                    <h4 className="font-bold text-sm text-emerald-900">Pickup Done</h4>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      Handed over to courier. Status updates to <strong className="text-slate-800">In Transit</strong>.
                     </p>
                   </div>
                 </div>
@@ -193,17 +193,17 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
                 onClick={() => setPickupStatus('Pickup Not Done')}
                 className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
                   pickupStatus === 'Pickup Not Done'
-                    ? 'bg-rose-500/15 border-rose-500 text-white shadow-lg shadow-rose-500/10'
-                    : 'bg-[#101a35] border-[#1c2b53] text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                    ? 'bg-rose-50 border-rose-500 text-slate-900 shadow-xs ring-1 ring-rose-400/20'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${pickupStatus === 'Pickup Not Done' ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-800 text-slate-400'}`}>
+                  <div className={`p-2 rounded-lg ${pickupStatus === 'Pickup Not Done' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-500'}`}>
                     <AlertTriangle className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-sm text-rose-300">Pickup Not Done</h4>
-                    <p className="text-[11px] text-slate-300 mt-0.5">
+                    <h4 className="font-bold text-sm text-rose-900">Pickup Not Done</h4>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
                       Courier missed pickup or packet was rejected/delayed.
                     </p>
                   </div>
@@ -214,14 +214,14 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
 
           {/* Conditional Step 1b: Reason for Pickup Not Done */}
           {pickupStatus === 'Pickup Not Done' && (
-            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-3">
-              <label className="block text-xs font-semibold text-rose-200">
+            <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 space-y-3">
+              <label className="block text-xs font-semibold text-rose-900">
                 Reason for Delayed / Missed Pickup:
               </label>
               <select
                 value={selectedReason}
                 onChange={(e) => setSelectedReason(e.target.value)}
-                className="w-full bg-[#0b1329] border border-rose-500/40 text-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-rose-400"
+                className="w-full bg-white border border-rose-300 text-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20"
               >
                 <option value="">-- Select reason from standard list --</option>
                 {COMMON_PICKUP_FAIL_REASONS.map((reason) => (
@@ -234,14 +234,14 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
           )}
 
           {/* Action Step 2: AWB & Courier Details */}
-          <div className="p-4 rounded-xl bg-[#101a35] border border-[#1c2b53] space-y-4">
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-4">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-white uppercase tracking-wider flex items-center gap-2">
-                <Barcode className="w-4 h-4 text-cyan-400" />
+              <label className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                <Barcode className="w-4 h-4 text-[#001489]" />
                 2. AWB Tracking Number & Courier
               </label>
               {isAwbChanged && (
-                <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-mono">
+                <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-300 text-[10px] font-mono">
                   AWB Changed from: {currentAwbNumber}
                 </span>
               )}
@@ -249,7 +249,7 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">
+                <label className="block text-[11px] text-slate-600 font-medium mb-1">
                   AWB / Docket Number
                 </label>
                 <input
@@ -257,21 +257,21 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
                   value={awbNumber}
                   onChange={(e) => setAwbNumber(e.target.value)}
                   placeholder="Enter / update AWB number"
-                  className="w-full bg-[#0b1329] border border-[#1f2e5a] text-cyan-300 font-mono font-bold rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-cyan-500 transition-colors"
+                  className="w-full bg-white border border-slate-300 text-slate-900 font-mono font-bold rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#001489] transition-colors"
                 />
-                <p className="text-[10px] text-slate-400 mt-1">
+                <p className="text-[10px] text-slate-500 mt-1">
                   Modify this if the courier executive replaced the docket barcode during pickup.
                 </p>
               </div>
 
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">
+                <label className="block text-[11px] text-slate-600 font-medium mb-1">
                   Courier Partner
                 </label>
                 <select
                   value={courier}
                   onChange={(e) => setCourier(e.target.value)}
-                  className="w-full bg-[#0b1329] border border-[#1f2e5a] text-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-cyan-500 transition-colors"
+                  className="w-full bg-white border border-slate-300 text-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#001489] transition-colors"
                 >
                   {COURIER_OPTIONS.map((c) => (
                     <option key={c} value={c}>
@@ -285,7 +285,7 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
 
           {/* Action Step 3: Remarks / Handover Notes */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-white uppercase tracking-wider">
+            <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
               3. Handover Notes & Courier Verification
             </label>
             <textarea
@@ -293,16 +293,16 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
               value={customRemarks}
               onChange={(e) => setCustomRemarks(e.target.value)}
               placeholder="e.g. Handed over to BlueDart pickup executive Mr. Ramesh (Ph: 9876543210), 2 boxes sealed with tamper-evident tape."
-              className="w-full bg-[#101a35] border border-[#1c2b53] rounded-lg p-3 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+              className="w-full bg-white border border-slate-300 rounded-lg p-3 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489]"
             />
           </div>
 
           {/* Modal Footer */}
-          <div className="flex items-center justify-between pt-4 border-t border-[#1f2e5a]">
+          <div className="flex items-center justify-between pt-4 border-t border-slate-200">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors"
             >
               Cancel
             </button>
@@ -310,10 +310,10 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
             <button
               type="submit"
               disabled={isSubmitting}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white shadow-lg transition-all ${
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm transition-all ${
                 pickupStatus === 'Pickup Done'
-                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-500/20'
-                  : 'bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 shadow-rose-500/20'
+                  ? 'bg-emerald-600 hover:bg-emerald-700'
+                  : 'bg-rose-600 hover:bg-rose-700'
               }`}
             >
               {pickupStatus === 'Pickup Done' ? (

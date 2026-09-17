@@ -17,7 +17,7 @@ import {
   INITIAL_AUDIT_LOGS 
 } from '../data/seedData';
 import { supabase, isSupabaseConfigured } from './supabase';
-import { deriveCrmStatusFromMotorolaStatus, isCompletedJourneyStatus } from './motorolaStatus';
+import { deriveCrmStatusFromMotorolaStatus, isCompletedJourneyStatus, normalizeMotoStatusKey } from './motorolaStatus';
 
 const STORAGE_KEYS = {
   STATIONS: 'moto_crm_stations_v2',
@@ -111,46 +111,75 @@ class CRMDatabase {
         modified = true;
       }
 
-      // If updated as CWH Received in Moto CRM, CRM status is Create DC for RC
-      const isCwhReceived = (so.motorola_status || '').trim().toLowerCase().includes('cwh received') &&
-                            !(so.motorola_status || '').toLowerCase().includes('discrepanc');
-      if (isCwhReceived && so.crm_status !== 'CWH Received - Discrepancies' && so.crm_status !== 'Create DC for RC') {
-        so.crm_status = 'Create DC for RC';
+      // 1. If updated as Not Return in Moto CRM, CRM status is strictly 'CCI to Create DC' (Stage 1: CCI ownership to create DC in Motorola CRM)
+      const isNotReturn = normalizeMotoStatusKey(so.motorola_status) === 'not return';
+      if (isNotReturn && so.crm_status !== 'CCI to Create DC') {
+        so.crm_status = 'CCI to Create DC';
         modified = true;
       }
 
-      // If consignment has an assigned active AWB:
+      // 2. If updated as CWH Received in Moto CRM, CRM status is CWH to Create DC (Stage 9)
+      const isCwhReceived = (so.motorola_status || '').trim().toLowerCase().includes('cwh received') &&
+                            !(so.motorola_status || '').toLowerCase().includes('discrepanc');
+      if (isCwhReceived && so.crm_status !== 'Discrepancies' && so.crm_status !== 'CWH to Create DC') {
+        so.crm_status = 'CWH to Create DC';
+        modified = true;
+      }
+
+      // 3. If consignment has an assigned active AWB:
       // Once AWB is updated by CWH, next CRM status is 'Pickup Pending'
       // Later, only CCI moves it to 'In Transit' when pickup is marked 'Pickup Done'
       const hasAwb = !!(so.active_awb && so.active_awb.trim());
       const motoLower = (so.motorola_status || '').toLowerCase();
       if (
+        !isNotReturn &&
         hasAwb &&
         !motoLower.includes('cwh received') &&
         !motoLower.includes('rc received') &&
         !motoLower.includes('discrepanc') &&
-        so.crm_status !== 'Closed' &&
-        so.crm_status !== 'Dispatched to RC' &&
-        so.crm_status !== 'Create DC for RC'
+        so.crm_status !== 'Delivered to RC' &&
+        so.crm_status !== 'Delivered to RC (Discrepancies)' &&
+        so.crm_status !== 'In Transit to RC' &&
+        so.crm_status !== 'Pickup Pending for RC' &&
+        so.crm_status !== 'CWH to Create DC' &&
+        so.crm_status !== 'CCI to Create DC'
       ) {
-        const targetStatus: CRMStatus = so.pickup_status === 'Pickup Done' ? 'In Transit' : 'Pickup Pending';
+        const targetStatus: CRMStatus = so.pickup_status === 'Pickup Done' 
+          ? 'In Transit' 
+          : so.pickup_status === 'Pickup Not Done' 
+          ? 'Pending AWB Re-Issue' 
+          : 'Pickup Pending';
         if (so.crm_status !== targetStatus) {
           so.crm_status = targetStatus;
           modified = true;
         }
       }
 
-      // If updated as RC Received ASP(Negative) in Moto CRM:
-      // Courier was sent from CWH to RC but found missing/damaged at RC -> Discrepancies @ RC (CWH answerable)
+      // 4. Legacy status normalization: Clean up any stale 'AWB Pending' placeholder
+      if ((so.crm_status as string) === 'AWB Pending') {
+        so.crm_status = isNotReturn ? 'CCI to Create DC' : (hasAwb ? 'Pickup Pending' : 'Pending AWB');
+        modified = true;
+      }
+
+      // 5. If updated as RC Received ASP(Negative) in Moto CRM:
       const isRcNegative = (so.motorola_status || '').toLowerCase().includes('negative');
-      if (isRcNegative && so.crm_status !== 'Discrepancies @ RC') {
-        so.crm_status = 'Discrepancies @ RC';
+      if (isRcNegative && so.crm_status !== 'Delivered to RC (Discrepancies)') {
+        so.crm_status = 'Delivered to RC (Discrepancies)';
         modified = true;
       }
     });
 
     if (modified) {
       this.saveToStorage();
+      if (isSupabaseConfigured && supabase) {
+        const notReturnOrders = this.shippingOrders.filter(
+          (so) => normalizeMotoStatusKey(so.motorola_status) === 'not return' && so.crm_status === 'CCI to Create DC'
+        );
+        if (notReturnOrders.length > 0) {
+          const soCodes = notReturnOrders.map((o) => o.so_code);
+          supabase.from('shipping_orders').update({ crm_status: 'CCI to Create DC' }).in('so_code', soCodes).then(() => {});
+        }
+      }
     }
   }
 
@@ -239,18 +268,34 @@ class CRMDatabase {
 
       // Populate active shipping orders (strictly excluding Code 5 RC Received ASP)
       const activeSoRows = (soRows || []).filter((so: any) => !isCompletedJourneyStatus(so.motorola_status));
-      const activeMappedOrders: ShippingOrder[] = activeSoRows.map((so: any) => ({
-        id: so.id,
-        so_code: so.so_code,
-        station_code: so.station_code,
-        region: so.region || 'West',
-        state: so.state || '',
-        city: so.city || '',
-        motorola_status: so.motorola_status || 'CCI Send To CWH',
-        crm_status: (so.crm_status as CRMStatus) || 'AWB Pending',
-        excel_ref_awb: so.excel_ref_awb,
-        active_awb: so.active_awb,
-        courier: so.courier || 'BlueDart Express',
+      const activeMappedOrders: ShippingOrder[] = activeSoRows.map((so: any) => {
+        const isNotRet = normalizeMotoStatusKey(so.motorola_status) === 'not return';
+        let mappedCrmStatus: CRMStatus;
+        if (isNotRet) {
+          mappedCrmStatus = 'CCI to Create DC';
+        } else if (!so.crm_status || so.crm_status === 'AWB Pending') {
+          mappedCrmStatus = deriveCrmStatusFromMotorolaStatus(
+            so.motorola_status,
+            so.active_awb || so.excel_ref_awb,
+            undefined,
+            so.pickup_status
+          );
+        } else {
+          mappedCrmStatus = so.crm_status as CRMStatus;
+        }
+
+        return {
+          id: so.id,
+          so_code: so.so_code,
+          station_code: so.station_code,
+          region: so.region || 'West',
+          state: so.state || '',
+          city: so.city || '',
+          motorola_status: so.motorola_status || 'CCI Send To CWH',
+          crm_status: mappedCrmStatus,
+          excel_ref_awb: so.excel_ref_awb,
+          active_awb: so.active_awb,
+          courier: so.courier || 'BlueDart Express',
         eway_bill_required: Boolean(so.eway_bill_required),
         eway_bill_number: so.eway_bill_number,
         eway_bill_url: so.eway_bill_url,
@@ -261,7 +306,8 @@ class CRMDatabase {
         total_items: parseInt(so.total_items || 1, 10),
         created_at: so.created_at,
         updated_at: so.updated_at,
-      }));
+      };
+    });
 
       // Populate active defective master items (strictly excluding Code 5 RC Received ASP)
       const activeItemRows = (itemRows || []).filter((it: any) => !isCompletedJourneyStatus(it.motorola_parts_status));
@@ -458,7 +504,26 @@ class CRMDatabase {
       // Filter out any previously stored completed orders so default start is always active pipeline only
       const rawOrders = savedOrders ? JSON.parse(savedOrders) : INITIAL_SHIPPING_ORDERS;
       const rawItems = savedItems ? JSON.parse(savedItems) : INITIAL_DEFECTIVE_ITEMS;
-      this.shippingOrders = rawOrders.filter((so: any) => !isCompletedJourneyStatus(so.motorola_status));
+      this.shippingOrders = rawOrders
+        .filter((so: any) => !isCompletedJourneyStatus(so.motorola_status))
+        .map((so: any) => {
+          const isNotRet = normalizeMotoStatusKey(so.motorola_status) === 'not return';
+          if (isNotRet) {
+            return { ...so, crm_status: 'CCI to Create DC' };
+          }
+          if (!so.crm_status || so.crm_status === 'AWB Pending') {
+            return {
+              ...so,
+              crm_status: deriveCrmStatusFromMotorolaStatus(
+                so.motorola_status,
+                so.active_awb || so.excel_ref_awb,
+                undefined,
+                so.pickup_status
+              ),
+            };
+          }
+          return so;
+        });
       this.defectiveItems = rawItems.filter((it: any) => !isCompletedJourneyStatus(it.motorola_parts_status));
       this.auditLogs = savedLogs ? JSON.parse(savedLogs) : INITIAL_AUDIT_LOGS;
       this.awbHistory = savedAwbHistory ? JSON.parse(savedAwbHistory) : [];
@@ -660,16 +725,28 @@ class CRMDatabase {
     const tier = maxAge >= 15 ? 1 : maxAge >= 8 ? 2 : 3;
     const ewayRequired = totalVal >= 50000;
 
-    const stationCode = items[0]?.station_code || existingSo?.station_code || '000';
+    const stationCode = soCode.startsWith('SO-PENDING-')
+      ? soCode.replace('SO-PENDING-', '')
+      : (items[0]?.station_code || existingSo?.station_code || '000');
     const station = this.stations.find((st) => st.station_code === stationCode);
     const region = station?.region || existingSo?.region || 'West';
     const state = station?.state || existingSo?.state || '';
     const city = station?.city || existingSo?.city || '';
 
+    // Leg 2 Outbound data from constituent items
+    const latestScreeningStatus = items.find((it) => it.screening_status && it.screening_status !== 'Pending')?.screening_status;
+    const latestAspRcSo = items.find((it) => it.asp_rc_shipping_order_code)?.asp_rc_shipping_order_code;
+    const latestAspRcShipDate = items.find((it) => it.asp_rc_ship_date)?.asp_rc_ship_date;
+    const latestAspRcPickupDate = items.find((it) => it.asp_rc_pickup_date)?.asp_rc_pickup_date;
+    const latestAspRcDeliveredDate = items.find((it) => it.asp_rc_delivered_date)?.asp_rc_delivered_date;
+    const latestRcRemark = items.find((it) => it.rc_receive_remark)?.rc_receive_remark;
+
     const derivedCrmStatus = deriveCrmStatusFromMotorolaStatus(
       latestMotoStatus,
       latestExcelAwb || existingSo?.active_awb,
-      existingSo?.crm_status
+      existingSo?.crm_status,
+      existingSo?.pickup_status,
+      latestScreeningStatus
     );
 
     if (existingSo) {
@@ -680,20 +757,28 @@ class CRMDatabase {
       existingSo.total_items = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
       existingSo.motorola_status = latestMotoStatus || existingSo.motorola_status;
       existingSo.crm_status = derivedCrmStatus;
-      if (derivedCrmStatus === 'Closed' || latestMotoStatus?.toLowerCase().includes('rc received')) {
+      if (derivedCrmStatus === 'Delivered to RC' || latestMotoStatus?.toLowerCase().includes('rc received')) {
         existingSo.pickup_status = 'Pickup Done';
       }
       if (latestExcelAwb) existingSo.excel_ref_awb = latestExcelAwb;
       existingSo.region = region;
       existingSo.state = state;
       existingSo.city = city;
+
+      // Update Leg 2 Outbound details
+      existingSo.asp_rc_shipping_order_code = latestAspRcSo || existingSo.asp_rc_shipping_order_code;
+      existingSo.asp_rc_ship_date = latestAspRcShipDate || existingSo.asp_rc_ship_date;
+      existingSo.asp_rc_pickup_date = latestAspRcPickupDate || existingSo.asp_rc_pickup_date;
+      existingSo.asp_rc_delivered_date = latestAspRcDeliveredDate || existingSo.asp_rc_delivered_date;
+      existingSo.rc_receive_remark = latestRcRemark || existingSo.rc_receive_remark;
+
       existingSo.updated_at = new Date().toISOString();
 
       if (!this.isCompletedSessionLoaded && isCompletedJourneyStatus(existingSo.motorola_status)) {
         this.shippingOrders = this.shippingOrders.filter((so) => so.so_code !== soCode);
       }
     } else {
-      const isDelivered = derivedCrmStatus === 'Closed' || latestMotoStatus?.toLowerCase().includes('rc received');
+      const isDelivered = derivedCrmStatus === 'Delivered to RC' || latestMotoStatus?.toLowerCase().includes('rc received');
       const newSo: ShippingOrder = {
         id: `so-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
         so_code: soCode,
@@ -706,12 +791,19 @@ class CRMDatabase {
         excel_ref_awb: latestExcelAwb,
         active_awb: latestExcelAwb,
         courier: 'BlueDart Express',
-        pickup_status: isDelivered ? 'Pickup Done' : (latestExcelAwb ? 'Pickup Pending' : undefined),
+        pickup_status: isDelivered 
+          ? 'Pickup Done' 
+          : (derivedCrmStatus === 'CCI to Create DC' ? undefined : (latestExcelAwb ? 'Pickup Pending' : undefined)),
         eway_bill_required: ewayRequired,
         total_declared_value: totalVal,
         max_sr_age: maxAge,
         priority_tier: tier,
         total_items: items.reduce((sum, item) => sum + (item.quantity || 1), 0),
+        asp_rc_shipping_order_code: latestAspRcSo,
+        asp_rc_ship_date: latestAspRcShipDate,
+        asp_rc_pickup_date: latestAspRcPickupDate,
+        asp_rc_delivered_date: latestAspRcDeliveredDate,
+        rc_receive_remark: latestRcRemark,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -744,8 +836,23 @@ class CRMDatabase {
           return;
         }
 
+        // Match Key = SR Number + SR Part Number + CCI-ASP Shipping Order Code
         const compositeKey = incoming.composite_key || 
-          `${incoming.sr_number}_${incoming.sr_part_number}_${incoming.new_part_number || ''}`;
+          `${incoming.sr_number}_${incoming.sr_part_number}_${incoming.shipping_order_code}`;
+
+        // Auto-promotion: If incoming row has an issued SO code, check if this SR + part was previously unreturned (SO-PENDING-*)
+        if (!incoming.shipping_order_code.startsWith('SO-PENDING-')) {
+          const pendingPrefix = `${incoming.sr_number}_${incoming.sr_part_number}_SO-PENDING-`;
+          for (const [key, item] of itemMap.entries()) {
+            if (key.startsWith(pendingPrefix)) {
+              const oldSo = item.shipping_order_code;
+              itemMap.delete(key);
+              this.defectiveItems = this.defectiveItems.filter((it) => it.composite_key !== key);
+              affectedSoCodes.add(oldSo);
+              break;
+            }
+          }
+        }
 
         const stationCode = incoming.station_code || '068';
         const station = this.stations.find((s) => s.station_code === stationCode);
@@ -768,6 +875,14 @@ class CRMDatabase {
           existing.region = region;
           existing.state = state;
           existing.city = city;
+
+          // Leg 2 fields
+          existing.asp_rc_shipping_order_code = incoming.asp_rc_shipping_order_code || existing.asp_rc_shipping_order_code;
+          existing.asp_rc_ship_date = incoming.asp_rc_ship_date || existing.asp_rc_ship_date;
+          existing.asp_rc_pickup_date = incoming.asp_rc_pickup_date || existing.asp_rc_pickup_date;
+          existing.asp_rc_delivered_date = incoming.asp_rc_delivered_date || existing.asp_rc_delivered_date;
+          existing.rc_receive_remark = incoming.rc_receive_remark || existing.rc_receive_remark;
+
           existing.last_synced_at = new Date().toISOString();
           existing.updated_at = new Date().toISOString();
           
@@ -799,6 +914,11 @@ class CRMDatabase {
             screening_status: incoming.screening_status || 'Pending',
             item_remarks: incoming.item_remarks || '',
             estimated_value: incoming.estimated_value || 8000,
+            asp_rc_shipping_order_code: incoming.asp_rc_shipping_order_code,
+            asp_rc_ship_date: incoming.asp_rc_ship_date,
+            asp_rc_pickup_date: incoming.asp_rc_pickup_date,
+            asp_rc_delivered_date: incoming.asp_rc_delivered_date,
+            rc_receive_remark: incoming.rc_receive_remark,
             last_synced_at: new Date().toISOString(),
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -1045,9 +1165,9 @@ class CRMDatabase {
       }
     });
 
-    const newStatus: CRMStatus = hasDiscrepancy ? 'CWH Received - Discrepancies' : 'CWH Received';
+    const newStatus: CRMStatus = hasDiscrepancy ? 'Discrepancies' : 'Pending Inward at CWH';
     so.crm_status = newStatus;
-    so.motorola_status = hasDiscrepancy ? 'CWH Received - Discrepancies' : '3. CWH Received';
+    so.motorola_status = hasDiscrepancy ? 'CWH Received - Discrepancies' : 'CWH Received';
     so.pickup_status = 'Pickup Done';
     if (cwhEvidenceRef) {
       so.cwh_evidence_ref = cwhEvidenceRef;
@@ -1065,7 +1185,7 @@ class CRMDatabase {
       new_status: newStatus,
       remarks: hasDiscrepancy 
         ? `Consignment inward verified with Discrepancies under CCTV Bay. Notes: ${discrepancyNotes.join('; ')}. Evidence attached.`
-        : `Consignment inward verified successfully. All ${qtyVerification?.expectedQty || so.total_items || 1} units and parts passed inspection under CCTV.`,
+        : `Consignment inward verified successfully. All ${qtyVerification?.expectedQty || so.total_items || 1} units and parts passed inspection under CCTV. Ready for formal inward entry.`,
       created_at: new Date().toISOString(),
     });
 
@@ -1108,8 +1228,9 @@ class CRMDatabase {
     if (!so) throw new Error('Shipping Order not found');
 
     const oldStatus = so.crm_status;
-    so.crm_status = 'Dispatched to RC';
-    so.motorola_status = '4. ASP Send to RC';
+    so.crm_status = 'Pickup Pending for RC';
+    so.motorola_status = 'ASP Send To RC';
+    so.asp_rc_shipping_order_code = data.dcNumber;
     if (data.courier) so.courier = data.courier;
     so.updated_at = new Date().toISOString();
 
@@ -1117,7 +1238,8 @@ class CRMDatabase {
     this.defectiveItems
       .filter((i) => (i.shipping_order_code || '').trim() === so.so_code.trim())
       .forEach((item) => {
-        item.motorola_parts_status = '4. ASP Send to RC';
+        item.motorola_parts_status = 'ASP Send To RC';
+        item.asp_rc_shipping_order_code = data.dcNumber;
         item.updated_at = new Date().toISOString();
       });
 
@@ -1129,8 +1251,8 @@ class CRMDatabase {
       user_role: user.role,
       action: 'CWH_DISPATCH_TO_RC',
       old_status: oldStatus,
-      new_status: 'Dispatched to RC',
-      remarks: `CWH created Delivery Challan to RC in Lenovo CRM: ${data.dcNumber} (${data.courier || so.courier}).${data.remarks ? ` Notes: ${data.remarks}` : ''}`,
+      new_status: 'Pickup Pending for RC',
+      remarks: `CWH created Delivery Challan to RC (ASP-RC SO: ${data.dcNumber}, Courier: ${data.courier || so.courier}). Consignment awaiting courier pickup dispatch to RC.${data.remarks ? ` Notes: ${data.remarks}` : ''}`,
       created_at: new Date().toISOString(),
     });
 
@@ -1417,10 +1539,9 @@ class CRMDatabase {
 
     if (data.pickupStatus === 'Pickup Done') {
       so.pickup_date = new Date().toISOString();
-      so.crm_status = 'In Transit'; // Consignment is now moving with the courier
+      so.crm_status = 'In Transit'; // Stage 5: Consignment moving with courier
     } else if (data.pickupStatus === 'Pickup Not Done') {
-      // Remain at station pending resolution
-      so.crm_status = so.crm_status === 'In Transit' ? 'AWB Pending' : so.crm_status;
+      so.crm_status = 'Pending AWB Re-Issue'; // Stage 4: System alerts CWH to cancel previous token and re-issue
     }
 
     so.updated_at = new Date().toISOString();

@@ -24,7 +24,7 @@ import { ShippingOrder, DefectiveItem, CCIMaster, PriorityTier, CRMStatus, UserR
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
 import { printConsignmentManifest } from '../../services/manifestGenerator';
-import { getMotorolaStatusInfo, isAwbIssueRequired, isCompletedJourneyStatus } from '../../lib/motorolaStatus';
+import { getMotorolaStatusInfo, isAwbIssueRequired, isCompletedJourneyStatus, normalizeMotoStatusKey } from '../../lib/motorolaStatus';
 
 interface ShippingOrdersTableProps {
   orders: ShippingOrder[];
@@ -123,7 +123,11 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
         return false;
       }
 
-      if (selectedStatus !== 'ALL' && so.crm_status !== selectedStatus) {
+      const effectiveStatus: CRMStatus = normalizeMotoStatusKey(so.motorola_status) === 'not return'
+        ? 'CCI to Create DC'
+        : ((so.crm_status as string) === 'AWB Pending' ? 'Pending AWB' : so.crm_status);
+
+      if (selectedStatus !== 'ALL' && effectiveStatus !== selectedStatus) {
         return false;
       }
 
@@ -160,7 +164,8 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
     const exportData = filteredOrders.map((so) => {
       const st = stationMap.get(so.station_code);
       return {
-        'SO Code': so.so_code,
+        'CCI-ASP Shipping Order (Leg 1)': so.so_code,
+        'ASP-RC Shipping Order (Leg 2)': so.asp_rc_shipping_order_code || '',
         'Station Code': so.station_code,
         'Station Name': st?.station_name || '',
         'City': st?.city || so.city || '',
@@ -170,13 +175,17 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
         'Max Age (Days)': so.max_sr_age,
         'Priority Tier': so.priority_tier === 1 ? 'Critical' : so.priority_tier === 2 ? 'High' : 'Normal',
         'Motorola Status': so.motorola_status,
-        'CRM Status': so.crm_status,
+        'CRM Status': normalizeMotoStatusKey(so.motorola_status) === 'not return'
+          ? 'CCI to Create DC'
+          : ((so.crm_status as string) === 'AWB Pending' ? 'Pending AWB' : so.crm_status),
         'Active AWB': so.active_awb || '',
         'Excel Ref AWB': so.excel_ref_awb || '',
         'Courier': so.courier,
         'Pickup Status': so.pickup_status || 'Pickup Pending',
         'Pickup Date': so.pickup_date ? formatDate(so.pickup_date) : '',
         'Pickup Remarks': so.pickup_remarks || '',
+        'Leg 2 Ship Date': so.asp_rc_ship_date ? formatDate(so.asp_rc_ship_date) : '',
+        'Leg 2 Delivered Date': so.asp_rc_delivered_date ? formatDate(so.asp_rc_delivered_date) : '',
         'E-Way Bill Required': so.eway_bill_required ? 'YES' : 'NO',
         'E-Way Bill Number': so.eway_bill_number || '',
         'Created Date': formatDate(so.created_at),
@@ -245,7 +254,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
       )}
 
       {/* Controls & Filter Bar */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 rounded-xl bg-[#101a35] border border-[#1c2b53]">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 rounded-xl bg-white border border-slate-200 shadow-xs">
         {/* Search */}
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -257,7 +266,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
               setCurrentPage(1);
             }}
             placeholder="Search SO Code, Station Code, or AWB..."
-            className="w-full bg-[#0b1329] border border-[#1f2e5a] rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-cyan-500 transition-colors"
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:bg-white transition-colors"
           />
         </div>
 
@@ -271,7 +280,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
               setCurrentPage(1);
             }}
             aria-label="Filter by Region"
-            className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
+            className="bg-slate-50 border border-slate-200 text-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-600"
           >
             <option value="ALL">All Regions ({filteredOrders.length})</option>
             {availableRegions.map((reg) => (
@@ -289,7 +298,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
               setCurrentPage(1);
             }}
             aria-label="Filter by SLA Priority"
-            className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
+            className="bg-slate-50 border border-slate-200 text-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-600"
           >
             <option value="ALL">All SLA Tiers</option>
             <option value="1">Tier 1: Critical (≥15 Days)</option>
@@ -305,18 +314,22 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
               setCurrentPage(1);
             }}
             aria-label="Filter by CRM Status"
-            className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
+            className="bg-slate-50 border border-slate-200 text-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-600"
           >
             <option value="ALL">All CRM Statuses</option>
-            <option value="AWB Pending">AWB Pending</option>
-            <option value="Pickup Pending">Pickup Pending</option>
-            <option value="In Transit">In Transit</option>
-            <option value="Create DC for RC">Create DC for RC</option>
-            <option value="CWH Received">CWH Received</option>
-            <option value="CWH Received - Discrepancies">CWH Received - Discrepancies</option>
-            <option value="Discrepancies @ RC">Discrepancies @ RC</option>
-            <option value="Discrepancy Tagged">Discrepancy Tagged</option>
-            <option value="Closed">Closed</option>
+            <option value="CCI to Create DC">1. CCI to Create DC</option>
+            <option value="Pending AWB">2. Pending AWB</option>
+            <option value="Pickup Pending">3. Pickup Pending</option>
+            <option value="Pending AWB Re-Issue">4. Pending AWB Re-Issue</option>
+            <option value="In Transit">5. In Transit</option>
+            <option value="Delivered at CWH">6. Delivered at CWH</option>
+            <option value="Discrepancies">7. Discrepancies</option>
+            <option value="Pending Inward at CWH">8. Pending Inward at CWH</option>
+            <option value="CWH to Create DC">9. CWH to Create DC</option>
+            <option value="Pickup Pending for RC">10. Pickup Pending for RC</option>
+            <option value="In Transit to RC">11. In Transit to RC</option>
+            <option value="Delivered to RC">12. Delivered to RC</option>
+            <option value="Delivered to RC (Discrepancies)">13. Delivered to RC (Discrepancies)</option>
           </select>
 
           {/* Motorola Parts Status */}
@@ -327,7 +340,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
               setCurrentPage(1);
             }}
             aria-label="Filter by Motorola Status"
-            className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
+            className="bg-slate-50 border border-slate-200 text-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-600"
           >
             <option value="ALL">All Motorola Statuses</option>
             <option value="1">1. Not Return - CCI to Create DC</option>
@@ -341,49 +354,54 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
           {/* Export button */}
           <button
             onClick={handleExportExcel}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 transition-colors cursor-pointer"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
             Export Excel ({filteredOrders.length})
           </button>
         </div>
       </div>
 
       {/* Table Data Grid */}
-      <div className="rounded-xl border border-[#1c2b53] overflow-hidden bg-[#101a35] shadow-lg">
+      <div className="rounded-xl border border-slate-200 overflow-hidden bg-white shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-[#0b1329] text-slate-400 border-b border-[#1c2b53] font-mono">
+            <thead className="bg-slate-100 text-slate-600 border-b border-slate-200 font-mono">
               <tr>
-                <th className="py-3 px-4">SO Code</th>
-                <th className="py-3 px-4">Station</th>
-                <th className="py-3 px-4">Region</th>
-                <th className="py-3 px-4 text-center">Units</th>
-                <th className="py-3 px-4">SLA Priority</th>
-                <th className="py-3 px-4">Motorola Status</th>
-                <th className="py-3 px-4">CRM Status</th>
-                <th className="py-3 px-4">Active AWB</th>
-                <th className="py-3 px-4 text-center">Actions</th>
+                <th className="py-3 px-4 uppercase text-[11px]">SO Code</th>
+                <th className="py-3 px-4 uppercase text-[11px]">Station</th>
+                <th className="py-3 px-4 uppercase text-[11px]">Region</th>
+                <th className="py-3 px-4 text-center uppercase text-[11px]">Units</th>
+                <th className="py-3 px-4 uppercase text-[11px]">SLA Priority</th>
+                <th className="py-3 px-4 uppercase text-[11px]">Motorola Status</th>
+                <th className="py-3 px-4 uppercase text-[11px]">CRM Status</th>
+                <th className="py-3 px-4 uppercase text-[11px]">Active AWB</th>
+                <th className="py-3 px-4 text-center uppercase text-[11px]">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#1c2b53]/60 text-slate-300">
+            <tbody className="divide-y divide-slate-100 text-slate-700">
               {paginatedOrders.map((so) => {
                 const station = stationMap.get(so.station_code);
                 const orderItems = items.filter((i) => i.shipping_order_code === so.so_code);
                 const motoInfo = getMotorolaStatusInfo(so.motorola_status);
 
                 return (
-                  <tr key={so.id} className="hover:bg-slate-800/40 transition-colors group">
+                  <tr key={so.id} className="hover:bg-slate-50 transition-colors group">
                     {/* SO Code */}
-                    <td className="py-3 px-4 font-mono font-medium text-white">
+                    <td className="py-3 px-4 font-mono font-medium text-slate-900">
                       <button
                         onClick={() => onSelectOrder(so)}
-                        className="text-cyan-400 hover:underline flex items-center gap-1"
+                        className="text-blue-700 hover:text-blue-900 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
                       >
                         {so.so_code}
                       </button>
+                      {so.asp_rc_shipping_order_code && (
+                        <span className="block text-[10px] text-purple-700 font-mono font-medium mt-0.5" title="Leg 2: Outbound to RC">
+                          RC: {so.asp_rc_shipping_order_code}
+                        </span>
+                      )}
                       {so.eway_bill_required && (
-                        <span className="inline-block mt-0.5 text-[9px] px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                        <span className="inline-block mt-0.5 text-[9px] px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-300 font-sans font-medium">
                           E-Way Bill Req
                         </span>
                       )}
@@ -391,12 +409,12 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
 
                     {/* Station & Location */}
                     <td className="py-3 px-4">
-                      <div className="font-mono text-slate-200">{so.station_code}</div>
-                      <div className="text-[11px] text-slate-300 max-w-[150px] truncate" title={station?.station_name}>
+                      <div className="font-mono text-slate-900 font-semibold">{so.station_code}</div>
+                      <div className="text-[11px] text-slate-600 max-w-[150px] truncate" title={station?.station_name}>
                         {station?.station_name || 'Service Station'}
                       </div>
                       {(station?.city || so.city || station?.state || so.state) && (
-                        <div className="text-[10px] text-cyan-400/80 truncate max-w-[150px]">
+                        <div className="text-[10px] text-slate-500 truncate max-w-[150px]">
                           {[station?.city || so.city, station?.state || so.state].filter(Boolean).join(', ')}
                         </div>
                       )}
@@ -405,11 +423,11 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                     {/* Region */}
                     <td className="py-3 px-4">
                       <div className="flex flex-col gap-0.5">
-                        <span className="px-2 py-0.5 rounded text-[11px] bg-slate-800/80 border border-slate-700 text-slate-300 w-fit">
+                        <span className="px-2 py-0.5 rounded text-[11px] bg-slate-100 border border-slate-200 text-slate-700 font-medium w-fit">
                           {station?.region || so.region || 'West'}
                         </span>
                         {(station?.state || so.state) && (
-                          <span className="text-[10px] text-slate-400 truncate max-w-[90px]" title={station?.state || so.state}>
+                          <span className="text-[10px] text-slate-500 truncate max-w-[90px]" title={station?.state || so.state}>
                             {station?.state || so.state}
                           </span>
                         )}
@@ -417,7 +435,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                     </td>
 
                     {/* Units */}
-                    <td className="py-3 px-4 text-center font-mono font-medium text-slate-200">
+                    <td className="py-3 px-4 text-center font-mono font-semibold text-slate-900">
                       {orderItems.length > 0
                         ? orderItems.reduce((s, i) => s + (parseInt(String(i.quantity || 1), 10) || 1), 0)
                         : (so.total_items || 1)}
@@ -440,35 +458,43 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
 
                     {/* CRM Status */}
                     <td className="py-3 px-4">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getCrmStatusStyle(so.crm_status)}`}>
-                        {so.crm_status}
-                      </span>
+                      {(() => {
+                        const effectiveCrmStatus: CRMStatus = normalizeMotoStatusKey(so.motorola_status) === 'not return'
+                          ? 'CCI to Create DC'
+                          : ((so.crm_status as string) === 'AWB Pending' ? 'Pending AWB' : so.crm_status);
+
+                        return (
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${getCrmStatusStyle(effectiveCrmStatus)}`}>
+                            {effectiveCrmStatus}
+                          </span>
+                        );
+                      })()}
                     </td>
 
                     {/* Active AWB & Pickup */}
-                    <td className="py-3 px-4 font-mono text-slate-300">
+                    <td className="py-3 px-4 font-mono text-slate-700">
                       {so.active_awb || so.excel_ref_awb ? (
                         <div>
-                          <div className="text-cyan-300 flex items-center gap-1 font-semibold">
-                            <Barcode className="w-3.5 h-3.5 text-cyan-400" />
+                          <div className="text-blue-800 flex items-center gap-1 font-semibold">
+                            <Barcode className="w-3.5 h-3.5 text-blue-700" />
                             <span>{so.active_awb || so.excel_ref_awb}</span>
                           </div>
                           {so.pickup_status === 'Pickup Done' ? (
-                            <span className="inline-flex items-center gap-0.5 text-[9px] text-emerald-400 font-sans mt-0.5">
-                              <CheckCircle2 className="w-2.5 h-2.5" /> Pickup Done
+                            <span className="inline-flex items-center gap-0.5 text-[9px] text-emerald-700 font-sans font-medium mt-0.5">
+                              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" /> Pickup Done
                             </span>
                           ) : so.pickup_status === 'Pickup Not Done' ? (
-                            <span className="inline-flex items-center gap-0.5 text-[9px] text-rose-400 font-sans mt-0.5" title={so.pickup_remarks}>
-                              <AlertTriangle className="w-2.5 h-2.5" /> Pickup Failed
+                            <span className="inline-flex items-center gap-0.5 text-[9px] text-rose-700 font-sans font-medium mt-0.5" title={so.pickup_remarks}>
+                              <AlertTriangle className="w-2.5 h-2.5 text-rose-600" /> Pickup Failed
                             </span>
                           ) : null}
                         </div>
                       ) : motoInfo.isDelivered ? (
-                        <span className="text-emerald-400/80 text-[11px] font-sans font-medium">Delivered (Closed)</span>
-                      ) : so.crm_status === 'Create DC for RC' || so.crm_status === 'CWH Received' ? (
-                        <span className="text-purple-300 text-[11px] font-sans font-medium">CWH Inward Done</span>
+                        <span className="text-emerald-700 text-[11px] font-sans font-medium">Delivered (Closed)</span>
+                      ) : so.crm_status === 'CWH to Create DC' || so.crm_status === 'Delivered at CWH' || so.crm_status === 'Pending Inward at CWH' ? (
+                        <span className="text-purple-700 text-[11px] font-sans font-medium">CWH Inward Done</span>
                       ) : (
-                        <span className="text-slate-500 italic">Unassigned</span>
+                        <span className="text-slate-400 italic">Unassigned</span>
                       )}
                     </td>
 
@@ -478,7 +504,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                         <button
                           onClick={() => onSelectOrder(so)}
                           title="View Line Items"
-                          className="p-1 rounded bg-[#1f2e5a]/60 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-300 transition-colors"
+                          className="p-1 rounded bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-800 border border-slate-200 transition-colors cursor-pointer"
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </button>
@@ -486,26 +512,34 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                         <button
                           onClick={() => printConsignmentManifest(so, orderItems, station)}
                           title="Print Manifest"
-                          className="p-1 rounded bg-[#1f2e5a]/60 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-300 transition-colors"
+                          className="p-1 rounded bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-800 border border-slate-200 transition-colors cursor-pointer"
                         >
                           <Printer className="w-3.5 h-3.5" />
                         </button>
 
-                        {onOpenAwbModal && !motoInfo.isDelivered && (
-                          <button
-                            onClick={() => onOpenAwbModal(so)}
-                            title="Assign or Retoken AWB"
-                            className="p-1 rounded bg-[#1f2e5a]/60 hover:bg-blue-500/20 text-slate-300 hover:text-blue-300 transition-colors"
-                          >
-                            <Barcode className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                        {onOpenAwbModal && !motoInfo.isDelivered && (() => {
+                          const isNotReturnOrder = normalizeMotoStatusKey(so.motorola_status) === 'not return';
+                          return (
+                            <button
+                              onClick={() => onOpenAwbModal(so)}
+                              disabled={isNotReturnOrder}
+                              title={isNotReturnOrder ? 'DC not yet created in Motorola CRM (Action required by CCI)' : 'Assign or Retoken AWB'}
+                              className={`p-1 rounded border transition-colors ${
+                                isNotReturnOrder
+                                  ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed'
+                                  : 'bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-800 border-slate-200 cursor-pointer'
+                              }`}
+                            >
+                              <Barcode className="w-3.5 h-3.5" />
+                            </button>
+                          );
+                        })()}
 
                         {currentRole === 'ADMIN' && onDeleteOrder && (
                           <button
                             onClick={() => onDeleteOrder(so)}
                             title="Delete Consignment (Admin Only)"
-                            className="p-1 rounded bg-[#1f2e5a]/60 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
+                            className="p-1 rounded bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-700 border border-slate-200 transition-colors cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -518,18 +552,18 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
 
               {paginatedOrders.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
-                    <Truck className="w-8 h-8 mx-auto text-slate-600 mb-2" />
+                  <td colSpan={10} className="py-12 text-center text-slate-500">
+                    <Truck className="w-8 h-8 mx-auto text-slate-400 mb-2" />
                     <p className="text-sm">No shipping orders match your filter criteria.</p>
                     {selectedMotoStatus === '5' && !isCompletedSessionLoaded && onLoadCompletedSession && (
                       <div className="mt-3">
-                        <p className="text-xs text-amber-300/80 mb-2">
+                        <p className="text-xs text-amber-800 mb-2">
                           Completed journey orders (RC Received ASP) are archived safely in Supabase.
                         </p>
                         <button
                           onClick={onLoadCompletedSession}
                           disabled={isCompletedSessionLoading}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 cursor-pointer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100 cursor-pointer"
                         >
                           <Archive className="w-3.5 h-3.5" />
                           <span>Fetch Completed Journey for Active Session</span>
@@ -544,28 +578,28 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
         </div>
 
         {/* Pagination Bar */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-[#1c2b53] bg-[#0b1329] text-xs text-slate-400">
+        <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-slate-50 text-xs text-slate-600">
           <div>
-            Showing <strong className="text-white">{filteredOrders.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}</strong> to{' '}
-            <strong className="text-white">{Math.min(currentPage * pageSize, filteredOrders.length)}</strong> of{' '}
-            <strong className="text-white">{filteredOrders.length}</strong> consignments
+            Showing <strong className="text-slate-900">{filteredOrders.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}</strong> to{' '}
+            <strong className="text-slate-900">{Math.min(currentPage * pageSize, filteredOrders.length)}</strong> of{' '}
+            <strong className="text-slate-900">{filteredOrders.length}</strong> consignments
           </div>
 
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage === 1}
-              className="p-1.5 rounded-lg border border-[#1f2e5a] text-slate-400 disabled:opacity-40 hover:bg-slate-800 transition-colors"
+              className="p-1.5 rounded-lg border border-slate-300 text-slate-600 disabled:opacity-40 hover:bg-white transition-colors cursor-pointer"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="px-2 py-1 font-mono text-slate-300">
+            <span className="px-2 py-1 font-mono text-slate-800 font-semibold">
               Page {currentPage} of {totalPages}
             </span>
             <button
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
               disabled={currentPage === totalPages}
-              className="p-1.5 rounded-lg border border-[#1f2e5a] text-slate-400 disabled:opacity-40 hover:bg-slate-800 transition-colors"
+              className="p-1.5 rounded-lg border border-slate-300 text-slate-600 disabled:opacity-40 hover:bg-white transition-colors cursor-pointer"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

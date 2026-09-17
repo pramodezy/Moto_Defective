@@ -51,63 +51,70 @@ export function getPriorityBadge(tier: PriorityTier, ageDays: number) {
     case 1:
       return {
         label: `Critical (${ageDays}d)`,
-        badgeClass: 'bg-red-500/15 text-red-400 border border-red-500/30 font-semibold',
-        dotClass: 'bg-red-500',
+        badgeClass: 'bg-rose-50 text-rose-700 border border-rose-300 font-semibold',
+        dotClass: 'bg-rose-600',
       };
     case 2:
       return {
         label: `High (${ageDays}d)`,
-        badgeClass: 'bg-amber-500/15 text-amber-400 border border-amber-500/30',
-        dotClass: 'bg-amber-500',
+        badgeClass: 'bg-amber-50 text-amber-800 border border-amber-300 font-medium',
+        dotClass: 'bg-amber-600',
       };
     case 3:
     default:
       return {
         label: `Normal (${ageDays}d)`,
-        badgeClass: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30',
-        dotClass: 'bg-emerald-500',
+        badgeClass: 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-medium',
+        dotClass: 'bg-emerald-600',
       };
   }
 }
 
 export function getCrmStatusStyle(status: CRMStatus) {
   switch (status) {
-    case 'AWB Pending':
-      return 'bg-amber-500/10 text-amber-300 border-amber-500/30';
+    case 'CCI to Create DC':
+      return 'bg-amber-50 text-amber-900 border-amber-300 font-semibold';
+    case 'Pending AWB':
+      return 'bg-amber-50 text-amber-800 border-amber-300 font-medium';
     case 'Pickup Pending':
-      return 'bg-amber-500/15 text-amber-300 border-amber-500/40 font-semibold';
+      return 'bg-amber-100 text-amber-900 border-amber-400 font-semibold shadow-xs';
+    case 'Pending AWB Re-Issue':
+      return 'bg-orange-100 text-orange-900 border-orange-400 font-bold shadow-xs animate-pulse';
     case 'In Transit':
-      return 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30';
-    case 'CWH Received':
-    case 'Create DC for RC':
-      return 'bg-purple-500/15 text-purple-300 border-purple-500/40 font-semibold';
-    case 'Screening In Progress':
-      return 'bg-purple-500/10 text-purple-300 border-purple-500/30';
-    case 'Discrepancy Tagged':
-      return 'bg-rose-500/10 text-rose-300 border-rose-500/30';
-    case 'Discrepancies @ RC':
-      return 'bg-rose-500/20 text-rose-300 border-rose-500/50 font-bold shadow-sm';
-    case 'Dispatched to RC':
-      return 'bg-blue-500/10 text-blue-300 border-blue-500/30';
-    case 'Closed':
-      return 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30';
+      return 'bg-sky-50 text-sky-800 border-sky-300 font-medium';
+    case 'Delivered at CWH':
+      return 'bg-indigo-50 text-indigo-800 border-indigo-300 font-medium';
+    case 'Discrepancies':
+      return 'bg-rose-50 text-rose-800 border-rose-300 font-bold';
+    case 'Pending Inward at CWH':
+      return 'bg-purple-50 text-purple-800 border-purple-300 font-semibold';
+    case 'CWH to Create DC':
+      return 'bg-purple-100 text-purple-900 border-purple-400 font-semibold';
+    case 'Pickup Pending for RC':
+      return 'bg-blue-50 text-blue-800 border-blue-300 font-medium';
+    case 'In Transit to RC':
+      return 'bg-cyan-50 text-cyan-800 border-cyan-300 font-medium';
+    case 'Delivered to RC':
+      return 'bg-emerald-50 text-emerald-800 border-emerald-300 font-medium';
+    case 'Delivered to RC (Discrepancies)':
+      return 'bg-rose-100 text-rose-900 border-rose-400 font-bold shadow-xs';
     default:
-      return 'bg-slate-500/10 text-slate-300 border-slate-500/30';
+      return 'bg-slate-100 text-slate-700 border-slate-300';
   }
 }
 
 export function getScreeningStatusStyle(status: ScreeningStatus) {
   switch (status) {
     case 'Passed':
-      return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+      return 'bg-emerald-50 text-emerald-800 border-emerald-300 font-semibold';
     case 'Failed':
-      return 'bg-rose-500/15 text-rose-400 border-rose-500/30';
+      return 'bg-rose-50 text-rose-800 border-rose-300 font-semibold';
     case 'Damaged':
-      return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+      return 'bg-amber-50 text-amber-800 border-amber-300 font-semibold';
     case 'Missing':
-      return 'bg-red-600/20 text-red-300 border-red-600/40';
+      return 'bg-rose-100 text-rose-900 border-rose-400 font-bold';
     case 'Pending':
     default:
-      return 'bg-slate-700/40 text-slate-400 border-slate-600/40';
+      return 'bg-slate-100 text-slate-600 border-slate-300';
   }
 }

@@ -22,42 +22,42 @@ export const StatCard: React.FC<StatCardProps> = ({
   const getVariantStyles = () => {
     switch (variant) {
       case 'red':
-        return 'border-red-500/30 hover:border-red-500/60 text-red-400 from-red-500/10 to-transparent';
+        return 'border-rose-200 text-rose-700 bg-rose-50/50';
       case 'amber':
-        return 'border-amber-500/30 hover:border-amber-500/60 text-amber-400 from-amber-500/10 to-transparent';
+        return 'border-amber-200 text-amber-800 bg-amber-50/50';
       case 'emerald':
-        return 'border-emerald-500/30 hover:border-emerald-500/60 text-emerald-400 from-emerald-500/10 to-transparent';
+        return 'border-emerald-200 text-emerald-800 bg-emerald-50/50';
       case 'indigo':
-        return 'border-indigo-500/30 hover:border-indigo-500/60 text-indigo-400 from-indigo-500/10 to-transparent';
+        return 'border-indigo-200 text-indigo-800 bg-indigo-50/50';
       case 'cyan':
       default:
-        return 'border-cyan-500/30 hover:border-cyan-500/60 text-cyan-400 from-cyan-500/10 to-transparent';
+        return 'border-sky-200 text-sky-800 bg-sky-50/50';
     }
   };
 
   return (
     <div
       onClick={onClick}
-      className={`relative overflow-hidden rounded-xl border bg-[#101a35] p-4 transition-all duration-200 bg-gradient-to-b ${getVariantStyles()} ${
-        onClick ? 'cursor-pointer hover:-translate-y-0.5 shadow-lg' : ''
+      className={`relative overflow-hidden rounded-xl border border-slate-200 bg-white p-5 transition-all duration-200 shadow-xs hover:shadow-md ${
+        onClick ? 'cursor-pointer hover:-translate-y-0.5' : ''
       }`}
     >
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs font-medium text-slate-400 tracking-wider uppercase">{title}</p>
-          <h3 className="mt-1 text-2xl font-bold tracking-tight text-white font-['Outfit']">
+          <p className="text-[11px] font-semibold text-slate-500 tracking-wider uppercase">{title}</p>
+          <h3 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 font-['Outfit']">
             {value}
           </h3>
         </div>
-        <div className="p-2.5 rounded-lg bg-[#0b1329]/80 border border-[#1f2e5a]">
+        <div className={`p-2.5 rounded-lg border ${getVariantStyles()}`}>
           {icon}
         </div>
       </div>
       {(subtitle || trend) && (
-        <div className="mt-3 flex items-center justify-between text-xs">
-          {subtitle && <span className="text-slate-400">{subtitle}</span>}
+        <div className="mt-3.5 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
+          {subtitle && <span className="text-slate-500 font-medium">{subtitle}</span>}
           {trend && (
-            <span className="font-medium font-mono text-cyan-300">
+            <span className="font-semibold font-mono text-blue-700">
               {trend}
             </span>
           )}

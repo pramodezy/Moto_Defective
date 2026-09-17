@@ -56,43 +56,43 @@ export const Navbar: React.FC<NavbarProps> = ({
   onUnloadCompletedSession,
 }) => {
   return (
-    <header className="sticky top-0 z-40 bg-[#0b1329]/95 backdrop-blur-md border-b border-[#1f2e5a]">
+    <header className="sticky top-0 z-40 bg-gradient-to-r from-[#001489] via-[#08209e] to-[#001489] text-white shadow-md border-b border-blue-900/40">
       {/* Top tier brand and user identity */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo & Portal Branding */}
           <div className="flex items-center gap-3">
-            <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-600/30 border border-cyan-500/40 shadow-sm shadow-cyan-500/10">
-              <span className="font-extrabold text-cyan-400 text-lg tracking-wider font-['Outfit']">M</span>
-              <div className="absolute -top-0.5 -right-0.5 w-2 bg-cyan-400 rounded-full" />
+            <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-white/10 border border-white/20 shadow-inner">
+              <span className="font-extrabold text-white text-lg tracking-wider font-['Outfit']">M</span>
+              <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-sky-300 rounded-full" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-white text-lg tracking-tight font-['Outfit']">
-                  motorola <span className="text-cyan-400 font-light font-sans text-sm tracking-normal">RETURNS CRM</span>
+                  motorola <span className="text-sky-300 font-light font-sans text-sm tracking-normal">RETURNS CRM</span>
                 </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono border border-blue-500/30">
-                  v2.4
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/15 text-white font-mono border border-white/20">
+                  v2.5
                 </span>
               </div>
-              <p className="text-xs text-slate-400 hidden sm:block">Reverse Supply Chain & Logistics Inward Engine</p>
+              <p className="text-xs text-blue-100/80 hidden sm:block">Reverse Supply Chain & Logistics Inward Engine</p>
             </div>
           </div>
 
           {/* Right Controls: Role Selector & System Status */}
           <div className="flex items-center gap-3">
             {/* Database mode pill */}
-            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono border bg-[#101a35] border-[#1c2b53] text-slate-300">
-              <Database className="w-3.5 h-3.5 text-cyan-400" />
+            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono border bg-white/10 border-white/20 text-blue-100">
+              <Database className="w-3.5 h-3.5 text-sky-300" />
               <span>{isSupabaseConfigured ? 'Supabase Live' : 'Enterprise Store'}</span>
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
             </div>
 
-            {/* Role Badging & RBAC: Strictly scoped to authenticated profile */}
+            {/* Role Badging */}
             {currentUser.role === 'CCI' && (
               <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm">
-                  <Store className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 shadow-xs">
+                  <Store className="w-3.5 h-3.5 text-emerald-300" />
                   <span>Station {currentUser.station_code || currentStation}</span>
                 </span>
               </div>
@@ -100,20 +100,19 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {currentUser.role === 'CWH' && (
               <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm">
-                  <Warehouse className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/15 text-white border border-white/25 shadow-xs">
+                  <Warehouse className="w-3.5 h-3.5 text-sky-200" />
                   <span>Central Warehouse (CWH)</span>
                 </span>
               </div>
             )}
 
             {currentUser.role === 'ADMIN' && (
-              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600/30 to-cyan-600/30 text-cyan-300 border border-cyan-500/40 shadow-sm">
-                <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/15 text-white border border-white/25 shadow-xs">
+                <ShieldCheck className="w-3.5 h-3.5 text-sky-300" />
                 <span>Admin Portal</span>
               </span>
             )}
-
 
             {/* Admin-only Link Button: Load Completed Journey (RC Received ASP) for Active Session */}
             {currentUser.role === 'ADMIN' && onLoadCompletedSession && (
@@ -121,31 +120,31 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   onClick={onLoadCompletedSession}
                   disabled={isCompletedSessionLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm cursor-pointer disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border bg-amber-400/20 hover:bg-amber-400/30 text-amber-200 border-amber-300/40 shadow-xs cursor-pointer disabled:opacity-50"
                   title="Fetch archived completed shipping orders (RC Received ASP) from Supabase for this session"
                 >
                   {isCompletedSessionLoading ? (
                     <>
-                      <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                      <RefreshCw className="w-3.5 h-3.5 text-amber-300 animate-spin" />
                       <span className="hidden md:inline">Fetching Completed...</span>
                     </>
                   ) : (
                     <>
-                      <Archive className="w-3.5 h-3.5 text-amber-400" />
+                      <Archive className="w-3.5 h-3.5 text-amber-300" />
                       <span className="hidden md:inline">Fetch Completed Journey</span>
                       <span className="md:hidden">Completed ({completedOrdersCount})</span>
                     </>
                   )}
                 </button>
               ) : (
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border bg-emerald-500/15 text-emerald-300 border-emerald-500/40">
-                  <PackageCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border bg-emerald-500/20 text-emerald-200 border-emerald-400/30">
+                  <PackageCheck className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
                   <span className="hidden md:inline">Completed Journey Loaded ({completedOrdersCount})</span>
                   <span className="md:hidden">Loaded ({completedOrdersCount})</span>
                   {onUnloadCompletedSession && (
                     <button
                       onClick={onUnloadCompletedSession}
-                      className="ml-1 text-[10px] text-slate-300 hover:text-white underline cursor-pointer font-normal"
+                      className="ml-1 text-[10px] text-blue-100 hover:text-white underline cursor-pointer font-normal"
                       title="Unload completed orders and revert to active pipeline"
                     >
                       Unload
@@ -155,14 +154,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               )
             )}
 
-
             {/* User Session & Logout */}
-            <div className="flex items-center gap-2 pl-2 border-l border-[#1f2e5a]">
+            <div className="flex items-center gap-2 pl-2 border-l border-white/20">
               <div className="hidden sm:block text-right">
                 <div className="text-xs font-semibold text-white truncate max-w-[120px]">
                   {currentUser.username}
                 </div>
-                <div className="text-[10px] text-cyan-400 font-mono">
+                <div className="text-[10px] text-blue-200 font-mono">
                   {currentUser.role}
                 </div>
               </div>
@@ -170,7 +168,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 onClick={onLogout}
                 title="Sign Out / Switch Account"
-                className="flex items-center gap-1 p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/30 transition-colors"
+                className="flex items-center gap-1 p-1.5 rounded-lg text-blue-200 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/20 transition-colors"
               >
                 <LogOut className="w-4 h-4" />
               </button>
@@ -179,15 +177,15 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Navigation Tabs based on role */}
-        <div className="flex items-center gap-1 overflow-x-auto py-2 border-t border-[#1f2e5a]/60 text-xs">
+        <div className="flex items-center gap-1.5 overflow-x-auto py-2.5 border-t border-white/15 text-xs">
           {currentRole === 'ADMIN' && (
             <>
               <button
                 onClick={() => onTabChange('dashboard')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                   activeTab === 'dashboard'
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5" />
@@ -196,10 +194,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               <button
                 onClick={() => onTabChange('orders')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                   activeTab === 'orders'
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
                 }`}
               >
                 <Truck className="w-3.5 h-3.5" />
@@ -208,10 +206,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               <button
                 onClick={() => onTabChange('vault')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                   activeTab === 'vault'
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
                 }`}
               >
                 <Layers className="w-3.5 h-3.5" />
@@ -220,10 +218,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               <button
                 onClick={() => onTabChange('ingestion')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                   activeTab === 'ingestion'
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
                 }`}
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -232,10 +230,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               <button
                 onClick={() => onTabChange('cci_master')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                   activeTab === 'cci_master'
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
                 }`}
               >
                 <Store className="w-3.5 h-3.5" />
@@ -244,10 +242,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               <button
                 onClick={() => onTabChange('audit')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                   activeTab === 'audit'
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
                 }`}
               >
                 <History className="w-3.5 h-3.5" />
@@ -260,10 +258,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             <>
               <button
                 onClick={() => onTabChange('cwh_inward')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                   activeTab === 'cwh_inward'
-                    ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
                 }`}
               >
                 <PackageCheck className="w-3.5 h-3.5" />
@@ -272,10 +270,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               <button
                 onClick={() => onTabChange('orders')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                   activeTab === 'orders'
-                    ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
                 }`}
               >
                 <Truck className="w-3.5 h-3.5" />
@@ -284,10 +282,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               <button
                 onClick={() => onTabChange('vault')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                   activeTab === 'vault'
-                    ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
                 }`}
               >
                 <Layers className="w-3.5 h-3.5" />
@@ -296,10 +294,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               <button
                 onClick={() => onTabChange('audit')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                   activeTab === 'audit'
-                    ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
                 }`}
               >
                 <History className="w-3.5 h-3.5" />
@@ -312,10 +310,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             <>
               <button
                 onClick={() => onTabChange('cci_consignments')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                   activeTab === 'cci_consignments'
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
                 }`}
               >
                 <Truck className="w-3.5 h-3.5" />
@@ -324,10 +322,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               <button
                 onClick={() => onTabChange('cci_items')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                   activeTab === 'cci_items'
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
                 }`}
               >
                 <Layers className="w-3.5 h-3.5" />

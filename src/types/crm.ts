@@ -12,17 +12,19 @@ export type MotorolaPartsStatus =
   | 'Not Return';
 
 export type CRMStatus = 
-  | 'AWB Pending'
+  | 'CCI to Create DC'
+  | 'Pending AWB'
   | 'Pickup Pending'
+  | 'Pending AWB Re-Issue'
   | 'In Transit'
-  | 'CWH Received'
-  | 'Create DC for RC'
-  | 'CWH Received - Discrepancies'
-  | 'Discrepancies @ RC'
-  | 'Screening In Progress'
-  | 'Discrepancy Tagged'
-  | 'Dispatched to RC'
-  | 'Closed';
+  | 'Delivered at CWH'
+  | 'Discrepancies'
+  | 'Pending Inward at CWH'
+  | 'CWH to Create DC'
+  | 'Pickup Pending for RC'
+  | 'In Transit to RC'
+  | 'Delivered to RC'
+  | 'Delivered to RC (Discrepancies)';
 
 export type PickupStatus = 'Pickup Pending' | 'Pickup Done' | 'Pickup Not Done';
 
@@ -53,7 +55,7 @@ export interface UserProfile {
 
 export interface ShippingOrder {
   id: string;
-  so_code: string;            // "CCI-ASP Shipping Order Code"
+  so_code: string;            // "CCI-ASP Shipping Order Code" (Leg 1 Inbound)
   station_code: string;
   region: string;
   state?: string;
@@ -74,13 +76,21 @@ export interface ShippingOrder {
   pickup_status?: PickupStatus;
   pickup_date?: string;
   pickup_remarks?: string;
+
+  // Leg 2 Outbound Hub Transfer (CWH -> RC)
+  asp_rc_shipping_order_code?: string;
+  asp_rc_ship_date?: string;
+  asp_rc_pickup_date?: string;
+  asp_rc_delivered_date?: string;
+  rc_receive_remark?: string;
+
   created_at: string;
   updated_at: string;
 }
 
 export interface DefectiveItem {
   id: string;
-  composite_key: string;       // srNumber_srPartNumber_newPartNumber
+  composite_key: string;       // srNumber_srPartNumber_soCode
   sr_number: string;
   sr_part_number: string;
   new_part_number: string;
@@ -91,7 +101,7 @@ export interface DefectiveItem {
   region?: string;
   state?: string;
   city?: string;
-  shipping_order_code: string;
+  shipping_order_code: string; // Leg 1: CCI-ASP Shipping Order Code
   shipping_order_id?: string;
   sr_close_timestamp?: string;
   sr_model_name?: string;
@@ -101,6 +111,14 @@ export interface DefectiveItem {
   screening_status: ScreeningStatus;
   item_remarks?: string;
   estimated_value: number;
+
+  // Leg 2 Outbound Hub Transfer (CWH -> RC)
+  asp_rc_shipping_order_code?: string;
+  asp_rc_ship_date?: string;
+  asp_rc_pickup_date?: string;
+  asp_rc_delivered_date?: string;
+  rc_receive_remark?: string;
+
   last_synced_at: string;
   created_at: string;
   updated_at: string;

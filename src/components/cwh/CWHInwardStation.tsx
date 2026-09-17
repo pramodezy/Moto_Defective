@@ -57,7 +57,9 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   const [scanInput, setScanInput] = useState('');
   const [selectedStation, setSelectedStation] = useState<string>('ALL');
   const [selectedRegion, setSelectedRegion] = useState<string>('ALL');
-  const [activeSubTab, setActiveSubTab] = useState<'needs_awb' | 'in_transit' | 'at_cwh' | 'discrepancies' | 'history'>('needs_awb');
+  const [activeSubTab, setActiveSubTab] = useState<
+    'needs_awb' | 'awb_reissue' | 'in_transit' | 'at_cwh' | 'discrepancies' | 'outbound_rc' | 'history'
+  >('needs_awb');
   const [isBulkAwbModalOpen, setIsBulkAwbModalOpen] = useState(false);
 
   // Create DC to RC Modal State
@@ -127,6 +129,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     const matchedOrder = orders.find(
       (o) =>
         o.so_code.toLowerCase() === term ||
+        (o.asp_rc_shipping_order_code && o.asp_rc_shipping_order_code.toLowerCase() === term) ||
         (o.active_awb && o.active_awb.toLowerCase() === term) ||
         (o.excel_ref_awb && o.excel_ref_awb.toLowerCase() === term)
     );
@@ -154,70 +157,71 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     });
   }, [orders, selectedStation, selectedRegion, stationMap]);
 
-  // Categorize orders strictly according to Motorola parts statuses and actionable requirements
-  // 1. Needs AWB Issue: Only active 'CCI send to CWH' lacking AWB token (strictly excludes delivered cases)
+  // Categorize orders strictly according to the 13 canonical stages:
+  // 1. Needs Initial AWB Issue: Active 'CCI send to CWH' awaiting token (excludes re-issues & delivered historical records)
   const needsAwbOrders = useMemo(() => {
-    return stationScopedOrders.filter((o) => isAwbIssueRequired(o));
+    return stationScopedOrders.filter((o) => {
+      if (o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done') {
+        return false;
+      }
+      return o.crm_status === 'Pending AWB' || (isAwbIssueRequired(o) && !o.active_awb && !o.excel_ref_awb);
+    });
   }, [stationScopedOrders]);
 
-  // 2. Pending Inward / CCTV: In transit to CWH with AWB, awaiting CCTV verification
+  // 2. Pending AWB Re-Issue: Exception state where CCI reported Pickup Not Done; CWH must cancel & re-issue
+  const awbReissueOrders = useMemo(() => {
+    return stationScopedOrders.filter((o) => {
+      return o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done';
+    });
+  }, [stationScopedOrders]);
+
+  // 3. In Transit / Pickup Pending: AWB token active, en route from CCI to CWH
   const inTransitOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
+      if (o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done') return false;
       if (isAwbIssueRequired(o)) return false;
-      if (
-        o.crm_status === 'Closed' || 
-        o.crm_status === 'Create DC for RC' ||
-        o.crm_status === 'CWH Received' || 
-        o.crm_status === 'CWH Received - Discrepancies' || 
-        o.crm_status === 'Discrepancy Tagged'
-      ) return false;
-      const moto = (o.motorola_status || '').toLowerCase();
-      if (
-        moto.includes('rc received') || 
-        moto.includes('cwh received') || 
-        moto.includes('send to rc') || 
-        moto.includes('discrepanc')
-      ) return false;
-      return o.crm_status === 'In Transit' || o.crm_status === 'Pickup Pending' || !!(o.active_awb || o.excel_ref_awb);
+      return o.crm_status === 'Pickup Pending' || o.crm_status === 'In Transit';
     });
   }, [stationScopedOrders]);
 
-  // 3. At CWH -> Dispatch to RC: Arrived at CWH in Moto CRM (actionable: verify and create DC to RC in Lenovo CRM)
+  // 4. At CWH -> CCTV Unboxing & Inward: Physical arrival at CWH bay, staging for warehouse entry
   const atCwhOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
-      const moto = (o.motorola_status || '').toLowerCase();
-      if (o.crm_status === 'CWH Received - Discrepancies' || moto.includes('discrepanc') || moto.includes('negative')) return false;
       return (
-        o.crm_status === 'Create DC for RC' ||
-        o.crm_status === 'CWH Received' || 
-        (moto.includes('cwh received') && o.crm_status !== 'Closed')
+        o.crm_status === 'Delivered at CWH' ||
+        o.crm_status === 'Pending Inward at CWH' ||
+        o.crm_status === 'CWH to Create DC'
       );
     });
   }, [stationScopedOrders]);
 
-  // 4. Flagged Discrepancies: Shortage / damage detected at CWH or RC
+  // 5. Flagged Discrepancies: Screening failed at CWH or discrepancy flagged at RC
   const discrepancyOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
-      const moto = (o.motorola_status || '').toLowerCase();
       return (
-        o.crm_status === 'Discrepancies @ RC' ||
-        o.crm_status === 'CWH Received - Discrepancies' ||
-        o.crm_status === 'Discrepancy Tagged' ||
-        moto.includes('discrepanc') ||
-        moto.includes('negative')
+        o.crm_status === 'Discrepancies' ||
+        o.crm_status === 'Delivered to RC (Discrepancies)'
       );
     });
   }, [stationScopedOrders]);
 
-  // 5. Delivered Archive & History: RC Received ASP, ASP Send to RC, Closed (No AWB needed)
+  // 6. Outbound Leg to RC (Leg 2): CWH created DC; awaits courier pickup or en route to RC
+  const outboundRcOrders = useMemo(() => {
+    return stationScopedOrders.filter((o) => {
+      return (
+        o.crm_status === 'Pickup Pending for RC' ||
+        o.crm_status === 'In Transit to RC'
+      );
+    });
+  }, [stationScopedOrders]);
+
+  // 7. Delivered Archive & History: RC Received ASP
   const historyOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
       const moto = (o.motorola_status || '').toLowerCase();
       return (
-        o.crm_status === 'Closed' ||
-        o.crm_status === 'Dispatched to RC' ||
-        moto.includes('rc received') ||
-        moto.includes('send to rc')
+        o.crm_status === 'Delivered to RC' ||
+        (moto.includes('rc received') && !moto.includes('negative'))
       );
     });
   }, [stationScopedOrders]);
@@ -226,48 +230,52 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     switch (activeSubTab) {
       case 'needs_awb':
         return needsAwbOrders;
+      case 'awb_reissue':
+        return awbReissueOrders;
       case 'in_transit':
         return inTransitOrders;
       case 'at_cwh':
         return atCwhOrders;
       case 'discrepancies':
         return discrepancyOrders;
+      case 'outbound_rc':
+        return outboundRcOrders;
       case 'history':
         return historyOrders;
       default:
         return needsAwbOrders;
     }
-  }, [activeSubTab, needsAwbOrders, inTransitOrders, atCwhOrders, discrepancyOrders, historyOrders]);
+  }, [activeSubTab, needsAwbOrders, awbReissueOrders, inTransitOrders, atCwhOrders, discrepancyOrders, outboundRcOrders, historyOrders]);
 
   return (
     <div className="space-y-6">
       {/* CWH Station Banner & Barcode Scanner Station */}
-      <div className="rounded-2xl p-6 bg-gradient-to-r from-[#101a35] via-[#141f42] to-[#1a2046] border border-indigo-500/40 shadow-xl">
+      <div className="rounded-2xl p-6 bg-white border border-slate-200 shadow-xs relative overflow-hidden">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div className="space-y-1 max-w-xl">
             <div className="flex items-center gap-2">
-              <span className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+              <span className="p-2 rounded-xl bg-sky-50 text-[#001489] border border-sky-200">
                 <Video className="w-5 h-5" />
               </span>
               <div>
-                <h2 className="text-xl font-bold text-white font-['Outfit']">
+                <h2 className="text-xl font-bold text-slate-900 font-['Outfit']">
                   CWH Inward Verification & Logistics Hub
                 </h2>
-                <p className="text-xs text-indigo-200">
-                  Bay 4 • Lead: <strong className="text-white">{user.full_name}</strong> • Station-wise tracking & action dispatch
+                <p className="text-xs text-slate-500">
+                  Bay 4 • Lead: <strong className="text-slate-900 font-semibold">{user.full_name}</strong> • Station-wise tracking & action dispatch
                 </p>
               </div>
             </div>
-            <p className="text-xs text-slate-300 mt-2">
+            <p className="text-xs text-slate-600 mt-2">
               Issue AWB tokens for pending service center dispatches, verify incoming parcels under CCTV surveillance, and create outbound delivery challans to Repair Centers (RC).
             </p>
           </div>
 
           {/* Quick Scanner Box */}
           <form onSubmit={handleQuickScan} className="w-full lg:max-w-md">
-            <div className="p-3.5 rounded-xl bg-[#0b1329] border-2 border-indigo-500/50 shadow-inner">
-              <label className="text-[11px] font-semibold text-indigo-300 flex items-center gap-1.5 uppercase tracking-wider mb-2">
-                <Barcode className="w-4 h-4 text-indigo-400" />
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 shadow-xs">
+              <label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1.5 uppercase tracking-wider mb-2">
+                <Barcode className="w-4 h-4 text-[#001489]" />
                 Barcode Scanner / Rapid Inward Input
               </label>
               <div className="flex gap-2">
@@ -276,17 +284,17 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                   value={scanInput}
                   onChange={(e) => setScanInput(e.target.value)}
                   placeholder="Scan SO Code or Courier AWB..."
-                  className="flex-1 bg-[#101a35] border border-[#1f2e5a] rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-400"
+                  className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489] transition-colors"
                 />
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition-colors"
+                  className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#001489] hover:bg-[#08209e] text-white shadow-xs transition-colors cursor-pointer"
                 >
                   Inspect
                 </button>
               </div>
               <span className="text-[10px] text-slate-500 mt-1 block">
-                Tip: Scan manifest barcode or SO Code (e.g. <code>SORLC26051500115</code>)
+                Tip: Scan manifest barcode or SO Code (e.g. <code className="text-[#001489]">SORLC26051500115</code>)
               </span>
             </div>
           </form>
@@ -294,16 +302,16 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       </div>
 
       {/* Station & Region Filter Bar for Complete Station-wise Data Exploration */}
-      <div className="p-4 rounded-xl bg-[#101a35] border border-[#1c2b53] flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Building2 className="w-4 h-4 text-cyan-400" />
-          <span className="text-xs font-semibold text-slate-200">Station Scope:</span>
+          <Building2 className="w-4 h-4 text-sky-600" />
+          <span className="text-xs font-semibold text-slate-700">Station Scope:</span>
           
           <select
             value={selectedStation}
             onChange={(e) => setSelectedStation(e.target.value)}
             aria-label="Filter by Station"
-            className="bg-[#0b1329] border border-[#1f2e5a] text-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500 max-w-xs"
+            className="bg-slate-50 border border-slate-300 text-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#001489] max-w-xs transition-colors"
           >
             <option value="ALL">All Stations ({orders.length} total consignments)</option>
             {stations.map((st) => (
@@ -317,7 +325,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
             value={selectedRegion}
             onChange={(e) => setSelectedRegion(e.target.value)}
             aria-label="Filter by Region"
-            className="bg-[#0b1329] border border-[#1f2e5a] text-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
+            className="bg-slate-50 border border-slate-300 text-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#001489] transition-colors"
           >
             <option value="ALL">All Regions</option>
             {availableRegions.map((reg) => (
@@ -328,14 +336,14 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
           </select>
         </div>
 
-        <div className="text-xs text-slate-400 flex items-center gap-3">
+        <div className="text-xs text-slate-500 flex items-center gap-3">
           <span>
-            Total in scope: <strong className="text-white font-mono">{stationScopedOrders.length}</strong> consignments
+            Total in scope: <strong className="text-slate-900 font-mono">{stationScopedOrders.length}</strong> consignments
           </span>
           {selectedStation !== 'ALL' && (
             <button
               onClick={() => { setSelectedStation('ALL'); setSelectedRegion('ALL'); }}
-              className="text-cyan-400 hover:underline text-xs"
+              className="text-[#001489] hover:underline text-xs cursor-pointer font-medium"
             >
               Reset Station Filter
             </button>
@@ -344,77 +352,105 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       </div>
 
       {/* Action-Focused Subtabs */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-[#1f2e5a] pb-3">
-        {/* Queue 1: Needs AWB Issue */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3">
+        {/* Queue 1: Needs Initial AWB Issue */}
         <button
           onClick={() => setActiveSubTab('needs_awb')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
             activeSubTab === 'needs_awb'
-              ? 'bg-amber-600 text-white shadow-lg'
-              : 'bg-[#101a35] text-amber-300 hover:text-white border border-amber-500/30'
+              ? 'bg-amber-600 text-white shadow-xs'
+              : 'bg-white text-amber-900 hover:bg-amber-50/60 border border-amber-300'
           }`}
         >
           <Barcode className="w-3.5 h-3.5" />
-          ⚡ Action: Issue AWB Token ({needsAwbOrders.length})
+          ⚡ Action: Issue AWB ({needsAwbOrders.length})
         </button>
 
-        {/* Queue 2: Awaiting CCTV Unboxing */}
+        {/* Queue 2: Pending AWB Re-Issue (Exception from CCI) */}
+        <button
+          onClick={() => setActiveSubTab('awb_reissue')}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            activeSubTab === 'awb_reissue'
+              ? 'bg-rose-700 text-white shadow-xs'
+              : awbReissueOrders.length > 0
+              ? 'bg-rose-50 text-rose-800 hover:bg-rose-100 border-2 border-rose-400 font-bold'
+              : 'bg-white text-rose-800 hover:bg-rose-50 border border-rose-300'
+          }`}
+        >
+          <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+          ⚠️ Re-Issue AWB ({awbReissueOrders.length})
+        </button>
+
+        {/* Queue 3: In Transit / Pickup Pending */}
         <button
           onClick={() => setActiveSubTab('in_transit')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
             activeSubTab === 'in_transit'
-              ? 'bg-indigo-600 text-white shadow-lg'
-              : 'bg-[#101a35] text-slate-400 hover:text-slate-200 border border-[#1c2b53]'
+              ? 'bg-[#001489] text-white shadow-xs'
+              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
           }`}
         >
           <Clock className="w-3.5 h-3.5" />
-          📹 In Transit / Awaiting Inward ({inTransitOrders.length})
+          🚚 In Transit &amp; Pickup Pending ({inTransitOrders.length})
         </button>
 
-        {/* Queue 3: At CWH -> Dispatch to RC */}
+        {/* Queue 4: At CWH -> CCTV Unbox & Inward */}
         <button
           onClick={() => setActiveSubTab('at_cwh')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
             activeSubTab === 'at_cwh'
-              ? 'bg-blue-600 text-white shadow-lg'
-              : 'bg-[#101a35] text-blue-300 hover:text-white border border-blue-500/30'
+              ? 'bg-purple-700 text-white shadow-xs'
+              : 'bg-white text-purple-900 hover:bg-purple-50/60 border border-purple-300'
           }`}
         >
-          <Send className="w-3.5 h-3.5" />
-          🏢 At CWH → Create DC to RC ({atCwhOrders.length})
+          <Video className="w-3.5 h-3.5" />
+          🏢 At CWH / Unbox &amp; DC ({atCwhOrders.length})
         </button>
 
-        {/* Queue 4: Flagged Discrepancies */}
+        {/* Queue 5: Flagged Discrepancies */}
         <button
           onClick={() => setActiveSubTab('discrepancies')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
             activeSubTab === 'discrepancies'
-              ? 'bg-rose-600 text-white shadow-lg'
-              : 'bg-[#101a35] text-slate-400 hover:text-slate-200 border border-[#1c2b53]'
+              ? 'bg-rose-600 text-white shadow-xs'
+              : 'bg-white text-rose-900 hover:bg-rose-50/60 border border-rose-300'
           }`}
         >
           <AlertTriangle className="w-3.5 h-3.5" />
-          ⚠️ Discrepancies (CWH / RC) ({discrepancyOrders.length})
+          ⚠️ Discrepancies ({discrepancyOrders.length})
         </button>
 
-        {/* Queue 5: Delivered Archive & History */}
+        {/* Queue 6: Outbound Leg to RC (Leg 2) */}
+        <button
+          onClick={() => setActiveSubTab('outbound_rc')}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            activeSubTab === 'outbound_rc'
+              ? 'bg-blue-700 text-white shadow-xs'
+              : 'bg-white text-blue-900 hover:bg-blue-50/60 border border-blue-300'
+          }`}
+        >
+          <Send className="w-3.5 h-3.5" />
+          📦 Outbound to RC ({outboundRcOrders.length})
+        </button>
+
+        {/* Queue 7: Delivered Archive & History */}
         <button
           onClick={() => setActiveSubTab('history')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
             activeSubTab === 'history'
-              ? 'bg-emerald-700 text-white shadow-lg'
-              : 'bg-[#101a35] text-slate-400 hover:text-slate-200 border border-[#1c2b53]'
+              ? 'bg-emerald-700 text-white shadow-xs'
+              : 'bg-white text-emerald-900 hover:bg-emerald-50/60 border border-emerald-300'
           }`}
         >
           <Archive className="w-3.5 h-3.5" />
-          ✓ Delivered to RC / Archive ({historyOrders.length})
+          ✓ Delivered to RC ({historyOrders.length})
         </button>
 
         {/* Bulk AWB Update Button for CWH */}
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => setIsBulkAwbModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg border border-emerald-500/40 transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs border border-emerald-600 transition-all cursor-pointer"
           >
             <Upload className="w-3.5 h-3.5" />
             Bulk AWB Update
@@ -424,23 +460,23 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
 
       {/* Needs AWB Info & Quick Bulk Action Callout */}
       {activeSubTab === 'needs_awb' && (
-        <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
           <div className="flex items-center gap-2.5">
-            <span className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
+            <span className="p-1.5 rounded-lg bg-amber-100 text-amber-800">
               <Barcode className="w-4 h-4" />
             </span>
             <div>
-              <p className="text-xs font-semibold text-amber-200">
-                Bulk Dispatch from Courier Portal (BlueDart / Delhivery / DTDC)?
+              <p className="text-xs font-semibold text-amber-900">
+                Stage 2: Pending Initial AWB Generation (CWH Action)
               </p>
-              <p className="text-[11px] text-amber-300/80">
-                Generate AWBs for multiple shipping orders at once from courier portal, download our Excel template, and upload tracking numbers in 1 click.
+              <p className="text-[11px] text-amber-800/90">
+                Service centers created shipping orders in Moto CRM. Generate AWB tokens on courier portal and issue here for pickup.
               </p>
             </div>
           </div>
           <button
             onClick={() => setIsBulkAwbModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white shadow transition-colors whitespace-nowrap self-start sm:self-auto cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-colors whitespace-nowrap self-start sm:self-auto cursor-pointer"
           >
             <Upload className="w-3.5 h-3.5" />
             Upload Bulk AWB Sheet
@@ -448,11 +484,28 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         </div>
       )}
 
+      {/* AWB Re-Issue Callout */}
+      {activeSubTab === 'awb_reissue' && (
+        <div className="p-3.5 rounded-xl bg-rose-50 border-2 border-rose-400 flex items-center gap-3 shadow-xs">
+          <span className="p-2 rounded-lg bg-rose-100 text-rose-800">
+            <AlertTriangle className="w-5 h-5 text-rose-700" />
+          </span>
+          <div className="text-xs">
+            <p className="font-bold text-rose-950">
+              Stage 4: Pending AWB Re-Issue (Exception Queue)
+            </p>
+            <p className="text-rose-900/90 mt-0.5">
+              Service centers flagged &quot;Pickup Not Done&quot; (courier delayed/missed slot). Please cancel the previous courier token and assign a fresh AWB token to re-attempt pickup.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Clean Data Table for Consignments */}
-      <div className="rounded-xl border border-[#1f2e5a] bg-[#0b1329] overflow-hidden shadow-lg">
+      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-[#101a35] text-slate-400 border-b border-[#1f2e5a]">
+            <thead className="bg-slate-100/90 text-slate-600 border-b border-slate-200 font-mono text-[11px] tracking-wider uppercase">
               <tr>
                 <th className="py-3 px-3.5 whitespace-nowrap">Shipping Order</th>
                 <th className="py-3 px-3.5 whitespace-nowrap">Origin Station &amp; Location</th>
@@ -462,7 +515,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                 <th className="py-3 px-3.5 text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#1f2e5a]/60 text-slate-300 bg-[#0d1630]">
+            <tbody className="divide-y divide-slate-200 text-slate-700 bg-white">
               {currentDisplayOrders.map((so) => {
                 const station = stationMap.get(so.station_code);
                 const normalize = (s?: string) => (s || '').trim().toLowerCase();
@@ -472,17 +525,17 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                     (i.shipping_order_id && i.shipping_order_id === so.id)
                 );
                 const motoInfo = getMotorolaStatusInfo(so.motorola_status);
-                const needsAwb = isAwbIssueRequired(so);
+                const isReissue = so.crm_status === 'Pending AWB Re-Issue' || so.pickup_status === 'Pickup Not Done';
                 const isDiscrepancy = 
-                  so.crm_status === 'CWH Received - Discrepancies' || 
-                  so.crm_status === 'Discrepancy Tagged' || 
+                  so.crm_status === 'Discrepancies' || 
+                  so.crm_status === 'Delivered to RC (Discrepancies)' ||
                   activeSubTab === 'discrepancies';
 
                 return (
                   <tr 
                     key={so.id}
-                    className={`hover:bg-[#142042] transition-colors ${
-                      isDiscrepancy ? 'bg-rose-950/15' : ''
+                    className={`hover:bg-slate-50/80 transition-colors ${
+                      isReissue ? 'bg-amber-50/40' : isDiscrepancy ? 'bg-rose-50/50' : ''
                     }`}
                   >
                     {/* Column 1: SO Code & SLA Badge */}
@@ -490,22 +543,27 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => onSelectOrder(so)}
-                          className="font-mono font-bold text-white hover:text-cyan-400 hover:underline cursor-pointer"
+                          className="font-mono font-bold text-slate-900 hover:text-[#001489] hover:underline cursor-pointer"
                         >
                           {so.so_code}
                         </button>
                         <SlaBadge tier={so.priority_tier} ageDays={so.max_sr_age} />
                       </div>
+                      {so.asp_rc_shipping_order_code && (
+                        <div className="text-[10px] text-blue-700 font-mono mt-0.5">
+                          RC SO: {so.asp_rc_shipping_order_code}
+                        </div>
+                      )}
                     </td>
 
                     {/* Column 2: Origin Station & Location */}
                     <td className="py-3 px-3.5">
-                      <div className="font-semibold text-slate-200 whitespace-nowrap">
+                      <div className="font-semibold text-slate-900 whitespace-nowrap">
                         Station {so.station_code} - {station?.station_name || 'Service Center'}
                       </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5 whitespace-nowrap">
+                      <div className="text-[11px] text-slate-500 mt-0.5 whitespace-nowrap">
                         {[station?.city || so.city, station?.state || so.state].filter(Boolean).join(', ')} 
-                        <span className="text-cyan-400 ml-1.5 font-medium">({station?.region || so.region || 'West'})</span>
+                        <span className="text-sky-700 ml-1.5 font-medium">({station?.region || so.region || 'West'})</span>
                       </div>
                     </td>
 
@@ -518,25 +576,30 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getCrmStatusStyle(so.crm_status)}`}>
                           {so.crm_status}
                         </span>
+                        {isReissue && (
+                          <span className="text-[9px] text-rose-700 font-bold bg-rose-50 px-1 py-0.2 rounded border border-rose-200">
+                            Pickup Not Done (Re-Issue Required)
+                          </span>
+                        )}
                       </div>
                     </td>
 
                     {/* Column 4: Courier & AWB */}
                     <td className="py-3 px-3.5 whitespace-nowrap">
-                      <div className="text-slate-300 font-medium">{so.courier || 'BlueDart Express'}</div>
-                      <div className="font-mono text-cyan-400 text-[11px] mt-0.5">
+                      <div className="text-slate-800 font-medium">{so.courier || 'BlueDart Express'}</div>
+                      <div className="font-mono text-sky-800 text-[11px] mt-0.5 font-medium">
                         {so.active_awb || so.excel_ref_awb || (
-                          so.crm_status === 'Create DC for RC' || so.crm_status === 'CWH Received'
-                            ? <span className="text-purple-300 font-sans font-medium">CWH Inward Done</span>
+                          so.crm_status === 'CWH to Create DC'
+                            ? <span className="text-purple-800 font-sans font-medium">CWH Inward Done</span>
                             : motoInfo.isDelivered 
-                              ? <span className="text-emerald-400 font-sans font-medium">Delivered</span> 
-                              : <span className="text-amber-400 font-sans font-medium">Pending</span>
+                              ? <span className="text-emerald-800 font-sans font-medium">Delivered</span> 
+                              : <span className="text-amber-800 font-sans font-medium">Pending AWB</span>
                         )}
                       </div>
                     </td>
 
                     {/* Column 5: Items Count */}
-                    <td className="py-3 px-3.5 text-center font-mono font-bold text-white whitespace-nowrap">
+                    <td className="py-3 px-3.5 text-center font-mono font-bold text-slate-900 whitespace-nowrap">
                       {orderItems.length > 0
                         ? orderItems.reduce((s, i) => s + (parseInt(String(i.quantity || 1), 10) || 1), 0)
                         : (so.total_items || 1)}
@@ -545,12 +608,30 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                     {/* Column 6: Required Actions */}
                     <td className="py-3 px-3.5 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5">
-                        {/* 1. At CWH: Create DC to RC */}
-                        {so.crm_status === 'Create DC for RC' || so.crm_status === 'CWH Received' || activeSubTab === 'at_cwh' ? (
+                        {/* 1. Re-Issue AWB Exception */}
+                        {isReissue ? (
+                          <button
+                            onClick={() => onOpenAwbModal(so)}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-700 hover:bg-rose-800 text-white shadow-xs transition-colors cursor-pointer"
+                          >
+                            <Barcode className="w-3 h-3" />
+                            Re-Issue AWB
+                          </button>
+                        ) : so.crm_status === 'Pending AWB' ? (
+                          /* 2. Initial AWB Issue */
+                          <button
+                            onClick={() => onOpenAwbModal(so)}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-colors cursor-pointer"
+                          >
+                            <Barcode className="w-3 h-3" />
+                            Issue AWB
+                          </button>
+                        ) : so.crm_status === 'CWH to Create DC' ? (
+                          /* 3. At CWH: Create DC to RC */
                           <>
                             <button
                               onClick={() => handleOpenDcModal(so)}
-                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow transition-colors cursor-pointer"
+                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-purple-700 hover:bg-purple-800 text-white shadow-xs transition-colors cursor-pointer"
                             >
                               <Send className="w-3 h-3" />
                               Create DC to RC
@@ -558,60 +639,53 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                             <button
                               onClick={() => onOpenUnboxing(so)}
                               title="Review CCTV Inspection"
-                              className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                              className="px-2 py-1.5 rounded-lg text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
                             >
                               <Video className="w-3 h-3" />
                             </button>
                           </>
                         ) : isDiscrepancy ? (
-                          /* 2. Discrepancy Queue */
+                          /* 4. Discrepancy Queue */
                           <>
                             <button
                               onClick={() => onOpenUnboxing(so)}
-                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow transition-colors cursor-pointer"
+                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-colors cursor-pointer"
                             >
                               <AlertTriangle className="w-3 h-3" />
                               Inspect Discrepancies
                             </button>
                             <button
                               onClick={() => onSelectOrder(so)}
-                              className="px-2.5 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                              className="px-2.5 py-1.5 rounded-lg text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
                             >
                               View
                             </button>
                           </>
-                        ) : activeSubTab === 'in_transit' || so.crm_status === 'In Transit' ? (
-                          /* 3. In Transit: Unbox Under CCTV */
+                        ) : so.crm_status === 'Delivered at CWH' || so.crm_status === 'Pending Inward at CWH' || so.crm_status === 'In Transit' ? (
+                          /* 5. Delivered at CWH / In Transit: CCTV Inward */
                           <>
                             <button
                               onClick={() => onOpenUnboxing(so)}
-                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-colors cursor-pointer"
+                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[#001489] hover:bg-[#08209e] text-white shadow-xs transition-colors cursor-pointer"
                             >
                               <Video className="w-3 h-3" />
-                              Unbox Under CCTV
+                              {so.crm_status === 'Delivered at CWH' || so.crm_status === 'Pending Inward at CWH'
+                                ? 'CCTV Inward & Unbox'
+                                : 'Unbox Under CCTV'}
                             </button>
                             <button
                               onClick={() => onOpenAwbModal(so)}
                               title="Assign / Retoken AWB"
-                              className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                              className="px-2 py-1.5 rounded-lg text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
                             >
                               AWB
                             </button>
                           </>
-                        ) : needsAwb ? (
-                          /* 4. Needs AWB Issue */
-                          <button
-                            onClick={() => onOpenAwbModal(so)}
-                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white shadow transition-colors cursor-pointer"
-                          >
-                            <Barcode className="w-3 h-3" />
-                            Issue AWB
-                          </button>
                         ) : (
-                          /* 5. Delivered / History */
+                          /* 6. Outbound RC / History */
                           <button
                             onClick={() => onSelectOrder(so)}
-                            className="px-3 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-emerald-400 transition-colors cursor-pointer"
+                            className="px-3 py-1.5 rounded-lg text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
                           >
                             View Details
                           </button>
@@ -625,17 +699,21 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
               {currentDisplayOrders.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-slate-400">
-                    <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-500 mb-1.5 opacity-80" />
-                    <h4 className="text-sm font-semibold text-white">All caught up!</h4>
-                    <p className="text-xs text-slate-400 mt-0.5">
+                    <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-600 mb-1.5 opacity-80" />
+                    <h4 className="text-sm font-semibold text-slate-900">All caught up!</h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
                       {activeSubTab === 'needs_awb'
-                        ? 'No active consignments currently require AWB issuance from CWH.'
+                        ? 'No active consignments currently require initial AWB issuance from CWH.'
+                        : activeSubTab === 'awb_reissue'
+                        ? 'No consignments currently in the AWB re-issue exception queue.'
                         : activeSubTab === 'in_transit'
-                        ? 'No consignments currently in transit awaiting inward verification.'
+                        ? 'No consignments currently in transit or awaiting courier pickup.'
                         : activeSubTab === 'at_cwh'
-                        ? 'No consignments currently at CWH awaiting DC creation to RC.'
+                        ? 'No consignments currently at CWH awaiting CCTV inward screening or DC creation.'
                         : activeSubTab === 'discrepancies'
                         ? 'No discrepancies flagged currently.'
+                        : activeSubTab === 'outbound_rc'
+                        ? 'No consignments currently dispatched outbound to RC.'
                         : 'No historical delivered records found matching the filter.'}
                     </p>
                   </td>
@@ -648,22 +726,22 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
 
       {/* Modal: Create DC to RC in Lenovo CRM */}
       {dcModalOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="relative w-full max-w-xl rounded-2xl bg-[#0b1329] border border-blue-500/40 shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="relative w-full max-w-xl rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#1f2e5a] bg-gradient-to-r from-[#101a35] via-[#14234b] to-[#101a35]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-blue-500/20 border border-blue-500/40 text-blue-400">
+                <div className="p-2.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-800">
                   <Send className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-white font-mono">Create DC to RC (Lenovo CRM)</h3>
-                  <p className="text-xs text-blue-200">Outbound Dispatch from CWH to Repair Center</p>
+                  <h3 className="text-base font-bold text-slate-900 font-mono">Create DC to RC (Lenovo CRM)</h3>
+                  <p className="text-xs text-slate-500">Outbound Dispatch from CWH to Repair Center</p>
                 </div>
               </div>
               <button
                 onClick={() => setDcModalOrder(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -672,32 +750,32 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
             {/* Modal Content */}
             <form onSubmit={handleConfirmDcToRc} className="p-6 space-y-4">
               {/* Consignment Quick Summary */}
-              <div className="p-3.5 rounded-xl bg-[#101a35] border border-[#1f2e5a] grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <div>
-                  <span className="text-slate-400 block text-[10px]">SO Code</span>
-                  <span className="font-mono font-bold text-white text-xs">{dcModalOrder.so_code}</span>
+                  <span className="text-slate-500 block text-[10px]">SO Code</span>
+                  <span className="font-mono font-bold text-slate-900 text-xs">{dcModalOrder.so_code}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px]">Origin Station</span>
-                  <span className="font-mono font-bold text-cyan-300 text-xs">{dcModalOrder.station_code}</span>
+                  <span className="text-slate-500 block text-[10px]">Origin Station</span>
+                  <span className="font-mono font-bold text-sky-800 text-xs">{dcModalOrder.station_code}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px]">Constituent Items</span>
-                  <span className="font-bold text-white text-xs">
+                  <span className="text-slate-500 block text-[10px]">Constituent Items</span>
+                  <span className="font-bold text-slate-900 text-xs">
                     {items.filter((i) => (i.shipping_order_code || '').trim().toLowerCase() === dcModalOrder.so_code.trim().toLowerCase() || (i.shipping_order_id && i.shipping_order_id === dcModalOrder.id)).length} units
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px]">Total Value</span>
-                  <span className="font-mono font-bold text-emerald-400 text-xs">{formatINR(dcModalOrder.total_declared_value)}</span>
+                  <span className="text-slate-500 block text-[10px]">Total Value</span>
+                  <span className="font-mono font-bold text-emerald-700 text-xs">{formatINR(dcModalOrder.total_declared_value)}</span>
                 </div>
               </div>
 
               {/* Lenovo DC Number */}
               <div>
-                <label className="block text-xs font-semibold text-slate-200 mb-1.5 flex items-center justify-between">
-                  <span>Lenovo CRM Delivery Challan (DC) Number <span className="text-rose-400">*</span></span>
-                  <span className="text-[10px] text-slate-400 font-normal">Generated in Lenovo CRM</span>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
+                  <span>Lenovo CRM Delivery Challan (DC) Number <span className="text-rose-500">*</span></span>
+                  <span className="text-[10px] text-slate-500 font-normal">Generated in Lenovo CRM</span>
                 </label>
                 <input
                   type="text"
@@ -705,20 +783,20 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                   value={lenovoDcNumber}
                   onChange={(e) => setLenovoDcNumber(e.target.value)}
                   placeholder="e.g. LEN-DC-2026-98901"
-                  className="w-full bg-[#101a35] border border-[#1f2e5a] rounded-xl px-3.5 py-2.5 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
                 />
               </div>
 
               {/* Destination Repair Center & Courier */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-200 mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                     Destination Repair Center (RC)
                   </label>
                   <select
                     value={rcDestination}
                     onChange={(e) => setRcDestination(e.target.value)}
-                    className="w-full bg-[#101a35] border border-[#1f2e5a] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-400"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
                   >
                     <option value="Lenovo/Motorola Central RC (Mumbai)">Lenovo/Motorola Central RC (Mumbai)</option>
                     <option value="Lenovo/Motorola North RC (Delhi/NCR)">Lenovo/Motorola North RC (Delhi/NCR)</option>
@@ -728,13 +806,13 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-200 mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                     Outbound Logistics Partner
                   </label>
                   <select
                     value={dcCourier}
                     onChange={(e) => setDcCourier(e.target.value)}
-                    className="w-full bg-[#101a35] border border-[#1f2e5a] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-400"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
                   >
                     <option value="Bluedart Surface">Bluedart Surface</option>
                     <option value="Safexpress Logistics">Safexpress Logistics</option>
@@ -747,7 +825,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
 
               {/* Outbound Docket / AWB */}
               <div>
-                <label className="block text-xs font-semibold text-slate-200 mb-1.5">
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                   Outbound Docket / Courier AWB No. (Optional)
                 </label>
                 <input
@@ -755,13 +833,13 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                   value={dcDocket}
                   onChange={(e) => setDcDocket(e.target.value)}
                   placeholder="e.g. BD-RC-98327101"
-                  className="w-full bg-[#101a35] border border-[#1f2e5a] rounded-xl px-3.5 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
                 />
               </div>
 
               {/* Remarks */}
               <div>
-                <label className="block text-xs font-semibold text-slate-200 mb-1.5">
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                   Dispatch Remarks / Transit Memo
                 </label>
                 <textarea
@@ -769,22 +847,22 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                   value={dcRemarks}
                   onChange={(e) => setDcRemarks(e.target.value)}
                   placeholder="e.g. Inward verified clean under CCTV Bay 4. Handed over for RC repair batching."
-                  className="w-full bg-[#101a35] border border-[#1f2e5a] rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
                 />
               </div>
 
               {/* Action Buttons */}
-              <div className="pt-3 border-t border-[#1f2e5a] flex items-center justify-end gap-3">
+              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setDcModalOrder(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800/80 transition-colors"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg flex items-center gap-1.5 transition-all"
+                  className="px-5 py-2 rounded-xl text-xs font-semibold bg-[#001489] hover:bg-[#08209e] text-white shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
                 >
                   <Send className="w-3.5 h-3.5" />
                   Confirm &amp; Dispatch to RC (Status: 4. ASP Send to RC)

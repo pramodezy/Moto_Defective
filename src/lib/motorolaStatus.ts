@@ -19,7 +19,7 @@ export const MOTOROLA_STATUS_DEFINITIONS: Record<string, MotorolaStatusDefinitio
     label: 'Not Return',
     meaning: 'CCI to Create DC in Moto CRM',
     responsibleRole: 'CCI',
-    badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    badgeClass: 'bg-amber-50 text-amber-900 border-amber-300 font-medium',
     isDelivered: false,
     isAwbRequired: false,
     actionPrompt: 'Action required by CCI: Create DC in Moto CRM to dispatch parts',
@@ -30,7 +30,7 @@ export const MOTOROLA_STATUS_DEFINITIONS: Record<string, MotorolaStatusDefinitio
     label: 'CCI Send to CWH',
     meaning: 'DC created by CCI in Moto CRM (Active Logistics)',
     responsibleRole: 'CCI',
-    badgeClass: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+    badgeClass: 'bg-sky-50 text-sky-800 border-sky-300 font-medium',
     isDelivered: false,
     isAwbRequired: true,
     actionPrompt: 'Active logistics: CWH to issue AWB -> CCI to handover (Pickup Done)',
@@ -41,7 +41,7 @@ export const MOTOROLA_STATUS_DEFINITIONS: Record<string, MotorolaStatusDefinitio
     label: 'CWH Received',
     meaning: 'Received by CWH in Moto CRM (Physical verification complete)',
     responsibleRole: 'CWH',
-    badgeClass: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
+    badgeClass: 'bg-indigo-50 text-indigo-800 border-indigo-300 font-medium',
     isDelivered: false,
     isAwbRequired: false,
     actionPrompt: 'Action required by CWH: Unbox, verify and create DC to RC in Lenovo CRM',
@@ -52,7 +52,7 @@ export const MOTOROLA_STATUS_DEFINITIONS: Record<string, MotorolaStatusDefinitio
     label: 'CWH Received - Discrepancies',
     meaning: 'Inward verified at CWH with Discrepancies (Shortage / Damage / Mismatch)',
     responsibleRole: 'CWH',
-    badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+    badgeClass: 'bg-rose-50 text-rose-800 border-rose-300 font-medium',
     isDelivered: false,
     isAwbRequired: false,
     actionPrompt: 'Discrepancy recorded at CWH unboxing station. Review inspection & escalate.',
@@ -63,7 +63,7 @@ export const MOTOROLA_STATUS_DEFINITIONS: Record<string, MotorolaStatusDefinitio
     label: 'ASP Send to RC',
     meaning: 'CWH created DC to RC for dispatch in Lenovo CRM',
     responsibleRole: 'CWH',
-    badgeClass: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+    badgeClass: 'bg-blue-50 text-blue-800 border-blue-300 font-medium',
     isDelivered: false,
     isAwbRequired: false,
     actionPrompt: 'In Transit from CWH to Repair Center (RC)',
@@ -73,22 +73,22 @@ export const MOTOROLA_STATUS_DEFINITIONS: Record<string, MotorolaStatusDefinitio
     code: 5,
     label: 'RC Received ASP',
     meaning: 'RC received parts in Moto CRM (Completed / Delivered)',
-    responsibleRole: 'NONE',
-    badgeClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    responsibleRole: 'RC',
+    badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-300 font-medium',
     isDelivered: true,
     isAwbRequired: false,
-    actionPrompt: 'Delivered & Closed: Lifecycle successfully completed in Moto CRM',
+    actionPrompt: 'Delivered to Repair Center (RC)',
   },
   'rc received asp(negative)': {
     statusKey: 'RC Received ASP(Negative)',
     code: 6,
-    label: 'RC Received ASP (Negative)',
-    meaning: 'Courier sent from CWH to RC, but found missing/damaged at RC (CWH is answerable)',
+    label: 'RC Received ASP(Negative)',
+    meaning: 'Discrepancy at RC (Sent from CWH to RC, but found missing/damaged)',
     responsibleRole: 'CWH',
-    badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+    badgeClass: 'bg-rose-100 text-rose-900 border-rose-400 font-bold',
     isDelivered: false,
     isAwbRequired: false,
-    actionPrompt: 'Discrepancy at RC: Courier delivered with missing or damaged parts. CWH is answerable.',
+    actionPrompt: 'Action required by CWH: RC flagged discrepancy. Investigate with courier/RC.',
   },
 };
 
@@ -136,100 +136,131 @@ export function getMotorolaStatusInfo(status?: string | null): MotorolaStatusDef
 }
 
 /**
- * Derives CRM logistics status accurately from Motorola Parts Status and AWB token
+ * Derives CRM logistics status accurately from Motorola Parts Status, AWB token, and Operational flags
  */
 export function deriveCrmStatusFromMotorolaStatus(
   motoStatus?: string | null,
   awb?: string | null,
-  existingCrmStatus?: CRMStatus
+  existingCrmStatus?: CRMStatus,
+  pickupStatus?: string | null,
+  screeningStatus?: string | null
 ): CRMStatus {
   const norm = normalizeMotoStatusKey(motoStatus);
 
-  // 1. RC Received ASP: Completed / Delivered lifecycle
+  // 12. RC Received ASP: Delivered to RC
   if (norm === 'rc received asp') {
-    return 'Closed';
+    return 'Delivered to RC';
   }
 
-  // 2. RC Received ASP(Negative): Courier sent from CWH to RC, found missing/damaged at RC -> Discrepancies @ RC
+  // 13. RC Received ASP(Negative): Discrepancy at destination RC
   if (norm === 'rc received asp(negative)' || norm.includes('negative')) {
-    return 'Discrepancies @ RC';
+    return 'Delivered to RC (Discrepancies)';
   }
 
-  // 3. ASP Send To RC: CWH created DC to RC in Lenovo CRM
+  // 10 & 11. ASP Send To RC: Outbound leg from CWH to RC
   if (norm === 'asp send to rc') {
-    return 'Dispatched to RC';
-  }
-
-  // 4. CWH Received: Consignment physically received at central warehouse -> Create DC for RC
-  if (norm === 'cwh received') {
-    return 'Create DC for RC';
-  }
-
-  // 5. Not Return: DC not yet created by CCI in Moto CRM
-  if (norm === 'not return') {
-    return 'AWB Pending';
-  }
-
-  // 6. CCI Send To CWH: Active logistics pipeline
-  if (norm === 'cci send to cwh') {
-    if (existingCrmStatus && existingCrmStatus !== 'AWB Pending') {
-      return existingCrmStatus;
+    if (existingCrmStatus === 'In Transit to RC' || pickupStatus === 'Pickup Done') {
+      return 'In Transit to RC';
     }
-    return awb && awb.trim() ? 'Pickup Pending' : 'AWB Pending';
+    return 'Pickup Pending for RC';
   }
 
-  return existingCrmStatus || (awb && awb.trim() ? 'Pickup Pending' : 'AWB Pending');
+  // 9. CWH Received: Formal inward complete -> CWH to Create DC to RC
+  if (norm === 'cwh received') {
+    return 'CWH to Create DC';
+  }
+
+  // 1. Not Return: DC not yet created by CCI in Moto CRM
+  if (norm === 'not return') {
+    return 'CCI to Create DC';
+  }
+
+  // 2 - 8. CCI Send To CWH: Active Inbound Leg (CCI -> CWH)
+  if (norm === 'cci send to cwh') {
+    // If discrepancy flagged during CWH screening
+    if (screeningStatus === 'Damaged' || screeningStatus === 'Missing' || screeningStatus === 'Failed' || existingCrmStatus === 'Discrepancies') {
+      return 'Discrepancies';
+    }
+    // If screening passed / staging for inward
+    if (screeningStatus === 'Passed' || existingCrmStatus === 'Pending Inward at CWH') {
+      return 'Pending Inward at CWH';
+    }
+    // If physically arrived at CWH bay
+    if (existingCrmStatus === 'Delivered at CWH') {
+      return 'Delivered at CWH';
+    }
+    // If CCI flagged Pickup Not Done -> Pending AWB Re-Issue
+    if (pickupStatus === 'Pickup Not Done' || existingCrmStatus === 'Pending AWB Re-Issue') {
+      return 'Pending AWB Re-Issue';
+    }
+    // If CCI confirmed Pickup Done -> In Transit
+    if (pickupStatus === 'Pickup Done' || existingCrmStatus === 'In Transit') {
+      return 'In Transit';
+    }
+    // If AWB is issued by CWH -> Pickup Pending
+    if (awb && awb.trim()) {
+      return 'Pickup Pending';
+    }
+    // Default initial state awaiting AWB generation
+    return 'Pending AWB';
+  }
+
+  return existingCrmStatus || (awb && awb.trim() ? 'Pickup Pending' : 'Pending AWB');
 }
 
 /**
  * Checks whether an AWB needs to be issued by CWH.
- * Delivered cases (RC Received ASP, CWH Received, ASP Send to RC) DO NOT require AWB generation!
+ * Only Leg 1 consignments in Pending AWB or Pending AWB Re-Issue require AWB generation!
+ * Consignments already at CWH Received, ASP Send to RC, or RC Received ASP NEVER require inbound AWB!
  */
 export function isAwbIssueRequired(order: ShippingOrder): boolean {
   const info = getMotorolaStatusInfo(order.motorola_status);
   
-  // Delivered or already at CWH/RC: AWB issue definitely not required!
-  if (info.isDelivered || info.code === 3 || info.code === 4 || info.code === 5 || info.code === 6) {
-    return false;
-  }
-
+  // Delivered or downstream CWH/RC stages: AWB issue definitely NOT required!
   if (
-    order.crm_status === 'Closed' || 
-    order.crm_status === 'CWH Received' || 
-    order.crm_status === 'Create DC for RC' || 
-    order.crm_status === 'Dispatched to RC'
+    info.isDelivered || 
+    info.code === 3 || 
+    info.code === 4 || 
+    info.code === 5 || 
+    info.code === 6 ||
+    order.crm_status === 'Delivered to RC' ||
+    order.crm_status === 'Delivered to RC (Discrepancies)' ||
+    order.crm_status === 'In Transit to RC' ||
+    order.crm_status === 'Pickup Pending for RC' ||
+    order.crm_status === 'CWH to Create DC' ||
+    order.crm_status === 'Pending Inward at CWH' ||
+    order.crm_status === 'Delivered at CWH' ||
+    order.crm_status === 'In Transit'
   ) {
     return false;
   }
 
-  // If Not Return: DC not even created in Moto CRM yet
-  if (info.code === 1) {
+  // Not Return: DC not created in Moto CRM yet
+  if (info.code === 1 || order.crm_status === 'CCI to Create DC') {
     return false;
   }
 
-  // Only required if CCI Send to CWH and no AWB has been assigned
-  return !order.active_awb && !order.excel_ref_awb;
+  // Pending AWB Re-Issue: CCI reported Pickup Not Done; fresh token required
+  if (order.crm_status === 'Pending AWB Re-Issue' || order.pickup_status === 'Pickup Not Done') {
+    return true;
+  }
+
+  // Active Pending AWB without assigned token
+  return order.crm_status === 'Pending AWB' && !order.active_awb && !order.excel_ref_awb;
 }
 
 export type CciActionType = 
   | 'CREATE_DC' 
   | 'PICKUP_HANDOVER_PENDING' 
   | 'AWAITING_CWH_AWB' 
+  | 'AWAITING_REISSUE'
   | 'IN_TRANSIT_MONITOR' 
-  | 'CWH_RECEIVED' 
+  | 'DELIVERED_CWH'
   | 'DISPATCHED_TO_RC'
   | 'DELIVERED_RC';
 
 /**
- * Action evaluation for CCI Service Centers:
- * 1. "Not Return" -> Actionable to CCI: Create DC in Moto CRM
- * 2. "CCI send to CWH":
- *    - If AWB updated from CWH -> Actionable to CCI: Pickup Handover Pending (Handover to courier, mark Pickup Done/Not Done)
- *    - If AWB not yet updated -> Waiting for CWH to issue AWB
- *    - Once pickup updated -> In-Transit: CCI need to monitor till delivery and updated as CWH Received
- * 3. "CWH Received" onwards -> Arrived at CWH; CCI monitoring completed.
- * 4. "ASP Send to RC" -> Dispatch from CWH to RC in Lenovo CRM. Strictly NOT actionable for CCI.
- * 5. "RC Received ASP" -> Received at RC; closed lifecycle.
+ * Action evaluation for CCI Service Centers based on the 13 canonical stages
  */
 export function getCciActionDetails(order: ShippingOrder): {
   isActionable: boolean;
@@ -238,155 +269,180 @@ export function getCciActionDetails(order: ShippingOrder): {
   description: string;
   badgeClass: string;
 } {
-  const info = getMotorolaStatusInfo(order.motorola_status);
-
-  // 1. Delivered & Closed at RC: Closed lifecycle
-  if (info.isDelivered || order.crm_status === 'Closed' || info.code === 5 || info.code === 6) {
+  // 12 & 13. Delivered & Closed at RC
+  if (order.crm_status === 'Delivered to RC' || order.crm_status === 'Delivered to RC (Discrepancies)') {
     return {
       isActionable: false,
       actionType: 'DELIVERED_RC',
-      title: 'Delivered to RC (Closed)',
-      description: info.meaning || 'Consignment received and completed at Repair Center',
-      badgeClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+      title: order.crm_status === 'Delivered to RC' ? 'Delivered to RC (Completed)' : 'Delivered to RC (Discrepancies)',
+      description: 'Consignment delivery confirmed at Repair Center. Journey completed.',
+      badgeClass: order.crm_status === 'Delivered to RC' 
+        ? 'bg-emerald-50 text-emerald-800 border-emerald-300' 
+        : 'bg-rose-50 text-rose-900 border-rose-300',
     };
   }
 
-  // 2. ASP Send to RC: Dispatch from CWH to RC in Lenovo CRM (Not actionable for CCI)
-  if (info.code === 4 || order.crm_status === 'Dispatched to RC') {
+  // 10 & 11. ASP Send to RC (Leg 2 CWH -> RC)
+  if (order.crm_status === 'In Transit to RC' || order.crm_status === 'Pickup Pending for RC') {
     return {
       isActionable: false,
       actionType: 'DISPATCHED_TO_RC',
       title: 'Dispatched CWH → RC (No CCI Action)',
       description: 'Dispatched from CWH to Repair Center (RC) in Lenovo CRM. Not actionable for CCI.',
-      badgeClass: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+      badgeClass: 'bg-blue-50 text-blue-800 border-blue-200',
     };
   }
 
-  // 3. CWH Received / Discrepancy Tagged: Arrived and verified at CWH (CCI monitoring complete)
-  if (info.code === 3 || order.crm_status === 'CWH Received' || order.crm_status === 'Discrepancy Tagged') {
+  // 6, 7, 8, 9. At CWH Hub (Screening, Inward, or CWH to Create DC)
+  if (
+    order.crm_status === 'Delivered at CWH' || 
+    order.crm_status === 'Pending Inward at CWH' || 
+    order.crm_status === 'Discrepancies' || 
+    order.crm_status === 'CWH to Create DC'
+  ) {
     return {
       isActionable: false,
-      actionType: 'CWH_RECEIVED',
-      title: 'CWH Received & Verified',
-      description: 'Consignment safely delivered to CWH. Inward verification completed; monitoring complete',
-      badgeClass: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
+      actionType: 'DELIVERED_CWH',
+      title: 'Delivered at CWH (Inward Verification)',
+      description: 'Consignment arrived at CWH bay. Physical inwarding in progress; CCI monitoring complete.',
+      badgeClass: 'bg-indigo-50 text-indigo-800 border-indigo-200',
     };
   }
 
-  // 4. Not Return: DC not yet created by CCI in Moto CRM
-  if (info.code === 1 || order.motorola_status?.toLowerCase().includes('not return')) {
+  // 1. Not Return: CCI to Create DC
+  if (order.crm_status === 'CCI to Create DC' || order.motorola_status?.toLowerCase().includes('not return')) {
     return {
       isActionable: true,
       actionType: 'CREATE_DC',
       title: 'Action: Create DC in Moto CRM',
-      description: 'Defective units awaiting Delivery Challan creation by CCI',
-      badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold',
+      description: 'Defective units awaiting Delivery Challan creation by CCI in Motorola CRM',
+      badgeClass: 'bg-amber-50 text-amber-900 border-amber-300 font-bold',
     };
   }
 
-  // 5. Active Logistics from CCI to CWH (CCI Send to CWH):
-  const hasAwb = !!(order.active_awb || order.excel_ref_awb);
-  const isInTransit = order.crm_status === 'In Transit' || order.pickup_status === 'Pickup Done';
+  // 4. Pending AWB Re-Issue: Pickup was not done, waiting on CWH to re-issue
+  if (order.crm_status === 'Pending AWB Re-Issue' || order.pickup_status === 'Pickup Not Done') {
+    return {
+      isActionable: false,
+      actionType: 'AWAITING_REISSUE',
+      title: 'Pickup Delayed - Waiting CWH Re-issue',
+      description: 'Pickup delay logged. Awaiting Central Warehouse (CWH) to issue fresh AWB docket.',
+      badgeClass: 'bg-orange-50 text-orange-900 border-orange-300 font-medium',
+    };
+  }
 
-  // If already handed over to courier / in transit:
-  if (isInTransit) {
+  // 5. In Transit: Handed over to courier
+  if (order.crm_status === 'In Transit' || order.pickup_status === 'Pickup Done') {
     return {
       isActionable: false,
       actionType: 'IN_TRANSIT_MONITOR',
-      title: 'In-Transit (Monitor till CWH Received)',
-      description: 'Consignment en route to CWH under courier tracking. Monitor until CWH Received is acknowledged',
-      badgeClass: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+      title: 'In Transit to CWH',
+      description: 'Consignment picked up by courier. Monitor parcel until Delivered at CWH is confirmed.',
+      badgeClass: 'bg-sky-50 text-sky-800 border-sky-300 font-medium',
     };
   }
 
-  // If AWB has been issued by CWH but pickup handover is still pending:
-  if (hasAwb) {
+  // 3. Pickup Pending: AWB issued, courier handover pending
+  if (order.crm_status === 'Pickup Pending' || order.active_awb || order.excel_ref_awb) {
     return {
       isActionable: true,
       actionType: 'PICKUP_HANDOVER_PENDING',
-      title: 'Action: Pickup Handover Pending',
-      description: 'AWB updated from CWH. Handover parcel to courier & update pickup status',
-      badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold',
+      title: 'Action: Handover Pending',
+      description: 'AWB issued by CWH. Handover parcel to courier executive and confirm Pickup Done.',
+      badgeClass: 'bg-amber-100 text-amber-950 border-amber-400 font-bold',
     };
   }
 
-  // If DC created in Moto CRM, awaiting CWH to assign courier AWB:
+  // 2. Pending AWB: DC created in Moto CRM, awaiting CWH to assign AWB
   return {
     isActionable: false,
     actionType: 'AWAITING_CWH_AWB',
-    title: 'DC Created - Awaiting CWH AWB',
-    description: 'DC created in Moto CRM. Waiting for CWH to assign courier AWB token',
-    badgeClass: 'bg-slate-800 text-slate-300 border-slate-700',
+    title: 'DC Created - Pending AWB',
+    description: 'DC created in Moto CRM. Awaiting Central Warehouse (CWH) to assign courier AWB token.',
+    badgeClass: 'bg-slate-100 text-slate-700 border-slate-300',
   };
 }
 
 /**
- * Action evaluation for CWH Central Warehouse:
- * - AWB Issuance: Consignments with CCI Send to CWH lacking AWB
- * - Inward Verification: Consignments in Transit to CWH
- * - Create DC to RC: Consignments with CWH Received status
- * - Discrepancy Inspection: Consignments with CWH Received - Discrepancies
+ * Action evaluation for CWH Central Warehouse based on the 13 canonical stages
  */
 export function getCwhActionDetails(order: ShippingOrder): {
   isActionable: boolean;
-  actionType: 'ISSUE_AWB' | 'INWARD_VERIFY' | 'DISPATCH_TO_RC' | 'INSPECT_DISCREPANCY' | 'NONE';
+  actionType: 'ISSUE_AWB' | 'REISSUE_AWB' | 'INWARD_VERIFY' | 'CREATE_DC_RC' | 'DISPATCH_TO_RC' | 'INSPECT_DISCREPANCY' | 'NONE';
   title: string;
   description: string;
 } {
-  const info = getMotorolaStatusInfo(order.motorola_status);
-
   // Delivered cases: No CWH action needed
-  if (info.isDelivered || order.crm_status === 'Closed') {
+  if (order.crm_status === 'Delivered to RC' || order.crm_status === 'Delivered to RC (Discrepancies)') {
     return {
       isActionable: false,
       actionType: 'NONE',
-      title: 'Completed at RC',
-      description: 'Consignment acknowledged and closed at Repair Center',
+      title: 'Delivered to RC',
+      description: 'Consignment acknowledged and closed at destination Repair Center.',
     };
   }
 
-  // Discrepancy tagged cases
-  if (
-    order.crm_status === 'CWH Received - Discrepancies' || 
-    order.crm_status === 'Discrepancy Tagged' || 
-    info.code === 35 || 
-    info.code === 6
-  ) {
+  // Discrepancies at CWH
+  if (order.crm_status === 'Discrepancies') {
     return {
       isActionable: true,
       actionType: 'INSPECT_DISCREPANCY',
-      title: 'Action: Inspect Discrepancies',
-      description: 'Physical discrepancies/shortage recorded at CWH bay. Review logs and escalate',
+      title: 'Action: Clear Discrepancies',
+      description: 'Quantity, part, or carton damage mismatch reported. Clear discrepancy to proceed to inward.',
     };
   }
 
-  // 1. AWB Issuance required
-  if (info.code === 2 && !order.active_awb && !order.excel_ref_awb) {
+  // 4. Pending AWB Re-Issue: High priority queue for CWH
+  if (order.crm_status === 'Pending AWB Re-Issue' || order.pickup_status === 'Pickup Not Done') {
+    return {
+      isActionable: true,
+      actionType: 'REISSUE_AWB',
+      title: 'Action: Re-issue AWB Token',
+      description: 'CCI reported courier pickup failure. Cancel previous token and issue fresh AWB.',
+    };
+  }
+
+  // 2. Pending AWB: CWH to issue initial AWB
+  if (order.crm_status === 'Pending AWB' && !order.active_awb && !order.excel_ref_awb) {
     return {
       isActionable: true,
       actionType: 'ISSUE_AWB',
       title: 'Action: Issue AWB Token',
-      description: 'DC created by station; CWH to issue courier AWB',
+      description: 'DC created by station. Generate and issue logistics AWB token.',
     };
   }
 
-  // 2. In Transit or arrived: Inward Verification
-  if (order.crm_status === 'In Transit' || (order.active_awb && order.crm_status !== 'CWH Received' && info.code === 2)) {
+  // 5, 6, 8. In Transit or Delivered at CWH: Inward Unboxing Verification
+  if (
+    order.crm_status === 'Delivered at CWH' || 
+    order.crm_status === 'Pending Inward at CWH' || 
+    order.crm_status === 'In Transit'
+  ) {
     return {
       isActionable: true,
       actionType: 'INWARD_VERIFY',
-      title: 'Action: Inward & CCTV Unboxing',
-      description: 'Parcel inbound/arrived; scan barcode and verify contents',
+      title: 'Action: Inward & CCTV Inspection',
+      description: 'Shipment inbound or delivered. Inspect carton, scan barcode, and verify line items.',
     };
   }
 
-  // 3. CWH Received: Dispatch to RC (Create DC to RC)
-  if (order.crm_status === 'Create DC for RC' || order.crm_status === 'CWH Received' || info.code === 3) {
+  // 9. CWH to Create DC: Outbound secondary SO for RC
+  if (order.crm_status === 'CWH to Create DC') {
+    return {
+      isActionable: true,
+      actionType: 'CREATE_DC_RC',
+      title: 'Action: CWH to Create DC',
+      description: 'Parts verified clean at CWH. Create secondary DC (ASP-RC SO) in Lenovo CRM.',
+    };
+  }
+
+  // 10. Pickup Pending for RC: Dispatch to RC
+  if (order.crm_status === 'Pickup Pending for RC') {
     return {
       isActionable: true,
       actionType: 'DISPATCH_TO_RC',
-      title: 'Action: Create DC to RC',
-      description: 'Parts verified clean at CWH; create DC to RC in Lenovo CRM',
+      title: 'Action: Dispatch to RC',
+      description: 'Secondary DC created. Awaiting courier pickup dispatch to Repair Center.',
     };
   }
 
@@ -394,6 +450,6 @@ export function getCwhActionDetails(order: ShippingOrder): {
     isActionable: false,
     actionType: 'NONE',
     title: 'In Progress',
-    description: info.meaning,
+    description: order.crm_status,
   };
 }

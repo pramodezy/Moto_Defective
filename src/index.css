@@ -1,54 +1,64 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    color-scheme: dark;
+    color-scheme: light;
+    --bg-canvas: #F8FAFC;
+    --bg-card: #FFFFFF;
+    --bg-subsurface: #F1F5F9;
+    --border-subtle: #E2E8F0;
+    --border-medium: #CBD5E1;
+    --text-primary: #0F172A;
+    --text-secondary: #64748B;
   }
   
   body {
-    @apply bg-[#080d1e] text-slate-100 antialiased;
+    background-color: #F8FAFC;
+    color: #0F172A;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
-  /* Custom enterprise dark scrollbar */
+  /* Custom clean Swiss Enterprise scrollbar */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 7px;
+    height: 7px;
   }
 
   ::-webkit-scrollbar-track {
-    background: #0b1329;
+    background: #F1F5F9;
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #1f2e5a;
-    border-radius: 3px;
+    background: #CBD5E1;
+    border-radius: 4px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #2d427d;
+    background: #94A3B8;
   }
 }
 
 @layer utilities {
-  .glass-panel {
-    background: rgba(19, 30, 61, 0.7);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(31, 46, 90, 0.8);
-  }
-  
-  .glass-card {
-    background: #101a35;
-    border: 1px solid #1c2b53;
+  .swiss-card {
+    background-color: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.03);
   }
 
-  .glow-cyan {
-    box-shadow: 0 0 20px -5px rgba(0, 210, 255, 0.25);
+  .swiss-card-elevated {
+    background-color: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
   }
 
-  .glow-red {
-    box-shadow: 0 0 20px -5px rgba(239, 68, 68, 0.3);
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
   }
 }
+

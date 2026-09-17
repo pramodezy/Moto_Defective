@@ -250,8 +250,8 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#080d1e] text-slate-100 flex flex-col selection:bg-cyan-500/20 selection:text-cyan-300">
-      <Toaster position="top-right" richColors theme="dark" />
+    <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A] flex flex-col selection:bg-blue-600/15 selection:text-[#001489]">
+      <Toaster position="top-right" richColors theme="light" />
 
       {/* Global Navigation Header */}
       <Navbar

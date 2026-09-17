@@ -159,7 +159,8 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
         'City': st?.city || item.city || '',
         'State': st?.state || item.state || '',
         'Region': st?.region || item.region || '',
-        'Shipping Order Code': item.shipping_order_code,
+        'CCI-ASP Shipping Order (Leg 1)': item.shipping_order_code,
+        'ASP-RC Shipping Order (Leg 2)': item.asp_rc_shipping_order_code || '',
         'Model Name': item.sr_model_name || '',
         'Fault Description': item.sr_fault_description || '',
         'Estimated Value (INR)': item.estimated_value,
@@ -180,18 +181,18 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
     <div className="space-y-4">
       {/* Admin-only Session Banner: Fetch Completed Journey (RC Received ASP) */}
       {currentRole === 'ADMIN' && onLoadCompletedSession && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-[#0c1630] border border-[#1f2e5a] shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-white border border-slate-200 shadow-xs">
           <div className="flex items-center gap-3 text-xs">
-            <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 shrink-0">
+            <div className="p-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-700 shrink-0">
               <Layers className="w-4 h-4" />
             </div>
             <div>
-              <span className="font-bold text-white">
+              <span className="font-bold text-slate-900">
                 {isCompletedSessionLoaded
                   ? `Active & Completed Line Items in Session (${items.length} Items)`
                   : `Active Defective Line Items Vault (${items.length} Items)`}
               </span>
-              <p className="text-slate-400 text-[11px] mt-0.5">
+              <p className="text-slate-500 text-[11px] mt-0.5">
                 {isCompletedSessionLoaded
                   ? `Completed journey defective items (RC Received ASP) are loaded for this session.`
                   : `Completed journey items (Code 5: RC Received ASP) are safely kept in Supabase.`}
@@ -203,17 +204,17 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
               <button
                 onClick={onLoadCompletedSession}
                 disabled={isCompletedSessionLoading}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 transition-colors cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-colors cursor-pointer disabled:opacity-50"
                 title="Fetch completed journey items from Supabase for this session"
               >
                 {isCompletedSessionLoading ? (
                   <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-700" />
                     <span>Fetching Completed...</span>
                   </>
                 ) : (
                   <>
-                    <Archive className="w-3.5 h-3.5 text-amber-400" />
+                    <Archive className="w-3.5 h-3.5 text-amber-700" />
                     <span>Fetch Completed Items (Session Only)</span>
                   </>
                 )}
@@ -221,7 +222,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
             ) : (
               <button
                 onClick={onUnloadCompletedSession}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#1a274c] hover:bg-[#233566] text-slate-200 border border-[#1f2e5a] cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 cursor-pointer"
               >
                 <span>Unload Completed Records</span>
               </button>
@@ -231,7 +232,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
       )}
 
       {/* Search and Filters */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 rounded-xl bg-[#101a35] border border-[#1c2b53]">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 rounded-xl bg-white border border-slate-200 shadow-xs">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
@@ -242,7 +243,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
               setCurrentPage(1);
             }}
             placeholder="Search SR#, Part#, SO#, Model, or Description..."
-            className="w-full bg-[#0b1329] border border-[#1f2e5a] rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+            className="w-full bg-slate-50 border border-slate-300 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
           />
         </div>
 
@@ -255,7 +256,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
               setCurrentPage(1);
             }}
             aria-label="Filter by Region"
-            className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
+            className="bg-slate-50 border border-slate-300 text-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
           >
             <option value="ALL">All Regions ({filteredItems.length})</option>
             {availableRegions.map((reg) => (
@@ -273,7 +274,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
               setCurrentPage(1);
             }}
             aria-label="Filter by Screening Status"
-            className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
+            className="bg-slate-50 border border-slate-300 text-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
           >
             <option value="ALL">All Screening Statuses</option>
             <option value="Passed">Passed</option>
@@ -291,7 +292,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
               setCurrentPage(1);
             }}
             aria-label="Filter by Part Category"
-            className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500 max-w-[150px]"
+            className="bg-slate-50 border border-slate-300 text-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#001489] focus:bg-white max-w-[150px] transition-colors"
           >
             <option value="ALL">All Categories</option>
             {categories.map((c) => (
@@ -309,7 +310,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
               setCurrentPage(1);
             }}
             aria-label="Filter by Motorola Status"
-            className="bg-[#0b1329] border border-[#1f2e5a] text-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
+            className="bg-slate-50 border border-slate-300 text-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
           >
             <option value="ALL">All Motorola Statuses</option>
             <option value="1">1. Not Return - Action: Create DC in Moto CRM</option>
@@ -323,7 +324,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
           {/* Export */}
           <button
             onClick={handleExport}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 shadow-xs transition-colors"
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
             Export Vault ({filteredItems.length})
@@ -332,10 +333,10 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
       </div>
 
       {/* Item Vault Table */}
-      <div className="rounded-xl border border-[#1c2b53] overflow-hidden bg-[#101a35] shadow-lg">
+      <div className="rounded-xl border border-slate-200 overflow-hidden bg-white shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-[#0b1329] text-slate-400 border-b border-[#1c2b53] font-mono">
+            <thead className="bg-slate-100/90 text-slate-600 border-b border-slate-200 font-mono text-[11px] tracking-wider uppercase">
               <tr>
                 <th className="py-3 px-3">SR Number</th>
                 <th className="py-3 px-3">Defective Part No</th>
@@ -343,7 +344,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
                 <th className="py-3 px-3">Category & Description</th>
                 <th className="py-3 px-3">Model</th>
                 <th className="py-3 px-3">Station</th>
-                <th className="py-3 px-3">Parent SO Code</th>
+                <th className="py-3 px-3">SO Codes (Leg 1 / 2)</th>
                 <th className="py-3 px-3 text-right">Est. Value</th>
                 <th className="py-3 px-3 text-center">Screening</th>
                 <th className="py-3 px-3">Motorola Status</th>
@@ -352,39 +353,44 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
                 )}
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#1c2b53]/60 text-slate-300">
+            <tbody className="divide-y divide-slate-200 text-slate-700">
               {paginatedItems.map((item) => {
                 const motoInfo = getMotorolaStatusInfo(item.motorola_parts_status);
                 const isNotReturn = motoInfo.code === 1;
 
                 return (
-                  <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="py-2.5 px-3 font-mono font-medium text-white">
+                  <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="py-2.5 px-3 font-mono font-medium text-slate-900">
                       {item.sr_number}
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-cyan-300">
+                    <td className="py-2.5 px-3 font-mono text-sky-700 font-medium">
                       {item.sr_part_number}
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-slate-400">
+                    <td className="py-2.5 px-3 font-mono text-slate-500">
                       {item.new_part_number || '-'}
                     </td>
                     <td className="py-2.5 px-3 max-w-xs">
-                      <div className="font-semibold text-slate-200 truncate">{item.part_category}</div>
-                      <div className="text-[11px] text-slate-400 truncate">{item.part_description}</div>
+                      <div className="font-semibold text-slate-800 truncate">{item.part_category}</div>
+                      <div className="text-[11px] text-slate-500 truncate">{item.part_description}</div>
                     </td>
-                    <td className="py-2.5 px-3 text-slate-300">
+                    <td className="py-2.5 px-3 text-slate-700">
                       {item.sr_model_name || '-'}
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-slate-300">
-                      <div className="font-semibold text-white">{item.station_code}</div>
-                      <div className="text-[10px] text-cyan-400/80 truncate max-w-[130px]" title={[stationMap.get(item.station_code)?.city || item.city, stationMap.get(item.station_code)?.state || item.state, stationMap.get(item.station_code)?.region || item.region].filter(Boolean).join(', ')}>
+                    <td className="py-2.5 px-3 font-mono text-slate-700">
+                      <div className="font-semibold text-slate-900">{item.station_code}</div>
+                      <div className="text-[10px] text-sky-700 font-medium truncate max-w-[130px]" title={[stationMap.get(item.station_code)?.city || item.city, stationMap.get(item.station_code)?.state || item.state, stationMap.get(item.station_code)?.region || item.region].filter(Boolean).join(', ')}>
                         {[stationMap.get(item.station_code)?.city || item.city, stationMap.get(item.station_code)?.state || item.state].filter(Boolean).join(', ') || stationMap.get(item.station_code)?.region || item.region}
                       </div>
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-slate-400 truncate max-w-[130px]">
-                      {item.shipping_order_code}
+                    <td className="py-2.5 px-3 font-mono text-slate-600 truncate max-w-[140px]">
+                      <div className="font-semibold text-slate-900">{item.shipping_order_code}</div>
+                      {item.asp_rc_shipping_order_code && (
+                        <div className="text-[10px] text-purple-700 font-medium">
+                          RC: {item.asp_rc_shipping_order_code}
+                        </div>
+                      )}
                     </td>
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-400">
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">
                       {formatINR((item.estimated_value || 8000) * (item.quantity || 1))}
                     </td>
                     <td className="py-2.5 px-3 text-center">
@@ -400,7 +406,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
                         {motoInfo.label}
                       </span>
                       {isNotReturn && (
-                        <div className="text-[9px] text-amber-300 font-semibold mt-0.5">
+                        <div className="text-[9px] text-amber-700 font-semibold mt-0.5">
                           Action: Create DC
                         </div>
                       )}
@@ -411,7 +417,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
                           <button
                             onClick={() => onDeleteItem(item)}
                             title="Delete Item (Admin Only)"
-                            className="p-1 rounded bg-[#1f2e5a]/60 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
+                            className="p-1 rounded bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 transition-colors"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -423,7 +429,7 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
               })}
               {paginatedItems.length === 0 && (
                 <tr>
-                  <td colSpan={currentRole === 'ADMIN' ? 11 : 10} className="py-12 text-center text-slate-500">
+                  <td colSpan={currentRole === 'ADMIN' ? 11 : 10} className="py-12 text-center text-slate-400">
                     No defective items found matching your filters.
                   </td>
                 </tr>
@@ -433,28 +439,28 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
         </div>
 
         {/* Pagination Bar */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-[#1c2b53] bg-[#0b1329] text-xs text-slate-400">
+        <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-slate-50/80 text-xs text-slate-600">
           <div>
-            Showing <strong className="text-white">{filteredItems.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}</strong> to{' '}
-            <strong className="text-white">{Math.min(currentPage * pageSize, filteredItems.length)}</strong> of{' '}
-            <strong className="text-white">{filteredItems.length}</strong> defective line items
+            Showing <strong className="text-slate-900">{filteredItems.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}</strong> to{' '}
+            <strong className="text-slate-900">{Math.min(currentPage * pageSize, filteredItems.length)}</strong> of{' '}
+            <strong className="text-slate-900">{filteredItems.length}</strong> defective line items
           </div>
 
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage === 1}
-              className="p-1.5 rounded-lg border border-[#1f2e5a] text-slate-400 disabled:opacity-40 hover:bg-slate-800 transition-colors"
+              className="p-1.5 rounded-lg border border-slate-300 text-slate-600 disabled:opacity-40 hover:bg-slate-200 bg-white transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="px-2 py-1 font-mono text-slate-300">
+            <span className="px-2 py-1 font-mono text-slate-700">
               Page {currentPage} of {totalPages}
             </span>
             <button
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
               disabled={currentPage === totalPages}
-              className="p-1.5 rounded-lg border border-[#1f2e5a] text-slate-400 disabled:opacity-40 hover:bg-slate-800 transition-colors"
+              className="p-1.5 rounded-lg border border-slate-300 text-slate-600 disabled:opacity-40 hover:bg-slate-200 bg-white transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

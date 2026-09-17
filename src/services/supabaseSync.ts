@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { CCIMaster, ShippingOrder, DefectiveItem, AuditLog } from '../types/crm';
+import { normalizeMotoStatusKey } from '../lib/motorolaStatus';
 import { 
   INITIAL_STATIONS, 
   INITIAL_SHIPPING_ORDERS, 
@@ -142,7 +143,9 @@ export async function pushUploadedDataToSupabase(
             state: so.state || '',
             city: so.city || '',
             motorola_status: so.motorola_status || 'CCI Send To CWH',
-            crm_status: so.crm_status || 'AWB Pending',
+            crm_status: normalizeMotoStatusKey(so.motorola_status) === 'not return'
+              ? 'CCI to Create DC'
+              : ((so.crm_status as string) === 'AWB Pending' ? 'Pending AWB' : (so.crm_status || 'Pending AWB')),
             excel_ref_awb: so.excel_ref_awb || '',
             active_awb: so.active_awb || '',
             courier: so.courier || 'BlueDart Express',
