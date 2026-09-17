@@ -620,20 +620,9 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
                         {/* 7. Pickup Status */}
                         <td className="py-3 px-3.5 whitespace-nowrap align-middle">
-                          {motoInfo.code === 3 || motoInfo.code === 35 || so.crm_status === 'CWH to Create DC' || so.crm_status === 'Delivered at CWH' || so.crm_status === 'Pending Inward at CWH' ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-indigo-800 font-medium">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                              CWH Received (Closed for CCI)
-                            </span>
-                          ) : motoInfo.isDelivered || motoInfo.code === 5 || motoInfo.code === 6 ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-800 font-medium">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                              Delivered (Closed)
-                            </span>
-                          ) : motoInfo.code === 4 ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-blue-800 font-medium">
-                              <Send className="w-3.5 h-3.5 shrink-0 text-blue-700" />
-                              CWH Dispatched to RC
+                          {motoInfo.code >= 3 || motoInfo.code === 35 || motoInfo.isDelivered || (so.motorola_status || '').toLowerCase().includes('cwh received') || (so.motorola_status || '').toLowerCase().includes('rc received') || (so.motorola_status || '').toLowerCase().includes('send to rc') ? (
+                            <span className="text-slate-400 font-mono text-sm px-2 font-semibold inline-block" title="No action required from CCI (Shipment is at CWH Received or further)">
+                              -
                             </span>
                           ) : so.pickup_status === 'Pickup Done' ? (
                             <div className="flex flex-col">

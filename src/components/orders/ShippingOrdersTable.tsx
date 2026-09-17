@@ -479,7 +479,9 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                             <Barcode className="w-3.5 h-3.5 text-blue-700" />
                             <span>{so.active_awb || so.excel_ref_awb}</span>
                           </div>
-                          {so.pickup_status === 'Pickup Done' ? (
+                          {currentRole === 'CCI' && (motoInfo.code >= 3 || motoInfo.code === 35 || motoInfo.isDelivered) ? (
+                            <span className="text-slate-400 font-mono text-xs font-semibold" title="No action required from CCI">-</span>
+                          ) : so.pickup_status === 'Pickup Done' ? (
                             <span className="inline-flex items-center gap-0.5 text-[9px] text-emerald-700 font-sans font-medium mt-0.5">
                               <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" /> Pickup Done
                             </span>
