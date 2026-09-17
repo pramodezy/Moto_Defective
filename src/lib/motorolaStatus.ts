@@ -269,32 +269,51 @@ export function getCciActionDetails(order: ShippingOrder): {
   description: string;
   badgeClass: string;
 } {
-  // 12 & 13. Delivered & Closed at RC
-  if (order.crm_status === 'Delivered to RC' || order.crm_status === 'Delivered to RC (Discrepancies)') {
+  const normMoto = normalizeMotoStatusKey(order.motorola_status);
+  const motoInfo = getMotorolaStatusInfo(order.motorola_status);
+
+  // 12 & 13. Delivered & Closed at RC (Code 5 & 6)
+  if (
+    motoInfo.code === 5 ||
+    motoInfo.code === 6 ||
+    motoInfo.isDelivered ||
+    order.crm_status === 'Delivered to RC' ||
+    order.crm_status === 'Delivered to RC (Discrepancies)' ||
+    normMoto.includes('rc received')
+  ) {
     return {
       isActionable: false,
       actionType: 'DELIVERED_RC',
       title: order.crm_status === 'Delivered to RC' ? 'Delivered to RC (Completed)' : 'Delivered to RC (Discrepancies)',
-      description: 'Consignment delivery confirmed at Repair Center. Journey completed.',
+      description: 'Consignment delivery confirmed at Repair Center. Journey completed; CCI has no action to take.',
       badgeClass: order.crm_status === 'Delivered to RC' 
         ? 'bg-emerald-50 text-emerald-800 border-emerald-300' 
         : 'bg-rose-50 text-rose-900 border-rose-300',
     };
   }
 
-  // 10 & 11. ASP Send to RC (Leg 2 CWH -> RC)
-  if (order.crm_status === 'In Transit to RC' || order.crm_status === 'Pickup Pending for RC') {
+  // 10 & 11. ASP Send to RC (Leg 2 CWH -> RC) (Code 4)
+  if (
+    motoInfo.code === 4 ||
+    order.crm_status === 'In Transit to RC' ||
+    order.crm_status === 'Pickup Pending for RC' ||
+    normMoto === 'asp send to rc'
+  ) {
     return {
       isActionable: false,
       actionType: 'DISPATCHED_TO_RC',
       title: 'Dispatched CWH → RC (No CCI Action)',
-      description: 'Dispatched from CWH to Repair Center (RC) in Lenovo CRM. Not actionable for CCI.',
+      description: 'Dispatched from CWH to Repair Center (RC) in Lenovo CRM. CCI has no action to take.',
       badgeClass: 'bg-blue-50 text-blue-800 border-blue-200',
     };
   }
 
-  // 6, 7, 8, 9. At CWH Hub (Screening, Inward, or CWH to Create DC)
+  // 6, 7, 8, 9. At CWH Hub (CWH Received, Screening, Inward, or CWH to Create DC) (Code 3 & 35)
+  // STRICT RULE: Once updated to CWH Received or further, CCI has NO action to take!
   if (
+    motoInfo.code === 3 || 
+    motoInfo.code === 35 || 
+    normMoto.includes('cwh received') ||
     order.crm_status === 'Delivered at CWH' || 
     order.crm_status === 'Pending Inward at CWH' || 
     order.crm_status === 'Discrepancies' || 
@@ -303,14 +322,14 @@ export function getCciActionDetails(order: ShippingOrder): {
     return {
       isActionable: false,
       actionType: 'DELIVERED_CWH',
-      title: 'Delivered at CWH (Inward Verification)',
-      description: 'Consignment arrived at CWH bay. Physical inwarding in progress; CCI monitoring complete.',
+      title: 'CWH Received (No CCI Action)',
+      description: 'Consignment received at CWH bay. Handover complete; CCI has no action to take.',
       badgeClass: 'bg-indigo-50 text-indigo-800 border-indigo-200',
     };
   }
 
   // 1. Not Return: CCI to Create DC
-  if (order.crm_status === 'CCI to Create DC' || order.motorola_status?.toLowerCase().includes('not return')) {
+  if (normMoto === 'not return' || order.crm_status === 'CCI to Create DC') {
     return {
       isActionable: true,
       actionType: 'CREATE_DC',
@@ -343,12 +362,16 @@ export function getCciActionDetails(order: ShippingOrder): {
   }
 
   // 3. Pickup Pending: AWB issued, courier handover pending
-  if (order.crm_status === 'Pickup Pending' || order.active_awb || order.excel_ref_awb) {
+  // STRICT RULE: CCI will only handover shipments where Motorola Status is "CCI Send to CWH" (Code 2)!
+  if (
+    normMoto === 'cci send to cwh' &&
+    (order.crm_status === 'Pickup Pending' || order.active_awb || order.excel_ref_awb)
+  ) {
     return {
       isActionable: true,
       actionType: 'PICKUP_HANDOVER_PENDING',
-      title: 'Action: Handover Pending',
-      description: 'AWB issued by CWH. Handover parcel to courier executive and confirm Pickup Done.',
+      title: 'Action: Handover to Courier',
+      description: 'Motorola Status is "CCI Send to CWH". AWB issued by CWH. Handover parcel to courier & record pickup.',
       badgeClass: 'bg-amber-100 text-amber-950 border-amber-400 font-bold',
     };
   }

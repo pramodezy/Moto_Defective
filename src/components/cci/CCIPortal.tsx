@@ -86,15 +86,28 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   }, [stationItems]);
 
   // 2. Stage 3: "Pickup Pending" (AWB issued by CWH, awaiting physical courier handover)
+  // STRICT RULE: A CCI will handover shipments ONLY where Motorola Status is "CCI Send to CWH" (Code 2).
+  // Once updated to "CWH Received" or further, a CCI has NO action to take!
   const pickupHandoverOrders = useMemo(() => {
     return stationOrders.filter((o) => {
-      if (o.crm_status === 'In Transit' || o.crm_status === 'Delivered at CWH' || o.crm_status === 'Pending Inward at CWH' || o.crm_status === 'CWH to Create DC' || o.crm_status === 'Pickup Pending for RC' || o.crm_status === 'In Transit to RC' || o.crm_status === 'Delivered to RC' || o.crm_status === 'Discrepancies' || o.crm_status === 'Delivered to RC (Discrepancies)') {
-        return false;
-      }
+      const moto = getMotorolaStatusInfo(o.motorola_status);
+      // Strictly only Code 2 (CCI Send to CWH) is eligible for CCI handover!
+      if (moto.code !== 2) return false;
       if (o.pickup_status === 'Pickup Done') return false;
       if (o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done') return false;
-      const moto = getMotorolaStatusInfo(o.motorola_status);
-      if (moto.code === 3 || moto.code === 4 || moto.code === 5 || moto.code === 6) return false;
+      if (
+        o.crm_status === 'In Transit' || 
+        o.crm_status === 'Delivered at CWH' || 
+        o.crm_status === 'Pending Inward at CWH' || 
+        o.crm_status === 'CWH to Create DC' || 
+        o.crm_status === 'Pickup Pending for RC' || 
+        o.crm_status === 'In Transit to RC' || 
+        o.crm_status === 'Delivered to RC' || 
+        o.crm_status === 'Discrepancies' || 
+        o.crm_status === 'Delivered to RC (Discrepancies)'
+      ) {
+        return false;
+      }
       return o.crm_status === 'Pickup Pending' || !!(o.active_awb || o.excel_ref_awb);
     });
   }, [stationOrders]);
@@ -607,15 +620,20 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
                         {/* 7. Pickup Status */}
                         <td className="py-3 px-3.5 whitespace-nowrap align-middle">
-                          {motoInfo.isDelivered ? (
+                          {motoInfo.code === 3 || motoInfo.code === 35 || so.crm_status === 'CWH to Create DC' || so.crm_status === 'Delivered at CWH' || so.crm_status === 'Pending Inward at CWH' ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs text-indigo-800 font-medium">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                              CWH Received (Closed for CCI)
+                            </span>
+                          ) : motoInfo.isDelivered || motoInfo.code === 5 || motoInfo.code === 6 ? (
                             <span className="inline-flex items-center gap-1.5 text-xs text-emerald-800 font-medium">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                              Delivered
+                              Delivered (Closed)
                             </span>
                           ) : motoInfo.code === 4 ? (
                             <span className="inline-flex items-center gap-1.5 text-xs text-blue-800 font-medium">
                               <Send className="w-3.5 h-3.5 shrink-0 text-blue-700" />
-                              CWH Dispatched
+                              CWH Dispatched to RC
                             </span>
                           ) : so.pickup_status === 'Pickup Done' ? (
                             <div className="flex flex-col">
@@ -653,11 +671,11 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                         <td className="py-3 px-3.5 text-center whitespace-nowrap align-middle">
                           <div className="flex items-center justify-center gap-2">
                             {/* Handover / Pickup button: STRICTLY for Code 2 (CCI send to CWH) */}
-                            {isPickupPending ? (
+                            {motoInfo.code === 2 && isPickupPending ? (
                               <button
                                 onClick={() => onOpenPickupModal?.(so)}
                                 className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-colors cursor-pointer"
-                                title="AWB issued from CWH: Handover consignment to courier & record pickup status"
+                                title="Motorola Status is 'CCI Send to CWH': Handover consignment to courier & record pickup status"
                               >
                                 <Truck className="w-3.5 h-3.5" />
                                 Handover

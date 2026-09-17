@@ -16,6 +16,7 @@ import confetti from 'canvas-confetti';
 import { ShippingOrder, DefectiveItem, CCIMaster, PickupStatus, UserProfile } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
+import { getMotorolaStatusInfo } from '../../lib/motorolaStatus';
 
 interface CciPickupModalProps {
   order: ShippingOrder | null;
@@ -63,6 +64,9 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
   onSubmitPickupAction,
 }) => {
   if (!order) return null;
+
+  const motoInfo = getMotorolaStatusInfo(order.motorola_status);
+  const isEligibleForHandover = motoInfo.code === 2;
 
   const currentAwbNumber = order.active_awb || order.excel_ref_awb || '';
   const orderItems = items.filter((i) => i.shipping_order_code === order.so_code);
@@ -138,6 +142,18 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
 
         {/* Modal Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6 text-xs text-slate-700">
+          {!isEligibleForHandover && (
+            <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2.5 text-xs text-blue-900">
+              <Info className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold">No CCI Action Required</span>
+                <p className="mt-0.5 text-blue-800">
+                  Motorola Parts Status is <strong>&quot;{motoInfo.label}&quot;</strong>. A CCI only handovers shipments where Motorola Status is &quot;CCI Send to CWH&quot;. Once updated to &quot;CWH Received&quot; or further, the handover is complete and no action is required from the CCI.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Quick Consignment Summary */}
           <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
             <div>
@@ -309,14 +325,18 @@ export const CciPickupModal: React.FC<CciPickupModalProps> = ({
 
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isEligibleForHandover}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm transition-all ${
-                pickupStatus === 'Pickup Done'
-                  ? 'bg-emerald-600 hover:bg-emerald-700'
-                  : 'bg-rose-600 hover:bg-rose-700'
+                !isEligibleForHandover
+                  ? 'bg-slate-300 cursor-not-allowed text-slate-500'
+                  : pickupStatus === 'Pickup Done'
+                  ? 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer'
+                  : 'bg-rose-600 hover:bg-rose-700 cursor-pointer'
               }`}
             >
-              {pickupStatus === 'Pickup Done' ? (
+              {!isEligibleForHandover ? (
+                <span>No Action Required (CWH / RC Stage)</span>
+              ) : pickupStatus === 'Pickup Done' ? (
                 <>
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Confirm Pickup Done & Update AWB</span>
