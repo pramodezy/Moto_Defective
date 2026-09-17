@@ -28,7 +28,8 @@ import {
   getMotorolaStatusInfo, 
   isAwbIssueRequired, 
   getCwhActionDetails,
-  getUnifiedStageDetails
+  getUnifiedStageDetails,
+  getUnifiedPickupStatus
 } from '../../lib/motorolaStatus';
 import { BulkAwbUploadModal } from './BulkAwbUploadModal';
 
@@ -200,11 +201,12 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       if (o.crm_status === 'Pending AWB' && !o.active_awb && !o.excel_ref_awb) return false;
       if (isAwbIssueRequired(o) && !o.active_awb && !o.excel_ref_awb) return false;
 
+      const effectivePickup = getUnifiedPickupStatus(o);
       // If already marked Pickup Done / In Transit, belongs to in_transit
-      if (o.pickup_status === 'Pickup Done' || o.crm_status === 'In Transit') return false;
+      if (effectivePickup === 'Pickup Done' || o.crm_status === 'In Transit') return false;
 
       // Has AWB assigned and awaiting pickup
-      return o.pickup_status === 'Pickup Pending' || o.crm_status === 'Pickup Pending' || !!(o.active_awb || o.excel_ref_awb);
+      return effectivePickup === 'Pickup Pending' || o.crm_status === 'Pickup Pending' || !!(o.active_awb || o.excel_ref_awb);
     });
   }, [stationScopedOrders]);
 
@@ -226,8 +228,9 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       }
       if (o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done') return false;
       
+      const effectivePickup = getUnifiedPickupStatus(o);
       // Strictly only orders where pickup is done / en route
-      return o.pickup_status === 'Pickup Done' || o.crm_status === 'In Transit';
+      return effectivePickup === 'Pickup Done' || o.crm_status === 'In Transit';
     });
   }, [stationScopedOrders]);
 

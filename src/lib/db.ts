@@ -144,14 +144,33 @@ class CRMDatabase {
         so.crm_status !== 'CWH to Create DC' &&
         so.crm_status !== 'CCI to Create DC'
       ) {
-        const targetStatus: CRMStatus = so.pickup_status === 'Pickup Done' 
-          ? 'In Transit' 
-          : so.pickup_status === 'Pickup Not Done' 
-          ? 'Pending AWB Re-Issue' 
-          : 'Pickup Pending';
-        if (so.crm_status !== targetStatus) {
-          so.crm_status = targetStatus;
-          modified = true;
+        if (so.crm_status === 'In Transit' || so.pickup_status === 'Pickup Done') {
+          if (so.crm_status !== 'In Transit') {
+            so.crm_status = 'In Transit';
+            modified = true;
+          }
+          if (so.pickup_status !== 'Pickup Done') {
+            so.pickup_status = 'Pickup Done';
+            modified = true;
+          }
+        } else if (so.crm_status === 'Pending AWB Re-Issue' || so.pickup_status === 'Pickup Not Done') {
+          if (so.crm_status !== 'Pending AWB Re-Issue') {
+            so.crm_status = 'Pending AWB Re-Issue';
+            modified = true;
+          }
+          if (so.pickup_status !== 'Pickup Not Done') {
+            so.pickup_status = 'Pickup Not Done';
+            modified = true;
+          }
+        } else {
+          if (so.pickup_status !== 'Pickup Pending') {
+            so.pickup_status = 'Pickup Pending';
+            modified = true;
+          }
+          if (so.crm_status !== 'Pickup Pending') {
+            so.crm_status = 'Pickup Pending';
+            modified = true;
+          }
         }
       }
 
@@ -284,6 +303,11 @@ class CRMDatabase {
           mappedCrmStatus = so.crm_status as CRMStatus;
         }
 
+        const effectivePickup: PickupStatus = 
+          so.pickup_status ||
+          (mappedCrmStatus === 'In Transit' ? 'Pickup Done' : 
+           mappedCrmStatus === 'Pending AWB Re-Issue' ? 'Pickup Not Done' : 'Pickup Pending');
+
         return {
           id: so.id,
           so_code: so.so_code,
@@ -293,20 +317,21 @@ class CRMDatabase {
           city: so.city || '',
           motorola_status: so.motorola_status || 'CCI Send To CWH',
           crm_status: mappedCrmStatus,
+          pickup_status: effectivePickup,
           excel_ref_awb: so.excel_ref_awb,
           active_awb: so.active_awb,
           courier: so.courier || 'BlueDart Express',
-        eway_bill_required: Boolean(so.eway_bill_required),
-        eway_bill_number: so.eway_bill_number,
-        eway_bill_url: so.eway_bill_url,
-        cwh_evidence_ref: so.cwh_evidence_ref,
-        total_declared_value: parseFloat(so.total_declared_value || 0),
-        max_sr_age: parseInt(so.max_sr_age || 0, 10),
-        priority_tier: parseInt(so.priority_tier || 3, 10) as any,
-        total_items: parseInt(so.total_items || 1, 10),
-        created_at: so.created_at,
-        updated_at: so.updated_at,
-      };
+          eway_bill_required: Boolean(so.eway_bill_required),
+          eway_bill_number: so.eway_bill_number,
+          eway_bill_url: so.eway_bill_url,
+          cwh_evidence_ref: so.cwh_evidence_ref,
+          total_declared_value: parseFloat(so.total_declared_value || 0),
+          max_sr_age: parseInt(so.max_sr_age || 0, 10),
+          priority_tier: parseInt(so.priority_tier || 3, 10) as any,
+          total_items: parseInt(so.total_items || 1, 10),
+          created_at: so.created_at,
+          updated_at: so.updated_at,
+        };
     });
 
       // Populate active defective master items (strictly excluding Code 5 RC Received ASP)
@@ -511,18 +536,22 @@ class CRMDatabase {
           if (isNotRet) {
             return { ...so, crm_status: 'CCI to Create DC' };
           }
+          const pickupStatus: PickupStatus = so.pickup_status ||
+            (so.crm_status === 'In Transit' ? 'Pickup Done' :
+             so.crm_status === 'Pending AWB Re-Issue' ? 'Pickup Not Done' : 'Pickup Pending');
           if (!so.crm_status || so.crm_status === 'AWB Pending') {
             return {
               ...so,
+              pickup_status: pickupStatus,
               crm_status: deriveCrmStatusFromMotorolaStatus(
                 so.motorola_status,
                 so.active_awb || so.excel_ref_awb,
                 undefined,
-                so.pickup_status
+                pickupStatus
               ),
             };
           }
-          return so;
+          return { ...so, pickup_status: pickupStatus };
         });
       this.defectiveItems = rawItems.filter((it: any) => !isCompletedJourneyStatus(it.motorola_parts_status));
       this.auditLogs = savedLogs ? JSON.parse(savedLogs) : INITIAL_AUDIT_LOGS;

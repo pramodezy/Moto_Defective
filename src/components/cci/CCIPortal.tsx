@@ -75,9 +75,10 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   const [itemStatusFilter, setItemStatusFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Strict station scoping
-  const stationOrders = useMemo(() => orders.filter((o) => o.station_code === stationCode), [orders, stationCode]);
-  const stationItems = useMemo(() => items.filter((i) => i.station_code === stationCode), [items, stationCode]);
+  // Strict station scoping with normalized station codes (handles leading zeroes like '015' vs '15')
+  const normalizeCode = (c: string) => String(c || '').trim().replace(/^0+/, '') || String(c || '').trim();
+  const stationOrders = useMemo(() => orders.filter((o) => normalizeCode(o.station_code) === normalizeCode(stationCode)), [orders, stationCode]);
+  const stationItems = useMemo(() => items.filter((i) => normalizeCode(i.station_code) === normalizeCode(stationCode)), [items, stationCode]);
 
   // Actionable categorization for CCI:
   // 1. "Not Return" items: Action for CCI -> Create DC in Moto CRM
@@ -96,7 +97,8 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
       const moto = getMotorolaStatusInfo(o.motorola_status);
       // Strictly only Code 2 (CCI Send to CWH) is eligible for CCI handover!
       if (moto.code !== 2) return false;
-      if (o.pickup_status === 'Pickup Done') return false;
+      const effectivePickup = getUnifiedPickupStatus(o);
+      if (effectivePickup === 'Pickup Done' || o.pickup_status === 'Pickup Done') return false;
       if (o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done') return false;
       if (
         o.crm_status === 'In Transit' || 
@@ -130,7 +132,8 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
       }
       const moto = getMotorolaStatusInfo(o.motorola_status);
       if (moto.code === 3 || moto.code === 4 || moto.code === 5 || moto.code === 6) return false;
-      return o.crm_status === 'In Transit' || o.pickup_status === 'Pickup Done';
+      const effectivePickup = getUnifiedPickupStatus(o);
+      return o.crm_status === 'In Transit' || effectivePickup === 'Pickup Done';
     });
   }, [stationOrders]);
 
