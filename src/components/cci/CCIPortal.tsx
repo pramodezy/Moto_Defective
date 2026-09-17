@@ -3,23 +3,21 @@ import {
   Store, 
   Truck, 
   Layers, 
-  Printer, 
   CheckCircle2, 
   AlertTriangle, 
   MapPin, 
   Barcode, 
-  FileText,
-  Clock,
-  AlertCircle,
-  PackageCheck,
-  Send,
-  Search,
-  X
+  FileText, 
+  Clock, 
+  AlertCircle, 
+  PackageCheck, 
+  Send, 
+  Search, 
+  X 
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
-import { printConsignmentManifest } from '../../services/manifestGenerator';
 import { 
   getMotorolaStatusInfo, 
   getCciActionDetails 
@@ -282,7 +280,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                     </span>
                   </div>
                   <p className="text-sky-900/80 mt-1 leading-relaxed">
-                    AWB token assigned for {pickupHandoverOrders.length} consignment{pickupHandoverOrders.length > 1 ? 's' : ''}. Handover parcel to BlueDart and record status (Pickup Done / Not Done).
+                    AWB token assigned for {pickupHandoverOrders.length} consignment{pickupHandoverOrders.length > 1 ? 's' : ''}. Handover parcel to courier and record status (Pickup Done / Not Done).
                   </p>
                 </div>
               </div>
@@ -535,9 +533,9 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
                         {/* 2. Courier & AWB */}
                         <td className="py-3 px-3.5 whitespace-nowrap align-middle">
-                          <div className="text-slate-800 font-medium text-xs">{so.courier || 'BlueDart Express'}</div>
+                          <div className="text-slate-800 font-medium text-xs">{so.courier || '-'}</div>
                           <div className="font-mono text-sky-800 text-[11px] mt-0.5 font-medium">
-                            {so.active_awb || so.excel_ref_awb || (motoInfo.isDelivered ? 'Delivered (Direct)' : 'Pending CWH AWB')}
+                            {so.active_awb || so.excel_ref_awb || (motoInfo.isDelivered ? 'Delivered' : '-')}
                           </div>
                         </td>
 
@@ -656,15 +654,9 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                                 <Truck className="w-3.5 h-3.5" />
                                 Edit
                               </button>
-                            ) : null}
-
-                            <button
-                              onClick={() => printConsignmentManifest(so, orderItems, station)}
-                              className="inline-flex items-center justify-center p-1.5 rounded-lg text-xs font-medium bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 transition-colors cursor-pointer shadow-xs"
-                              title="Print Consignment Manifest"
-                            >
-                              <Printer className="w-3.5 h-3.5 text-slate-600" />
-                            </button>
+                            ) : (
+                              <span className="text-slate-400 font-mono text-xs">-</span>
+                            )}
                           </div>
                         </td>
                       </tr>
