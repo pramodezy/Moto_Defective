@@ -210,49 +210,6 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Station Header Profile */}
-      <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="p-3 rounded-xl bg-sky-50 text-[#001489] border border-sky-200">
-              <Store className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-sky-800 px-2 py-0.5 rounded bg-sky-50 border border-sky-200">
-                  cci_{stationCode}
-                </span>
-                <span className="text-xs text-slate-600 font-semibold">
-                  Station Code: <strong className="text-slate-900 font-mono">{stationCode}</strong>
-                </span>
-                <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium border border-slate-200">
-                  {station?.region || 'West'} Region
-                </span>
-              </div>
-              <h2 className="text-xl font-extrabold text-slate-900 font-['Outfit'] mt-1">
-                {station?.station_name || `Motorola Authorized Service Center - ${stationCode}`}
-              </h2>
-              <p className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
-                <MapPin className="w-3.5 h-3.5 text-sky-600" />
-                {station?.city ? `${station.city}, ` : ''}{station?.state || 'India'} • Contact: {station?.contact_person || 'N/A'} ({station?.contact_phone || 'N/A'})
-              </p>
-            </div>
-          </div>
-
-          <div className="text-right">
-            <div className="text-xs text-slate-500 uppercase tracking-wider font-semibold">
-              Station Pipeline Value
-            </div>
-            <div className="text-2xl font-bold font-mono text-slate-900 mt-0.5">
-              {formatINR(totalValue)}
-            </div>
-            <div className="text-[11px] text-slate-500">
-              {stationOrders.length} Consignments • {stationItems.length} Defective Units
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Action Hub for CCI (Side-by-Side Action Cards) */}
       {(notReturnItems.length > 0 || pickupHandoverOrders.length > 0 || pendingReissueOrders.length > 0) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -374,7 +331,9 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
           <div className="text-2xl font-bold font-mono text-slate-900 mt-1">
             {stationOrders.length}
           </div>
-          <span className="text-[10px] text-slate-500 block truncate">Station lifetime record</span>
+          <span className="text-[10px] text-slate-500 block truncate font-mono">
+            Pipeline: {formatINR(totalValue)}
+          </span>
         </div>
 
         {/* Stage 1: Waiting CWH AWB */}
@@ -454,38 +413,6 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
           </div>
           <span className="text-[10px] text-slate-500 block truncate">Delivered / No action</span>
         </div>
-      </div>
-
-      {/* View Switcher Tabs (Synchronized with Navbar) */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
-        <button
-          onClick={() => handleViewChange('consignments')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-            activeView === 'consignments'
-              ? 'bg-[#001489] text-white shadow-xs'
-              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <Truck className="w-3.5 h-3.5" />
-          My Station Consignments (SO) ({stationOrders.length})
-        </button>
-
-        <button
-          onClick={() => handleViewChange('items')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-            activeView === 'items'
-              ? 'bg-[#001489] text-white shadow-xs'
-              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          Station Defective Items Vault ({stationItems.length})
-          {notReturnItems.length > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500 text-white font-bold ml-1">
-              {notReturnItems.length}
-            </span>
-          )}
-        </button>
       </div>
 
       {/* Consignments Subtabs & Table */}

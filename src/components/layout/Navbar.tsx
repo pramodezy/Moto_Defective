@@ -55,6 +55,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLoadCompletedSession,
   onUnloadCompletedSession,
 }) => {
+  const currentStationObj = stations?.find(
+    (s) => s.station_code === (currentUser.station_code || currentStation)
+  );
+
   return (
     <header className="sticky top-0 z-40 bg-gradient-to-r from-[#001489] via-[#08209e] to-[#001489] text-white shadow-md border-b border-blue-900/40">
       {/* Top tier brand and user identity */}
@@ -91,9 +95,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Role Badging */}
             {currentUser.role === 'CCI' && (
               <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 shadow-xs">
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 shadow-xs" title={`Station ${currentUser.station_code || currentStation}: ${currentStationObj?.station_name || ''}`}>
                   <Store className="w-3.5 h-3.5 text-emerald-300" />
-                  <span>Station {currentUser.station_code || currentStation}</span>
+                  <span>
+                    Station {currentUser.station_code || currentStation}
+                    {currentStationObj?.station_name ? ` • ${currentStationObj.station_name}` : ''}
+                  </span>
                 </span>
               </div>
             )}
