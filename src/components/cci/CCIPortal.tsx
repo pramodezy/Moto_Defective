@@ -12,7 +12,9 @@ import {
   Clock,
   AlertCircle,
   PackageCheck,
-  Send
+  Send,
+  Search,
+  X
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
@@ -71,6 +73,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
     'all' | 'action_pickup' | 'pending_reissue' | 'in_transit_monitor' | 'waiting_awb' | 'cwh_received' | 'delivered'
   >('all');
   const [itemStatusFilter, setItemStatusFilter] = useState<string>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Strict station scoping
   const stationOrders = useMemo(() => orders.filter((o) => o.station_code === stationCode), [orders, stationCode]);
@@ -196,6 +199,24 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
     }
   }, [consignmentFilter, pickupHandoverOrders, pendingReissueOrders, inTransitMonitorOrders, awaitingCwhAwbOrders, cwhStageOrders, deliveredOrders, stationOrders]);
 
+  // Filtered consignments based on search query
+  const filteredOrders = useMemo(() => {
+    let result = displayedOrders;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(
+        (o) =>
+          o.so_code.toLowerCase().includes(q) ||
+          (o.active_awb || '').toLowerCase().includes(q) ||
+          (o.excel_ref_awb || '').toLowerCase().includes(q) ||
+          (o.courier || '').toLowerCase().includes(q) ||
+          (o.motorola_status || '').toLowerCase().includes(q) ||
+          (o.crm_status || '').toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [displayedOrders, searchQuery]);
+
   // Filtered items based on itemStatusFilter
   const displayedItems = useMemo(() => {
     if (itemStatusFilter === 'ALL') return stationItems;
@@ -313,20 +334,22 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
         </div>
       )}
 
-      {/* 5-Stage Station Pipeline Lifecycle Metrics */}
+      {/* 5-Stage Station Pipeline Lifecycle Metrics (Interactive Primary Filters) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {/* Total Consignments */}
         <div 
           onClick={() => { handleViewChange('consignments'); setConsignmentFilter('all'); }}
-          className={`p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer ${
+          className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
             consignmentFilter === 'all'
-              ? 'bg-slate-50 border-slate-400 ring-1 ring-slate-300'
-              : 'bg-white border-slate-200 hover:border-slate-300'
+              ? 'border-[#001489] bg-blue-50/50 shadow-sm ring-2 ring-blue-100'
+              : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs'
           }`}
         >
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span className="font-medium">Total Orders</span>
-            <Store className="w-4 h-4 text-slate-400" />
+          <div className="flex items-center justify-between text-xs">
+            <span className={`font-semibold ${consignmentFilter === 'all' ? 'text-[#001489]' : 'text-slate-600'}`}>
+              Total Orders
+            </span>
+            <Store className={`w-4 h-4 ${consignmentFilter === 'all' ? 'text-[#001489]' : 'text-slate-400'}`} />
           </div>
           <div className="text-2xl font-bold font-mono text-slate-900 mt-1">
             {stationOrders.length}
@@ -339,15 +362,17 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
         {/* Stage 1: Waiting CWH AWB */}
         <div 
           onClick={() => { handleViewChange('consignments'); setConsignmentFilter('waiting_awb'); }}
-          className={`p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer ${
+          className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
             consignmentFilter === 'waiting_awb'
-              ? 'bg-slate-100 border-slate-400 ring-1 ring-slate-300'
-              : 'bg-white border-slate-200 hover:border-slate-300'
+              ? 'border-slate-700 bg-slate-100/90 shadow-sm ring-2 ring-slate-200'
+              : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs'
           }`}
         >
-          <div className="flex items-center justify-between text-xs text-slate-600">
-            <span className="font-medium">Awaiting AWB</span>
-            <Clock className="w-4 h-4 text-slate-400" />
+          <div className="flex items-center justify-between text-xs">
+            <span className={`font-semibold ${consignmentFilter === 'waiting_awb' ? 'text-slate-900' : 'text-slate-600'}`}>
+              Awaiting AWB
+            </span>
+            <Clock className={`w-4 h-4 ${consignmentFilter === 'waiting_awb' ? 'text-slate-700' : 'text-slate-400'}`} />
           </div>
           <div className="text-2xl font-bold font-mono text-slate-800 mt-1">
             {awaitingCwhAwbOrders.length}
@@ -358,12 +383,12 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
         {/* Stage 2: Ready for Pickup (Action) */}
         <div 
           onClick={() => { handleViewChange('consignments'); setConsignmentFilter('action_pickup'); }}
-          className={`p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer ${
+          className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
             consignmentFilter === 'action_pickup'
-              ? 'bg-amber-100/80 border-amber-400 ring-1 ring-amber-300'
+              ? 'border-amber-500 bg-amber-50 shadow-sm ring-2 ring-amber-200'
               : pickupHandoverOrders.length > 0 
-              ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-200 hover:bg-amber-50' 
-              : 'bg-white border-slate-200 hover:border-slate-300'
+              ? 'border-amber-300 bg-amber-50/50 hover:bg-amber-50/80 hover:shadow-xs' 
+              : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs'
           }`}
         >
           <div className="flex items-center justify-between text-xs font-semibold text-amber-900">
@@ -379,15 +404,17 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
         {/* Stage 3: In-Transit */}
         <div 
           onClick={() => { handleViewChange('consignments'); setConsignmentFilter('in_transit_monitor'); }}
-          className={`p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer ${
+          className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
             consignmentFilter === 'in_transit_monitor'
-              ? 'bg-sky-100/70 border-sky-400 ring-1 ring-sky-300'
-              : 'bg-white border-slate-200 hover:border-slate-300'
+              ? 'border-sky-600 bg-sky-50 shadow-sm ring-2 ring-sky-200'
+              : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs'
           }`}
         >
-          <div className="flex items-center justify-between text-xs text-slate-600">
-            <span className="font-medium">In-Transit</span>
-            <Send className="w-4 h-4 text-sky-600" />
+          <div className="flex items-center justify-between text-xs">
+            <span className={`font-semibold ${consignmentFilter === 'in_transit_monitor' ? 'text-sky-900' : 'text-slate-600'}`}>
+              In-Transit
+            </span>
+            <Send className={`w-4 h-4 ${consignmentFilter === 'in_transit_monitor' ? 'text-sky-600' : 'text-slate-400'}`} />
           </div>
           <div className="text-2xl font-bold font-mono text-sky-700 mt-1">
             {inTransitMonitorOrders.length}
@@ -398,15 +425,17 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
         {/* Stage 4: At CWH & RC (Delivered) */}
         <div 
           onClick={() => { handleViewChange('consignments'); setConsignmentFilter('cwh_received'); }}
-          className={`p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer ${
+          className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
             consignmentFilter === 'cwh_received' || consignmentFilter === 'delivered'
-              ? 'bg-purple-50 border-purple-300 ring-1 ring-purple-300'
-              : 'bg-white border-slate-200 hover:border-slate-300'
+              ? 'border-purple-600 bg-purple-50 shadow-sm ring-2 ring-purple-200'
+              : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs'
           }`}
         >
-          <div className="flex items-center justify-between text-xs text-slate-600">
-            <span className="font-medium">At CWH &amp; RC</span>
-            <PackageCheck className="w-4 h-4 text-emerald-600" />
+          <div className="flex items-center justify-between text-xs">
+            <span className={`font-semibold ${consignmentFilter === 'cwh_received' || consignmentFilter === 'delivered' ? 'text-purple-900' : 'text-slate-600'}`}>
+              At CWH &amp; RC
+            </span>
+            <PackageCheck className={`w-4 h-4 ${consignmentFilter === 'cwh_received' || consignmentFilter === 'delivered' ? 'text-purple-600' : 'text-slate-400'}`} />
           </div>
           <div className="text-2xl font-bold font-mono text-slate-800 mt-1">
             {cwhStageOrders.length + deliveredOrders.length}
@@ -415,119 +444,53 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
         </div>
       </div>
 
-      {/* Consignments Subtabs & Table */}
+      {/* Consignments Table & Search Toolbar */}
       {activeView === 'consignments' && (
-        <div className="space-y-4">
-          {/* Subtabs for Consignments - Clean Single Segmented Strip */}
-          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100/90 rounded-xl border border-slate-200">
-            <button
-              onClick={() => setConsignmentFilter('all')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                consignmentFilter === 'all'
-                  ? 'bg-white text-slate-900 font-bold shadow-xs border border-slate-200'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 font-medium'
-              }`}
-            >
-              All
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${consignmentFilter === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                {stationOrders.length}
+        <div className="space-y-3">
+          {/* Table Header / Toolbar (Search + Active Filter State) */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-1 pt-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                {consignmentFilter === 'all' && 'All Consignments'}
+                {consignmentFilter === 'action_pickup' && 'Action Required: Pickup Handover Pending'}
+                {consignmentFilter === 'waiting_awb' && 'DC Created — Awaiting CWH AWB'}
+                {consignmentFilter === 'in_transit_monitor' && 'In-Transit to CWH'}
+                {(consignmentFilter === 'cwh_received' || consignmentFilter === 'delivered') && 'At CWH / Delivered to RC'}
+                {consignmentFilter === 'pending_reissue' && 'Pickup Exceptions — Waiting Re-Issue'}
               </span>
-            </button>
-
-            <button
-              onClick={() => setConsignmentFilter('action_pickup')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                consignmentFilter === 'action_pickup'
-                  ? 'bg-amber-600 text-white font-bold shadow-xs'
-                  : pickupHandoverOrders.length > 0
-                  ? 'bg-amber-100/70 text-amber-900 hover:bg-amber-100 border border-amber-200/80 font-medium'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 font-medium'
-              }`}
-            >
-              <Truck className="w-3.5 h-3.5" />
-              Pickup Pending
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${consignmentFilter === 'action_pickup' ? 'bg-white text-amber-900' : 'bg-amber-200/80 text-amber-950 font-bold'}`}>
-                {pickupHandoverOrders.length}
+              <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                {filteredOrders.length}
               </span>
-            </button>
+              {consignmentFilter !== 'all' && (
+                <button
+                  onClick={() => setConsignmentFilter('all')}
+                  className="text-[11px] text-sky-700 hover:text-sky-900 hover:underline font-medium cursor-pointer ml-1"
+                >
+                  Show all ({stationOrders.length})
+                </button>
+              )}
+            </div>
 
-            {pendingReissueOrders.length > 0 && (
-              <button
-                onClick={() => setConsignmentFilter('pending_reissue')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                  consignmentFilter === 'pending_reissue'
-                    ? 'bg-rose-700 text-white font-bold shadow-xs'
-                    : 'bg-rose-100/70 text-rose-900 hover:bg-rose-100 border border-rose-200 font-medium'
-                }`}
-              >
-                <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                AWB Re-Issue
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-rose-200 text-rose-950 font-bold">
-                  {pendingReissueOrders.length}
-                </span>
-              </button>
-            )}
-
-            <button
-              onClick={() => setConsignmentFilter('waiting_awb')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                consignmentFilter === 'waiting_awb'
-                  ? 'bg-white text-slate-900 font-bold shadow-xs border border-slate-200'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 font-medium'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5 text-slate-400" />
-              Awaiting AWB
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${consignmentFilter === 'waiting_awb' ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                {awaitingCwhAwbOrders.length}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setConsignmentFilter('in_transit_monitor')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                consignmentFilter === 'in_transit_monitor'
-                  ? 'bg-white text-sky-900 font-bold shadow-xs border border-slate-200'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 font-medium'
-              }`}
-            >
-              <Send className="w-3.5 h-3.5 text-sky-600" />
-              In-Transit
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${consignmentFilter === 'in_transit_monitor' ? 'bg-sky-700 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                {inTransitMonitorOrders.length}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setConsignmentFilter('cwh_received')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                consignmentFilter === 'cwh_received'
-                  ? 'bg-white text-purple-900 font-bold shadow-xs border border-slate-200'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 font-medium'
-              }`}
-              title="At CWH or dispatched to RC by CWH (No action for CCI)"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5 text-purple-600" />
-              At CWH
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${consignmentFilter === 'cwh_received' ? 'bg-purple-700 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                {cwhStageOrders.length}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setConsignmentFilter('delivered')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                consignmentFilter === 'delivered'
-                  ? 'bg-white text-emerald-900 font-bold shadow-xs border border-slate-200'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 font-medium'
-              }`}
-            >
-              <PackageCheck className="w-3.5 h-3.5 text-emerald-600" />
-              Delivered RC
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${consignmentFilter === 'delivered' ? 'bg-emerald-700 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                {deliveredOrders.length}
-              </span>
-            </button>
+            {/* Quick Search Input */}
+            <div className="relative w-full sm:w-72">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search SO code, AWB, courier..."
+                className="w-full pl-8 pr-7 py-1.5 rounded-lg text-xs bg-white border border-slate-200 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489] focus:ring-1 focus:ring-[#001489] transition-all shadow-2xs"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="rounded-xl border border-slate-200 overflow-hidden bg-white shadow-xs">
@@ -545,7 +508,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-slate-700">
-                  {displayedOrders.map((so) => {
+                  {filteredOrders.map((so) => {
                     const orderItems = items.filter((i) => (i.shipping_order_code || '').trim() === so.so_code.trim());
                     const units = orderItems.length > 0 
                       ? orderItems.reduce((s, i) => s + (parseInt(String(i.quantity || 1), 10) || 1), 0) 
@@ -708,10 +671,10 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                     );
                   })}
 
-                  {displayedOrders.length === 0 && (
+                  {filteredOrders.length === 0 && (
                     <tr>
                       <td colSpan={9} className="py-12 text-center text-slate-400">
-                        No consignments match this filter for Station {stationCode}.
+                        {searchQuery ? `No consignments match "${searchQuery}".` : `No consignments match this filter for Station ${stationCode}.`}
                       </td>
                     </tr>
                   )}
