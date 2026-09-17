@@ -253,11 +253,12 @@ class CRMDatabase {
     }
 
     try {
-      const [stRes, soRows, itemRows, logRes, soCountRes, itemCountRes] = await Promise.all([
+      const [stRes, soRows, itemRows, logRes, awbHistRes, soCountRes, itemCountRes] = await Promise.all([
         supabase.from('cci_master').select('*').order('station_code', { ascending: true }),
         this.fetchAllRowsParallel('shipping_orders', 'created_at', (q) => q.neq('motorola_status', 'RC Received ASP')),
         this.fetchAllRowsParallel('defective_master', 'created_at', (q) => q.neq('motorola_parts_status', 'RC Received ASP')),
         supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100),
+        supabase.from('awb_history').select('*').order('created_at', { ascending: false }).limit(1000),
         supabase.from('shipping_orders').select('id', { count: 'exact', head: true }).eq('motorola_status', 'RC Received ASP'),
         supabase.from('defective_master').select('id', { count: 'exact', head: true }).eq('motorola_parts_status', 'RC Received ASP'),
       ]);
@@ -388,6 +389,22 @@ class CRMDatabase {
           awb: l.awb,
           remarks: l.remarks,
           created_at: l.created_at,
+        }));
+      }
+
+      if (awbHistRes?.data && awbHistRes.data.length > 0) {
+        this.awbHistory = awbHistRes.data.map((h: any) => ({
+          id: h.id,
+          shipping_order_id: h.shipping_order_id,
+          awb_number: h.awb_number,
+          courier: h.courier,
+          label_url: h.label_url,
+          is_active: Boolean(h.is_active),
+          cancellation_reason: h.cancellation_reason,
+          pickup_date: h.pickup_date,
+          delivery_date: h.delivery_date,
+          created_by: h.created_by,
+          created_at: h.created_at,
         }));
       }
 
@@ -1376,6 +1393,23 @@ class CRMDatabase {
       }).eq('so_code', so.so_code).then(({ error }) => {
         if (error) console.warn('Live Supabase update for assign AWB failed:', error.message);
       });
+
+      // Maintain awb_history in Supabase
+      if (oldAwb && oldAwb !== newAwb) {
+        supabase.from('awb_history').update({
+          is_active: false,
+          cancellation_reason: cancellationReason || 'Retokened / Courier Rescheduled',
+        }).match({ shipping_order_id: so.id, awb_number: oldAwb }).then(() => {});
+      }
+
+      supabase.from('awb_history').insert({
+        shipping_order_id: so.id,
+        awb_number: newAwb,
+        courier: courier,
+        is_active: true,
+      }).then(({ error }) => {
+        if (error) console.warn('Live Supabase insert to awb_history failed:', error.message);
+      });
     }
 
     this.notify();
@@ -1504,6 +1538,17 @@ class CRMDatabase {
       });
 
       await Promise.all(updatePromises);
+
+      // Batch insert into awb_history
+      const awbHistoryRows = updatedSos.map((so) => ({
+        shipping_order_id: so.id,
+        awb_number: so.active_awb,
+        courier: so.courier,
+        is_active: true,
+      }));
+      client.from('awb_history').insert(awbHistoryRows).then(({ error }) => {
+        if (error) console.warn('Supabase bulk awb_history insert notice:', error.message);
+      });
     }
 
     this.notify();
@@ -1600,6 +1645,27 @@ class CRMDatabase {
       }).eq('so_code', so.so_code).then(({ error }) => {
         if (error) console.warn('Live Supabase update for CCI pickup action failed:', error.message);
       });
+
+      // Update awb_history in Supabase
+      if (awbChanged && cleanNewAwb) {
+        if (oldAwb) {
+          supabase.from('awb_history').update({
+            is_active: false,
+            cancellation_reason: data.remarks || 'Updated by CCI at Service Center during pickup',
+          }).match({ shipping_order_id: so.id, awb_number: oldAwb }).then(() => {});
+        }
+        supabase.from('awb_history').insert({
+          shipping_order_id: so.id,
+          awb_number: cleanNewAwb,
+          courier: data.courier || so.courier,
+          is_active: true,
+          pickup_date: data.pickupStatus === 'Pickup Done' ? so.pickup_date : null,
+        }).then(() => {});
+      } else if (data.pickupStatus === 'Pickup Done' && so.pickup_date) {
+        supabase.from('awb_history').update({
+          pickup_date: so.pickup_date,
+        }).match({ shipping_order_id: so.id, is_active: true }).then(() => {});
+      }
     }
 
     this.notify();
