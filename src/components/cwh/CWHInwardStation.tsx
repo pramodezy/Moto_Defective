@@ -178,19 +178,39 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     });
   }, [stationScopedOrders]);
 
-  // 3. In Transit / Pickup Pending: AWB token active, en route from CCI to CWH
+  // 3. In Transit / Pickup Pending: AWB token active, en route from CCI to CWH (Leg 1 Inbound only!)
   const inTransitOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
+      const moto = (o.motorola_status || '').toLowerCase();
+      const motoInfo = getMotorolaStatusInfo(o.motorola_status);
+      // Strictly exclude any downstream warehouse / RC stages
+      if (
+        motoInfo.code >= 3 || 
+        motoInfo.code === 35 || 
+        motoInfo.isDelivered || 
+        moto.includes('cwh received') || 
+        moto.includes('send to rc') || 
+        moto.includes('rc received')
+      ) {
+        return false;
+      }
       if (o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done') return false;
       if (isAwbIssueRequired(o)) return false;
-      return o.crm_status === 'Pickup Pending' || o.crm_status === 'In Transit';
+      return o.crm_status === 'Pickup Pending' || o.crm_status === 'In Transit' || !!(o.active_awb || o.excel_ref_awb);
     });
   }, [stationScopedOrders]);
 
   // 4. At CWH -> CCTV Unboxing & Inward: Physical arrival at CWH bay, staging for warehouse entry
   const atCwhOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
+      const moto = (o.motorola_status || '').toLowerCase();
+      const motoInfo = getMotorolaStatusInfo(o.motorola_status);
+      if (motoInfo.code === 4 || moto.includes('send to rc') || motoInfo.code >= 5 || moto.includes('rc received')) {
+        return false;
+      }
       return (
+        motoInfo.code === 3 ||
+        moto.includes('cwh received') ||
         o.crm_status === 'Delivered at CWH' ||
         o.crm_status === 'Pending Inward at CWH' ||
         o.crm_status === 'CWH to Create DC'
@@ -201,28 +221,43 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   // 5. Flagged Discrepancies: Screening failed at CWH or discrepancy flagged at RC
   const discrepancyOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
+      const moto = (o.motorola_status || '').toLowerCase();
+      const motoInfo = getMotorolaStatusInfo(o.motorola_status);
       return (
+        motoInfo.code === 35 ||
+        motoInfo.code === 6 ||
+        moto.includes('negative') ||
+        moto.includes('discrepanc') ||
         o.crm_status === 'Discrepancies' ||
         o.crm_status === 'Delivered to RC (Discrepancies)'
       );
     });
   }, [stationScopedOrders]);
 
-  // 6. Outbound Leg to RC (Leg 2): CWH created DC; awaits courier pickup or en route to RC
+  // 6. Outbound Leg to RC (Leg 2): CWH dispatched DC; en route to RC (Status 4: ASP Send to RC)
   const outboundRcOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
+      const moto = (o.motorola_status || '').toLowerCase();
+      const motoInfo = getMotorolaStatusInfo(o.motorola_status);
+      // Strictly include ASP Send to RC (Code 4)
       return (
+        motoInfo.code === 4 ||
+        moto.includes('send to rc') ||
         o.crm_status === 'Pickup Pending for RC' ||
-        o.crm_status === 'In Transit to RC'
+        o.crm_status === 'In Transit to RC' ||
+        o.crm_status === 'CWH Shipped to RC'
       );
     });
   }, [stationScopedOrders]);
 
-  // 7. Delivered Archive & History: RC Received ASP
+  // 7. Delivered Archive & History: RC Received ASP (Code 5 & 6)
   const historyOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
       const moto = (o.motorola_status || '').toLowerCase();
+      const motoInfo = getMotorolaStatusInfo(o.motorola_status);
       return (
+        motoInfo.code === 5 ||
+        motoInfo.isDelivered ||
         o.crm_status === 'Delivered to RC' ||
         (moto.includes('rc received') && !moto.includes('negative'))
       );

@@ -23,6 +23,7 @@ export type CRMStatus =
   | 'CWH to Create DC'
   | 'Pickup Pending for RC'
   | 'In Transit to RC'
+  | 'CWH Shipped to RC'
   | 'Delivered to RC'
   | 'Delivered to RC (Discrepancies)';
 
