@@ -37,6 +37,7 @@ const STORAGE_KEYS = {
   DEFECTIVE_ITEMS: 'moto_crm_defective_items_v2',
   AUDIT_LOGS: 'moto_crm_audit_logs_v2',
   AWB_HISTORY: 'moto_crm_awb_history_v2',
+  PART_PRICE_CATALOG: 'moto_crm_part_price_catalog_v2',
 };
 
 // Purge legacy v1 demo data from browser storage
@@ -52,12 +53,23 @@ class CRMDatabase {
   private defectiveItems: DefectiveItem[] = [];
   private auditLogs: AuditLog[] = [];
   private awbHistory: AWBHistory[] = [];
+  private partPriceCatalog: Map<string, number> = new Map();
   private listeners: Set<() => void> = new Set();
 
   // Admin on-demand session store for completed journey (RC Received ASP)
   public isCompletedSessionLoaded: boolean = false;
   public isCompletedSessionLoading: boolean = false;
   private completedCountCache: { orders: number; items: number } = { orders: 1375, items: 6223 };
+
+  // Look up true Motorola system unit price from part catalog
+  public lookupCatalogPrice(pn1?: string, pn2?: string): number | undefined {
+    const clean = (s?: string) => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const k1 = clean(pn1);
+    const k2 = clean(pn2);
+    if (k1 && this.partPriceCatalog.has(k1)) return this.partPriceCatalog.get(k1);
+    if (k2 && this.partPriceCatalog.has(k2)) return this.partPriceCatalog.get(k2);
+    return undefined;
+  }
 
   constructor() {
     this.loadFromStorage();
@@ -689,6 +701,13 @@ class CRMDatabase {
       const savedItems = localStorage.getItem(STORAGE_KEYS.DEFECTIVE_ITEMS);
       const savedLogs = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
       const savedAwbHistory = localStorage.getItem(STORAGE_KEYS.AWB_HISTORY);
+      const savedCatalog = localStorage.getItem(STORAGE_KEYS.PART_PRICE_CATALOG);
+      if (savedCatalog) {
+        try {
+          const entries: [string, number][] = JSON.parse(savedCatalog);
+          this.partPriceCatalog = new Map(entries);
+        } catch (_) {}
+      }
 
       this.stations = savedStations ? JSON.parse(savedStations) : INITIAL_STATIONS;
       // Filter out any previously stored completed orders so default start is always active pipeline only
@@ -756,6 +775,7 @@ class CRMDatabase {
       localStorage.setItem(STORAGE_KEYS.DEFECTIVE_ITEMS, JSON.stringify(activeItems));
       localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(this.auditLogs));
       localStorage.setItem(STORAGE_KEYS.AWB_HISTORY, JSON.stringify(this.awbHistory));
+      localStorage.setItem(STORAGE_KEYS.PART_PRICE_CATALOG, JSON.stringify([...this.partPriceCatalog.entries()]));
     } catch (e) {
       console.error('Storage quota exceeded or error writing to localStorage', e);
     }
@@ -1078,6 +1098,7 @@ class CRMDatabase {
         const city = station?.city || incoming.city || '';
 
         const existing = itemMap.get(compositeKey);
+        const catalogPrice = this.lookupCatalogPrice(incoming.new_part_number, incoming.sr_part_number);
 
         if (existing) {
           // Dual-Status Update: Refresh external Motorola fields without overwriting internal CRM logistics data
@@ -1088,7 +1109,9 @@ class CRMDatabase {
           existing.sr_model_name = incoming.sr_model_name || existing.sr_model_name;
           existing.sr_fault_description = incoming.sr_fault_description || existing.sr_fault_description;
           existing.sr_close_timestamp = incoming.sr_close_timestamp || existing.sr_close_timestamp;
-          existing.estimated_value = incoming.estimated_value || existing.estimated_value;
+          existing.estimated_value = (catalogPrice !== undefined && catalogPrice > 0)
+            ? catalogPrice
+            : (incoming.estimated_value || existing.estimated_value);
           existing.region = region;
           existing.state = state;
           existing.city = city;
@@ -1130,7 +1153,9 @@ class CRMDatabase {
             excel_awb: incoming.excel_awb || '',
             screening_status: incoming.screening_status || 'Pending',
             item_remarks: incoming.item_remarks || '',
-            estimated_value: incoming.estimated_value || 8000,
+            estimated_value: (catalogPrice !== undefined && catalogPrice > 0)
+              ? catalogPrice
+              : (incoming.estimated_value || 8000),
             asp_rc_shipping_order_code: incoming.asp_rc_shipping_order_code,
             asp_rc_ship_date: incoming.asp_rc_ship_date,
             asp_rc_pickup_date: incoming.asp_rc_pickup_date,
@@ -1256,6 +1281,20 @@ class CRMDatabase {
     timestamp: string;
   }> {
     const clean = (s?: string) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanPn = (s?: string) => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    // --- STEP 1: Populate Global Motorola Part Price Catalog ---
+    // Reads every part and unit price in file (chronological iteration keeps latest price)
+    for (const row of rows) {
+      const unitPrice = (row.unitPrice && row.unitPrice > 0)
+        ? row.unitPrice
+        : (row.value && row.deliverQty ? (row.value / row.deliverQty) : 0);
+      if (unitPrice > 0) {
+        if (row.itemCode) this.partPriceCatalog.set(cleanPn(row.itemCode), unitPrice);
+        if (row.orderPn) this.partPriceCatalog.set(cleanPn(row.orderPn), unitPrice);
+        if (row.oldPn) this.partPriceCatalog.set(cleanPn(row.oldPn), unitPrice);
+      }
+    }
 
     // Group existing defective items by clean shipping_order_code
     const itemsBySo = new Map<string, DefectiveItem[]>();
@@ -1273,6 +1312,7 @@ class CRMDatabase {
     let skippedNotReturnCount = 0;
     let unmatchedRowsCount = 0;
 
+    // --- TIER 1: Exact Consignment Match (SO Code + Part Number) ---
     for (const row of rows) {
       const soKey = clean(row.shippingOrderCode);
       const candidates = itemsBySo.get(soKey);
@@ -1328,12 +1368,38 @@ class CRMDatabase {
 
       // Also update standard quantity & estimated_value
       matchedItem.quantity = row.deliverQty;
-      matchedItem.estimated_value = row.value;
+      const unitVal = (row.unitPrice && row.unitPrice > 0)
+        ? row.unitPrice
+        : (row.value && row.deliverQty ? (row.value / row.deliverQty) : row.value);
+      matchedItem.estimated_value = unitVal;
       matchedItem.updated_at = new Date().toISOString();
 
       updatedItemIds.add(matchedItem.id);
-      updatedSoCodes.add(matchedItem.shipping_order_code);
+      if (matchedItem.shipping_order_code) {
+        updatedSoCodes.add(matchedItem.shipping_order_code);
+      }
     }
+
+    // --- TIER 2: Global Motorola Part Price Catalog Fallback ---
+    // Apply exact Motorola unit price to all active defective items that match any part in catalog
+    let catalogFallbackUpdated = 0;
+    this.defectiveItems.forEach((it) => {
+      // If item was already matched with exact consignment in Tier 1, keep Tier 1 consignment price
+      if (updatedItemIds.has(it.id)) return;
+
+      const catPrice = this.lookupCatalogPrice(it.new_part_number, it.sr_part_number);
+      if (catPrice !== undefined && catPrice > 0) {
+        if (Math.abs((it.estimated_value || 0) - catPrice) > 0.01) {
+          it.estimated_value = catPrice;
+          it.updated_at = new Date().toISOString();
+          updatedItemIds.add(it.id);
+          if (it.shipping_order_code) {
+            updatedSoCodes.add(it.shipping_order_code);
+          }
+          catalogFallbackUpdated++;
+        }
+      }
+    });
 
     // Recalculate parent Shipping Orders (sums all parts' values & quantities)
     for (const soCode of updatedSoCodes) {
