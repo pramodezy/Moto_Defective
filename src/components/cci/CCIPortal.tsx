@@ -70,7 +70,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   };
 
   const [consignmentFilter, setConsignmentFilter] = useState<
-    'all' | 'action_pickup' | 'pending_reissue' | 'in_transit_monitor' | 'waiting_awb' | 'cwh_received' | 'delivered'
+    'all' | 'create_dc' | 'action_pickup' | 'pending_reissue' | 'in_transit_monitor' | 'waiting_awb' | 'cwh_received' | 'delivered'
   >('all');
   const [itemStatusFilter, setItemStatusFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -81,7 +81,15 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   const stationItems = useMemo(() => items.filter((i) => normalizeCode(i.station_code) === normalizeCode(stationCode)), [items, stationCode]);
 
   // Actionable categorization for CCI:
-  // 1. "Not Return" items: Action for CCI -> Create DC in Moto CRM
+  // 1. Stage 1: "CCI to Create DC" (Motorola status "Not Return" or CRM status "CCI to Create DC")
+  const createDcOrders = useMemo(() => {
+    return stationOrders.filter((o) => {
+      const moto = getMotorolaStatusInfo(o.motorola_status);
+      return moto.code === 1 || o.crm_status === 'CCI to Create DC';
+    });
+  }, [stationOrders]);
+
+  // "Not Return" items: Action for CCI -> Create DC in Moto CRM
   const notReturnItems = useMemo(() => {
     return stationItems.filter((i) => {
       const moto = (i.motorola_parts_status || '').toLowerCase();
@@ -145,7 +153,10 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
       }
       if (o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done') return false;
       const moto = getMotorolaStatusInfo(o.motorola_status);
-      if (moto.code === 3 || moto.code === 4 || moto.code === 5 || moto.code === 6) return false;
+      // Strictly exclude Stage 1 (DC not created yet) and Stage 3+ (already received at CWH or beyond)
+      if (moto.code === 1 || moto.code === 3 || moto.code === 4 || moto.code === 5 || moto.code === 6) return false;
+      if (o.crm_status === 'CCI to Create DC') return false;
+
       const hasAwb = !!(o.active_awb || o.excel_ref_awb);
       return o.crm_status === 'Pending AWB' || !hasAwb;
     });
@@ -185,6 +196,8 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   // Filtered consignments based on selected subtab
   const displayedOrders = useMemo(() => {
     switch (consignmentFilter) {
+      case 'create_dc':
+        return createDcOrders;
       case 'action_pickup':
         return pickupHandoverOrders;
       case 'pending_reissue':
@@ -200,7 +213,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
       default:
         return stationOrders;
     }
-  }, [consignmentFilter, pickupHandoverOrders, pendingReissueOrders, inTransitMonitorOrders, awaitingCwhAwbOrders, cwhStageOrders, deliveredOrders, stationOrders]);
+  }, [consignmentFilter, createDcOrders, pickupHandoverOrders, pendingReissueOrders, inTransitMonitorOrders, awaitingCwhAwbOrders, cwhStageOrders, deliveredOrders, stationOrders]);
 
   // Filtered consignments based on search query
   const filteredOrders = useMemo(() => {
@@ -234,111 +247,38 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Action Hub for CCI (Side-by-Side Action Cards) */}
-      {(notReturnItems.length > 0 || pickupHandoverOrders.length > 0 || pendingReissueOrders.length > 0) && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-          {/* Action Card 1: Not Return -> Create DC */}
-          {notReturnItems.length > 0 && (
-            <div className="p-4 rounded-xl bg-gradient-to-br from-amber-50/90 to-amber-100/50 border border-amber-300 flex flex-col justify-between gap-3 shadow-xs">
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-amber-200/70 text-amber-800 shrink-0 mt-0.5">
-                  <AlertCircle className="w-5 h-5" />
-                </div>
-                <div className="text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-amber-950 text-sm">Action: Create Delivery Challan (DC)</span>
-                    <span className="px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 font-mono font-bold text-[11px]">
-                      {notReturnItems.length}
-                    </span>
-                  </div>
-                  <p className="text-amber-900/80 mt-1 leading-relaxed">
-                    {notReturnItems.length} defective part{notReturnItems.length > 1 ? 's are' : ' is'} at the station in <strong>&quot;Not Return&quot;</strong> status. Create an official DC in Motorola CRM to begin dispatch.
-                  </p>
-                </div>
-              </div>
-              <div className="flex justify-end pt-1">
-                <button
-                  onClick={() => {
-                    handleViewChange('items');
-                    setItemStatusFilter('1');
-                  }}
-                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition-colors shadow-xs cursor-pointer"
-                >
-                  View Parts &amp; Create DC ({notReturnItems.length})
-                </button>
-              </div>
+      {/* Exception Banner: Pickup Not Done (Only shown when exceptions exist) */}
+      {pendingReissueOrders.length > 0 && (
+        <div className="p-4 rounded-xl bg-rose-50 border-2 border-rose-400 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-lg bg-rose-100 text-rose-700 shrink-0 mt-0.5">
+              <AlertTriangle className="w-5 h-5" />
             </div>
-          )}
-
-          {/* Action Card 2: AWB Ready -> Handover to Courier */}
-          {pickupHandoverOrders.length > 0 && (
-            <div className="p-4 rounded-xl bg-gradient-to-br from-sky-50/90 to-blue-100/50 border border-sky-300 flex flex-col justify-between gap-3 shadow-xs">
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-sky-200/70 text-sky-800 shrink-0 mt-0.5">
-                  <Truck className="w-5 h-5" />
-                </div>
-                <div className="text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-sky-950 text-sm">Action: Courier Pickup Handover</span>
-                    <span className="px-1.5 py-0.5 rounded-full bg-sky-200 text-sky-900 font-mono font-bold text-[11px]">
-                      {pickupHandoverOrders.length}
-                    </span>
-                  </div>
-                  <p className="text-sky-900/80 mt-1 leading-relaxed">
-                    AWB token assigned for {pickupHandoverOrders.length} consignment{pickupHandoverOrders.length > 1 ? 's' : ''}. Handover parcel to courier and record status (Pickup Done / Not Done).
-                  </p>
-                </div>
-              </div>
-              <div className="flex justify-end pt-1">
-                <button
-                  onClick={() => {
-                    handleViewChange('consignments');
-                    setConsignmentFilter('action_pickup');
-                  }}
-                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-[#001489] hover:bg-[#08209e] text-white transition-colors shadow-xs cursor-pointer"
-                >
-                  Handover Parcels ({pickupHandoverOrders.length})
-                </button>
-              </div>
+            <div className="text-xs">
+              <h4 className="font-bold text-rose-950">
+                Pickup Exception: {pendingReissueOrders.length} Consignment{pendingReissueOrders.length > 1 ? 's' : ''} Marked &quot;Pickup Not Done&quot;
+              </h4>
+              <p className="text-rose-900/90 mt-0.5">
+                Courier pickup failed. CWH logistics has been notified to cancel previous tokens and re-issue fresh AWBs for your station.
+              </p>
             </div>
-          )}
-
-          {/* Exception Card: Pickup Not Done */}
-          {pendingReissueOrders.length > 0 && (
-            <div className={`p-4 rounded-xl bg-rose-50 border-2 border-rose-400 shadow-xs flex flex-col justify-between gap-3 ${
-              (notReturnItems.length > 0 && pickupHandoverOrders.length > 0) ? 'col-span-1 md:col-span-2' : ''
-            }`}>
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-rose-100 text-rose-700 shrink-0 mt-0.5">
-                  <AlertTriangle className="w-5 h-5" />
-                </div>
-                <div className="text-xs">
-                  <h4 className="font-bold text-rose-950">
-                    Pickup Exception: {pendingReissueOrders.length} Consignment{pendingReissueOrders.length > 1 ? 's' : ''} Marked &quot;Pickup Not Done&quot;
-                  </h4>
-                  <p className="text-rose-900/90 mt-0.5">
-                    Courier pickup failed. CWH logistics has been notified to cancel previous tokens and re-issue fresh AWBs for your station.
-                  </p>
-                </div>
-              </div>
-              <div className="flex justify-end pt-1">
-                <button
-                  onClick={() => {
-                    handleViewChange('consignments');
-                    setConsignmentFilter('pending_reissue');
-                  }}
-                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-700 hover:bg-rose-800 text-white transition-colors shadow-xs cursor-pointer"
-                >
-                  View Exceptions ({pendingReissueOrders.length})
-                </button>
-              </div>
-            </div>
-          )}
+          </div>
+          <div className="flex justify-end shrink-0">
+            <button
+              onClick={() => {
+                handleViewChange('consignments');
+                setConsignmentFilter('pending_reissue');
+              }}
+              className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-700 hover:bg-rose-800 text-white transition-colors shadow-xs cursor-pointer"
+            >
+              View Exceptions ({pendingReissueOrders.length})
+            </button>
+          </div>
         </div>
       )}
 
-      {/* 5-Stage Station Pipeline Lifecycle Metrics (Interactive Primary Filters) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      {/* 6-Stage Station Pipeline Lifecycle Metrics (Interactive Primary Filters) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {/* Total Consignments */}
         <div 
           onClick={() => { handleViewChange('consignments'); setConsignmentFilter('all'); }}
@@ -362,7 +302,30 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
           </span>
         </div>
 
-        {/* Stage 1: Waiting CWH AWB */}
+        {/* Stage 1: CCI to Create DC */}
+        <div 
+          onClick={() => { handleViewChange('consignments'); setConsignmentFilter('create_dc'); }}
+          className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
+            consignmentFilter === 'create_dc'
+              ? 'border-amber-500 bg-amber-50 shadow-sm ring-2 ring-amber-200'
+              : createDcOrders.length > 0
+              ? 'border-amber-300 bg-amber-50/40 hover:bg-amber-50/80 hover:shadow-xs'
+              : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs'
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs">
+            <span className={`font-semibold ${consignmentFilter === 'create_dc' ? 'text-amber-900' : 'text-slate-600'}`}>
+              CCI to Create DC
+            </span>
+            <FileText className={`w-4 h-4 ${consignmentFilter === 'create_dc' ? 'text-amber-600' : 'text-slate-400'}`} />
+          </div>
+          <div className="text-2xl font-bold font-mono text-amber-800 mt-1">
+            {createDcOrders.length}
+          </div>
+          <span className="text-[10px] text-amber-700/80 block truncate">Create DC in Moto CRM</span>
+        </div>
+
+        {/* Stage 2: Waiting CWH AWB */}
         <div 
           onClick={() => { handleViewChange('consignments'); setConsignmentFilter('waiting_awb'); }}
           className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
@@ -383,7 +346,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
           <span className="text-[10px] text-slate-500 block truncate">DC created; pending AWB</span>
         </div>
 
-        {/* Stage 2: Ready for Pickup (Action) */}
+        {/* Stage 3: Ready for Pickup (Action) */}
         <div 
           onClick={() => { handleViewChange('consignments'); setConsignmentFilter('action_pickup'); }}
           className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
@@ -404,7 +367,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
           <span className="text-[10px] text-amber-700/80 block truncate">Handover to courier</span>
         </div>
 
-        {/* Stage 3: In-Transit */}
+        {/* Stage 4: In-Transit */}
         <div 
           onClick={() => { handleViewChange('consignments'); setConsignmentFilter('in_transit_monitor'); }}
           className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
@@ -425,7 +388,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
           <span className="text-[10px] text-slate-500 block truncate">En route to CWH</span>
         </div>
 
-        {/* Stage 4: At CWH & RC (Delivered) */}
+        {/* Stage 5: At CWH & RC (Delivered) */}
         <div 
           onClick={() => { handleViewChange('consignments'); setConsignmentFilter('cwh_received'); }}
           className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
@@ -455,6 +418,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                 {consignmentFilter === 'all' && 'All Consignments'}
+                {consignmentFilter === 'create_dc' && 'Action Required — CCI to Create DC'}
                 {consignmentFilter === 'action_pickup' && 'Action Required: Pickup Handover Pending'}
                 {consignmentFilter === 'waiting_awb' && 'DC Created — Awaiting CWH AWB'}
                 {consignmentFilter === 'in_transit_monitor' && 'In-Transit to CWH'}
@@ -551,7 +515,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                             <>
                               <div className="text-slate-400 font-medium text-xs">-</div>
                               <div className="text-amber-800 font-medium text-[11px] mt-0.5">
-                                {motoInfo.isDelivered ? 'Delivered' : 'Pending CWH AWB'}
+                                {motoInfo.isDelivered ? 'Delivered' : (motoInfo.code === 1 || so.crm_status === 'CCI to Create DC') ? 'Awaiting DC' : 'Pending CWH AWB'}
                               </div>
                             </>
                           )}
@@ -641,6 +605,18 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                               >
                                 <Truck className="w-3.5 h-3.5" />
                                 Edit
+                              </button>
+                            ) : (motoInfo.code === 1 || so.crm_status === 'CCI to Create DC') ? (
+                              <button
+                                onClick={() => {
+                                  handleViewChange('items');
+                                  setItemStatusFilter('1');
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-colors cursor-pointer"
+                                title="Motorola Status is 'Not Return': View parts and create DC in Motorola CRM"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                                Create DC
                               </button>
                             ) : (
                               <span className="text-slate-400 font-mono text-xs">-</span>
