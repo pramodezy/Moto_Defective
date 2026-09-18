@@ -19,6 +19,8 @@ import {
 import { supabase, isSupabaseConfigured } from './supabase';
 import { deriveCrmStatusFromMotorolaStatus, isCompletedJourneyStatus, normalizeMotoStatusKey } from './motorolaStatus';
 import { parseDateSafe } from './utils';
+import { ShippingOrderItemRow } from '../services/shippingOrderIngestor';
+import { pushUploadedDataToSupabase } from '../services/supabaseSync';
 
 export interface BulkPickupUploadItem {
   soCode: string;
@@ -383,6 +385,7 @@ class CRMDatabase {
           eway_bill_number: so.eway_bill_number,
           eway_bill_url: so.eway_bill_url,
           cwh_evidence_ref: so.cwh_evidence_ref,
+          delivery_challan_code: so.delivery_challan_code || undefined,
           total_declared_value: parseFloat(so.total_declared_value || 0),
           max_sr_age: parseInt(so.max_sr_age || 0, 10),
           priority_tier: parseInt(so.priority_tier || 3, 10) as any,
@@ -481,6 +484,9 @@ class CRMDatabase {
         screening_status: it.screening_status || 'Pending',
         item_remarks: it.item_remarks,
         estimated_value: parseFloat(it.estimated_value || 8000),
+        delivery_challan_code: it.delivery_challan_code || undefined,
+        deliver_qty: it.deliver_qty ? parseInt(it.deliver_qty, 10) : undefined,
+        value: it.value !== undefined && it.value !== null ? parseFloat(it.value) : undefined,
         last_synced_at: it.last_synced_at || it.created_at,
         created_at: it.created_at,
         updated_at: it.updated_at,
@@ -574,6 +580,7 @@ class CRMDatabase {
         eway_bill_number: so.eway_bill_number,
         eway_bill_url: so.eway_bill_url,
         cwh_evidence_ref: so.cwh_evidence_ref,
+        delivery_challan_code: so.delivery_challan_code || undefined,
         total_declared_value: parseFloat(so.total_declared_value || 0),
         max_sr_age: parseInt(so.max_sr_age || 0, 10),
         priority_tier: parseInt(so.priority_tier || 3, 10) as any,
@@ -605,6 +612,9 @@ class CRMDatabase {
         screening_status: it.screening_status || 'Approved',
         item_remarks: it.item_remarks,
         estimated_value: parseFloat(it.estimated_value || 8000),
+        delivery_challan_code: it.delivery_challan_code || undefined,
+        deliver_qty: it.deliver_qty ? parseInt(it.deliver_qty, 10) : undefined,
+        value: it.value !== undefined && it.value !== null ? parseFloat(it.value) : undefined,
         last_synced_at: it.last_synced_at || it.created_at,
         created_at: it.created_at,
         updated_at: it.updated_at,
@@ -831,6 +841,9 @@ class CRMDatabase {
         screening_status: it.screening_status || 'Pending',
         item_remarks: it.item_remarks,
         estimated_value: parseFloat(it.estimated_value || 8000),
+        delivery_challan_code: it.delivery_challan_code || undefined,
+        deliver_qty: it.deliver_qty ? parseInt(it.deliver_qty, 10) : undefined,
+        value: it.value !== undefined && it.value !== null ? parseFloat(it.value) : undefined,
         last_synced_at: it.last_synced_at || it.created_at,
         created_at: it.created_at,
         updated_at: it.updated_at,
@@ -878,9 +891,13 @@ class CRMDatabase {
     let latestExcelAwb = '';
 
     const now = new Date().getTime();
+    const latestDcCode = items.find((it) => it.delivery_challan_code)?.delivery_challan_code;
 
     items.forEach((item) => {
-      const itemVal = (item.estimated_value || 8000) * (item.quantity || 1);
+      // Use exact DC value if available, else estimated_value * quantity
+      const itemVal = (item.value !== undefined && item.value > 0)
+        ? item.value
+        : (item.estimated_value || 8000) * (item.quantity || 1);
       totalVal += itemVal;
       if (item.sr_close_timestamp) {
         const d = parseDateSafe(item.sr_close_timestamp);
@@ -926,11 +943,12 @@ class CRMDatabase {
     );
 
     if (existingSo) {
+      if (latestDcCode) existingSo.delivery_challan_code = latestDcCode;
       existingSo.max_sr_age = maxAge;
       existingSo.total_declared_value = totalVal;
       existingSo.priority_tier = tier;
       existingSo.eway_bill_required = ewayRequired;
-      existingSo.total_items = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
+      existingSo.total_items = items.reduce((sum, item) => sum + (item.deliver_qty || item.quantity || 1), 0);
       existingSo.motorola_status = latestMotoStatus || existingSo.motorola_status;
       existingSo.crm_status = derivedCrmStatus;
       if (derivedCrmStatus === 'Delivered to RC' || latestMotoStatus?.toLowerCase().includes('rc received')) {
@@ -949,14 +967,10 @@ class CRMDatabase {
       existingSo.rc_receive_remark = latestRcRemark || existingSo.rc_receive_remark;
 
       existingSo.updated_at = new Date().toISOString();
-
-      if (!this.isCompletedSessionLoaded && isCompletedJourneyStatus(existingSo.motorola_status)) {
-        this.shippingOrders = this.shippingOrders.filter((so) => so.so_code !== soCode);
-      }
     } else {
-      const isDelivered = derivedCrmStatus === 'Delivered to RC' || latestMotoStatus?.toLowerCase().includes('rc received');
+      const isDelivered = latestMotoStatus.toLowerCase().includes('received') || derivedCrmStatus === 'Delivered to RC';
       const newSo: ShippingOrder = {
-        id: `so-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        id: `so-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
         so_code: soCode,
         station_code: stationCode,
         region,
@@ -970,11 +984,12 @@ class CRMDatabase {
         pickup_status: isDelivered 
           ? 'Pickup Done' 
           : (derivedCrmStatus === 'CCI to Create DC' ? undefined : (latestExcelAwb ? 'Pickup Pending' : undefined)),
+        delivery_challan_code: latestDcCode,
         eway_bill_required: ewayRequired,
         total_declared_value: totalVal,
         max_sr_age: maxAge,
         priority_tier: tier,
-        total_items: items.reduce((sum, item) => sum + (item.quantity || 1), 0),
+        total_items: items.reduce((sum, item) => sum + (item.deliver_qty || item.quantity || 1), 0),
         asp_rc_shipping_order_code: latestAspRcSo,
         asp_rc_ship_date: latestAspRcShipDate,
         asp_rc_pickup_date: latestAspRcPickupDate,
@@ -1198,6 +1213,139 @@ class CRMDatabase {
       shippingOrdersCreated: 0,
       shippingOrdersUpdated: affectedSoCodes.size,
       errors,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  // --- INGEST SHIPPING ORDER MASTER & DELIVERY CHALLANS ---
+  public async batchUpdateFromShippingOrderFile(
+    rows: ShippingOrderItemRow[],
+    user: UserProfile
+  ): Promise<{
+    totalRows: number;
+    updatedItemsCount: number;
+    updatedOrdersCount: number;
+    skippedNotReturnCount: number;
+    unmatchedRowsCount: number;
+    timestamp: string;
+  }> {
+    const clean = (s?: string) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // Group existing defective items by clean shipping_order_code
+    const itemsBySo = new Map<string, DefectiveItem[]>();
+    this.defectiveItems.forEach((it) => {
+      if (it.shipping_order_code) {
+        const k = clean(it.shipping_order_code);
+        const arr = itemsBySo.get(k) || [];
+        arr.push(it);
+        itemsBySo.set(k, arr);
+      }
+    });
+
+    const updatedItemIds = new Set<string>();
+    const updatedSoCodes = new Set<string>();
+    let skippedNotReturnCount = 0;
+    let unmatchedRowsCount = 0;
+
+    for (const row of rows) {
+      const soKey = clean(row.shippingOrderCode);
+      const candidates = itemsBySo.get(soKey);
+      if (!candidates || candidates.length === 0) {
+        unmatchedRowsCount++;
+        continue;
+      }
+
+      const itemCode = clean(row.itemCode);
+      const orderPn = clean(row.orderPn);
+      const oldPn = clean(row.oldPn);
+
+      // Part-level composite matching strategy:
+      // 1. Match on new_part_number
+      // 2. Match on sr_part_number
+      // 3. Match on orderPn / oldPn
+      // 4. If SO has only 1 candidate defective item, match directly
+      let matchedItem: DefectiveItem | undefined = undefined;
+
+      if (itemCode) {
+        matchedItem = candidates.find((it) => clean(it.new_part_number) === itemCode);
+        if (!matchedItem) {
+          matchedItem = candidates.find((it) => clean(it.sr_part_number) === itemCode);
+        }
+      }
+      if (!matchedItem && (orderPn || oldPn)) {
+        matchedItem = candidates.find(
+          (it) => (orderPn && clean(it.new_part_number) === orderPn) || (oldPn && clean(it.new_part_number) === oldPn)
+        );
+      }
+      if (!matchedItem && candidates.length === 1) {
+        matchedItem = candidates[0];
+      }
+
+      if (!matchedItem) {
+        unmatchedRowsCount++;
+        continue;
+      }
+
+      // Check "Not Return" rule:
+      const motoStatus = clean(matchedItem.motorola_parts_status);
+      if (motoStatus === 'notreturn') {
+        skippedNotReturnCount++;
+        continue;
+      }
+
+      // Update DC Code, Deliver Qty, and Value
+      if (row.deliveryChallanCode) {
+        matchedItem.delivery_challan_code = row.deliveryChallanCode;
+      }
+      matchedItem.deliver_qty = row.deliverQty;
+      matchedItem.value = row.value;
+
+      // Also update standard quantity & estimated_value
+      matchedItem.quantity = row.deliverQty;
+      matchedItem.estimated_value = row.value;
+      matchedItem.updated_at = new Date().toISOString();
+
+      updatedItemIds.add(matchedItem.id);
+      updatedSoCodes.add(matchedItem.shipping_order_code);
+    }
+
+    // Recalculate parent Shipping Orders (sums all parts' values & quantities)
+    for (const soCode of updatedSoCodes) {
+      this.recalculateShippingOrder(soCode);
+    }
+
+    // Persist to local storage
+    this.saveToStorage();
+
+    // Audit log
+    this.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      user_name: user.full_name || user.username,
+      user_role: user.role,
+      action: 'INGEST_SHIPPING_ORDER_DC',
+      remarks: `Ingested Delivery Challans from Shipping Order file. Updated ${updatedItemIds.size} parts across ${updatedSoCodes.size} Shipping Orders. Skipped ${skippedNotReturnCount} 'Not Return' parts.`,
+      created_at: new Date().toISOString(),
+    });
+
+    // Cloud push to Supabase if configured
+    if (isSupabaseConfigured && updatedItemIds.size > 0) {
+      try {
+        const itemsToPush = this.defectiveItems.filter((i) => updatedItemIds.has(i.id));
+        const ordersToPush = this.shippingOrders.filter((o) => updatedSoCodes.has(o.so_code));
+        await pushUploadedDataToSupabase(ordersToPush, itemsToPush, this.stations);
+      } catch (err) {
+        console.warn('Supabase cloud push after DC ingestion warning:', err);
+      }
+    }
+
+    this.notify();
+
+    return {
+      totalRows: rows.length,
+      updatedItemsCount: updatedItemIds.size,
+      updatedOrdersCount: updatedSoCodes.size,
+      skippedNotReturnCount,
+      unmatchedRowsCount,
       timestamp: new Date().toISOString(),
     };
   }

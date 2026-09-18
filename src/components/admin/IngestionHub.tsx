@@ -18,6 +18,7 @@ import confetti from 'canvas-confetti';
 import { UserProfile, IngestionResult } from '../../types/crm';
 import { parseDefectiveReportFile } from '../../services/defectiveReportIngestor';
 import { parseRegionMappingFile, generateSampleRegionTemplateCSV } from '../../services/regionMappingIngestor';
+import { parseShippingOrderFile } from '../../services/shippingOrderIngestor';
 import { crmDb } from '../../lib/db';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { checkSupabaseStatus, pushUploadedDataToSupabase, SupabaseSyncStatus } from '../../services/supabaseSync';
@@ -38,6 +39,18 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
   const [regionResult, setRegionResult] = useState<{ inserted: number; updated: number; stationsAffected: number } | null>(null);
   const [regionError, setRegionError] = useState<string | null>(null);
   const regionInputRef = useRef<HTMLInputElement>(null);
+
+  // Shipping Order & DC Ingestion state
+  const [isProcessingShippingOrder, setIsProcessingShippingOrder] = useState(false);
+  const [shippingOrderResult, setShippingOrderResult] = useState<{
+    totalRows: number;
+    updatedItemsCount: number;
+    updatedOrdersCount: number;
+    skippedNotReturnCount: number;
+    unmatchedRowsCount: number;
+  } | null>(null);
+  const [shippingOrderError, setShippingOrderError] = useState<string | null>(null);
+  const shippingOrderInputRef = useRef<HTMLInputElement>(null);
 
   // Supabase sync state
   const [supabaseStatus, setSupabaseStatus] = useState<SupabaseSyncStatus | null>(null);
@@ -177,6 +190,29 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
     } finally {
       setIsProcessingRegion(false);
       setSyncProgress(null);
+    }
+  };
+
+  // Handle Shipping Order Master & Delivery Challan File
+  const handleProcessShippingOrderFile = async (file: File) => {
+    setIsProcessingShippingOrder(true);
+    setShippingOrderError(null);
+    setShippingOrderResult(null);
+
+    try {
+      const parsed = await parseShippingOrderFile(file);
+      const result = await crmDb.batchUpdateFromShippingOrderFile(parsed.rows, user);
+      setShippingOrderResult(result);
+      setSyncResult({
+        success: true,
+        message: `Shipping Order & DC Ingestion Complete! Updated ${result.updatedItemsCount} parts across ${result.updatedOrdersCount} Shipping Orders. Preserved ${result.skippedNotReturnCount} 'Not Return' parts.`,
+      });
+      confetti({ particleCount: 70, spread: 70, origin: { y: 0.7 } });
+      refreshSupabase();
+    } catch (err: any) {
+      setShippingOrderError(err.message || 'Failed to process shipping order file');
+    } finally {
+      setIsProcessingShippingOrder(false);
     }
   };
 
@@ -368,7 +404,7 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Engine 1: Defective Report Ingestion */}
         <div className="p-6 rounded-2xl bg-white border border-slate-200 flex flex-col justify-between shadow-xs">
           <div>
@@ -571,6 +607,113 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
                   <div className="p-2 rounded bg-white border border-emerald-200">
                     <span className="text-slate-500 text-[10px]">Total Synced</span>
                     <div className="text-emerald-700 font-bold text-sm">{regionResult.stationsAffected}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Engine 3: Shipping Order & Delivery Challan Ingestion */}
+        <div className="p-6 rounded-2xl bg-white border border-slate-200 flex flex-col justify-between shadow-xs">
+          <div>
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 rounded-lg bg-blue-50 text-blue-700 border border-blue-200">
+                  <FileSpreadsheet className="w-4 h-4" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">3. Shipping Order &amp; DC Sync</h3>
+                  <p className="text-[11px] text-slate-500">Maps DC Code, Deliver QTY &amp; Value to Defective Master</p>
+                </div>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-mono border border-blue-200 font-semibold">
+                CSV / XLSX
+              </span>
+            </div>
+
+            <div className="mt-4 text-xs text-slate-700 space-y-2">
+              <p>
+                Upload official Shipping Order export (e.g. <code>Shipping_Order.csv</code>). The engine:
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-slate-500 text-[11px]">
+                <li>Matches composite key: <code className="text-[#001489]">Shipping Order Code + New PN/Item Code</code></li>
+                <li>Populates exact <strong>Delivery Challan Code</strong>, <strong>Deliver QTY</strong>, and <strong>Value</strong></li>
+                <li>Recalculates parent Consignment Declared Value &amp; E-Way Bill threshold</li>
+                <li><strong>Preserves &apos;Not Return&apos; parts</strong> under default category rules (no DC generated)</li>
+              </ul>
+            </div>
+
+            {/* Dropzone */}
+            <div
+              onClick={() => shippingOrderInputRef.current?.click()}
+              className="mt-5 p-8 rounded-xl border-2 border-dashed border-slate-300 hover:border-blue-600 bg-slate-50/70 hover:bg-slate-50 transition-all cursor-pointer text-center group"
+            >
+              <input
+                ref={shippingOrderInputRef}
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleProcessShippingOrderFile(file);
+                }}
+              />
+              <Upload className="w-8 h-8 mx-auto text-blue-700 group-hover:scale-110 transition-transform mb-2" />
+              <p className="text-xs font-semibold text-slate-800">
+                Click or drag &amp; drop Shipping Order File
+              </p>
+              <p className="text-[10px] text-slate-500 mt-1">
+                Supports Shipping_Order.csv or Excel (.xlsx, .xls)
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => shippingOrderInputRef.current?.click()}
+              disabled={isProcessingShippingOrder}
+              className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-blue-700 hover:bg-blue-800 text-white shadow-xs transition-colors cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              {isProcessingShippingOrder ? 'Processing Shipping Orders...' : 'Upload Shipping Order & Sync DC Values'}
+            </button>
+
+            {isProcessingShippingOrder && (
+              <div className="mt-4 p-4 rounded-xl bg-blue-50 border border-blue-200 flex items-center gap-3 text-xs text-blue-800">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Reading shipping order lines, matching defective parts, and calculating DC values...</span>
+              </div>
+            )}
+
+            {shippingOrderError && (
+              <div className="mt-4 p-4 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-600" />
+                <span>{shippingOrderError}</span>
+              </div>
+            )}
+
+            {shippingOrderResult && (
+              <div className="mt-4 p-4 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-800">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Shipping Order &amp; Delivery Challans Ingested!</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs pt-1 font-mono">
+                  <div className="p-2 rounded bg-white border border-emerald-200">
+                    <span className="text-slate-500 text-[10px]">Parts Updated</span>
+                    <div className="text-emerald-700 font-bold text-sm">{shippingOrderResult.updatedItemsCount}</div>
+                  </div>
+                  <div className="p-2 rounded bg-white border border-emerald-200">
+                    <span className="text-slate-500 text-[10px]">SOs Updated</span>
+                    <div className="text-blue-700 font-bold text-sm">{shippingOrderResult.updatedOrdersCount}</div>
+                  </div>
+                  <div className="p-2 rounded bg-white border border-emerald-200">
+                    <span className="text-slate-500 text-[10px]">Not Return (Kept)</span>
+                    <div className="text-amber-700 font-bold text-sm">{shippingOrderResult.skippedNotReturnCount}</div>
+                  </div>
+                  <div className="p-2 rounded bg-white border border-emerald-200">
+                    <span className="text-slate-500 text-[10px]">Total Rows</span>
+                    <div className="text-slate-800 font-bold text-sm">{shippingOrderResult.totalRows}</div>
                   </div>
                 </div>
               </div>

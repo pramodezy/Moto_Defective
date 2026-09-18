@@ -151,14 +151,37 @@ export async function pushUploadedDataToSupabase(
             courier: so.courier || 'BlueDart Express',
             eway_bill_required: !!so.eway_bill_required,
             eway_bill_number: so.eway_bill_number || '',
-            eway_bill_url: so.eway_bill_url || '',
+            delivery_challan_code: so.delivery_challan_code || null,
             total_declared_value: so.total_declared_value || 0,
             max_sr_age: so.max_sr_age || 0,
             priority_tier: so.priority_tier || 3,
           })),
           { onConflict: 'so_code' }
         );
-        if (soErr) throw soErr;
+        if (soErr) {
+          // Graceful fallback if delivery_challan_code column not yet migrated in Supabase
+          if (soErr.message?.includes('delivery_challan_code') || soErr.code === 'PGRST204') {
+            await supabase.from('shipping_orders').upsert(
+              batch.map((so) => ({
+                so_code: so.so_code,
+                station_code: so.station_code,
+                crm_status: so.crm_status,
+                motorola_status: so.motorola_status || 'CCI Send To CWH',
+                active_awb: so.active_awb || '',
+                courier: so.courier || 'BlueDart Express',
+                eway_bill_required: !!so.eway_bill_required,
+                eway_bill_number: so.eway_bill_number || '',
+                eway_bill_url: so.eway_bill_url || '',
+                total_declared_value: so.total_declared_value || 0,
+                max_sr_age: so.max_sr_age || 0,
+                priority_tier: so.priority_tier || 3,
+              })),
+              { onConflict: 'so_code' }
+            );
+          } else {
+            throw soErr;
+          }
+        }
       }
     }
 
@@ -189,10 +212,48 @@ export async function pushUploadedDataToSupabase(
             screening_status: it.screening_status || 'Pending',
             item_remarks: it.item_remarks || '',
             estimated_value: it.estimated_value || 8000,
+            delivery_challan_code: it.delivery_challan_code || null,
+            deliver_qty: it.deliver_qty || it.quantity || 1,
+            value: it.value !== undefined && it.value !== null ? it.value : (it.estimated_value || 8000),
           })),
           { onConflict: 'composite_key' }
         );
-        if (itmErr) throw itmErr;
+        if (itmErr) {
+          // Graceful fallback if delivery_challan_code/deliver_qty/value columns not yet migrated in Supabase
+          if (
+            itmErr.message?.includes('delivery_challan_code') ||
+            itmErr.message?.includes('deliver_qty') ||
+            itmErr.code === 'PGRST204'
+          ) {
+            await supabase.from('defective_master').upsert(
+              batch.map((it) => ({
+                composite_key: it.composite_key,
+                sr_number: it.sr_number,
+                sr_part_number: it.sr_part_number,
+                new_part_number: it.new_part_number || '',
+                part_category: it.part_category || 'General Spare',
+                part_description: it.part_description || '',
+                quantity: it.quantity || 1,
+                station_code: it.station_code,
+                region: it.region || 'West',
+                state: it.state || '',
+                city: it.city || '',
+                shipping_order_code: it.shipping_order_code,
+                sr_close_timestamp: it.sr_close_timestamp || null,
+                sr_model_name: it.sr_model_name || '',
+                sr_fault_description: it.sr_fault_description || '',
+                motorola_parts_status: it.motorola_parts_status || 'Not Return',
+                excel_awb: it.excel_awb || '',
+                screening_status: it.screening_status || 'Pending',
+                item_remarks: it.item_remarks || '',
+                estimated_value: it.estimated_value || 8000,
+              })),
+              { onConflict: 'composite_key' }
+            );
+          } else {
+            throw itmErr;
+          }
+        }
       }
     }
 

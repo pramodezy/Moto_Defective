@@ -84,7 +84,10 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
     };
   }, [initialMatched, order.so_code, order.id]);
 
-  const totalValue = orderItems.reduce((acc, item) => acc + ((item.estimated_value || 8000) * (item.quantity || 1)), 0);
+  const totalValue = order.total_declared_value || orderItems.reduce((acc, item) => {
+    if (item.value !== undefined && item.value !== null) return acc + item.value;
+    return acc + ((item.estimated_value || 8000) * (item.quantity || 1));
+  }, 0);
   const motoInfo = getMotorolaStatusInfo(order.motorola_status);
   const needsAwb = isAwbIssueRequired(order);
   const stage = getUnifiedStageDetails(order);
@@ -126,6 +129,11 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-slate-900 font-mono">{order.so_code}</h2>
+                {order.delivery_challan_code && (
+                  <span className="px-2 py-0.5 rounded text-xs font-mono font-bold bg-blue-50 text-blue-800 border border-blue-200" title="Delivery Challan Code">
+                    DC: {order.delivery_challan_code}
+                  </span>
+                )}
                 <SlaBadge tier={order.priority_tier} ageDays={order.max_sr_age} />
                 <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${stage.badgeClass}`} title={stage.meaning}>
                   {stage.stageName}
@@ -520,47 +528,63 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                       <th className="py-2.5 px-3">SR Number</th>
                       <th className="py-2.5 px-3">Defective Part No</th>
                       <th className="py-2.5 px-3">Issued Part No</th>
+                      <th className="py-2.5 px-3">DC Code</th>
                       <th className="py-2.5 px-3">Category &amp; Description</th>
                       <th className="py-2.5 px-3">Model</th>
                       <th className="py-2.5 px-3">Fault</th>
                       <th className="py-2.5 px-3 text-center">Qty</th>
-                      <th className="py-2.5 px-3 text-right">Est. Value</th>
+                      <th className="py-2.5 px-3 text-right">Value (INR)</th>
                       <th className="py-2.5 px-3 text-center">Screening</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 text-slate-700">
-                    {orderItems.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-2.5 px-3 font-mono font-medium text-slate-900">{item.sr_number}</td>
-                        <td className="py-2.5 px-3 font-mono text-sky-700 font-medium">{item.sr_part_number}</td>
-                        <td className="py-2.5 px-3 font-mono text-slate-500">{item.new_part_number || '-'}</td>
-                        <td className="py-2.5 px-3 max-w-xs truncate">
-                          <div className="font-semibold text-slate-800">{item.part_category}</div>
-                          <div className="text-[11px] text-slate-500 truncate">{item.part_description}</div>
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-700">{item.sr_model_name || '-'}</td>
-                        <td className="py-2.5 px-3 max-w-[160px] truncate text-slate-500" title={item.sr_fault_description}>
-                          {item.sr_fault_description || '-'}
-                        </td>
-                        <td className="py-2.5 px-3 text-center font-mono text-slate-900">{item.quantity || 1}</td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">
-                          {formatINR((item.estimated_value || 8000) * (item.quantity || 1))}
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getScreeningStatusStyle(item.screening_status)}`}>
-                            {item.screening_status}
-                          </span>
-                          {item.item_remarks && (
-                            <div className="text-[10px] text-rose-700 mt-1 max-w-[140px] truncate mx-auto" title={item.item_remarks}>
-                              ⚠️ {item.item_remarks}
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {orderItems.map((item) => {
+                      const displayQty = item.deliver_qty ?? item.quantity ?? 1;
+                      const displayValue = item.value ?? ((item.estimated_value || 8000) * (item.quantity || 1));
+                      const dcCode = item.delivery_challan_code || order.delivery_challan_code;
+
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-2.5 px-3 font-mono font-medium text-slate-900">{item.sr_number}</td>
+                          <td className="py-2.5 px-3 font-mono text-sky-700 font-medium">{item.sr_part_number}</td>
+                          <td className="py-2.5 px-3 font-mono text-slate-500">{item.new_part_number || '-'}</td>
+                          <td className="py-2.5 px-3 font-mono">
+                            {dcCode ? (
+                              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 text-[10px] font-bold">
+                                {dcCode}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">-</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 max-w-xs truncate">
+                            <div className="font-semibold text-slate-800">{item.part_category}</div>
+                            <div className="text-[11px] text-slate-500 truncate">{item.part_description}</div>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-700">{item.sr_model_name || '-'}</td>
+                          <td className="py-2.5 px-3 max-w-[160px] truncate text-slate-500" title={item.sr_fault_description}>
+                            {item.sr_fault_description || '-'}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono text-slate-900 font-semibold">{displayQty}</td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">
+                            {formatINR(displayValue)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getScreeningStatusStyle(item.screening_status)}`}>
+                              {item.screening_status}
+                            </span>
+                            {item.item_remarks && (
+                              <div className="text-[10px] text-rose-700 mt-1 max-w-[140px] truncate mx-auto" title={item.item_remarks}>
+                                ⚠️ {item.item_remarks}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {orderItems.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="py-8 text-center text-slate-400">
+                        <td colSpan={10} className="py-8 text-center text-slate-400">
                           No line items found for this shipping order.
                         </td>
                       </tr>

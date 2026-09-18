@@ -160,6 +160,9 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
         'State': st?.state || item.state || '',
         'Region': st?.region || item.region || '',
         'CCI-ASP Shipping Order (Leg 1)': item.shipping_order_code,
+        'Delivery Challan Code': item.delivery_challan_code || '',
+        'Deliver QTY': item.deliver_qty || item.quantity || 1,
+        'Value (INR)': item.value !== undefined && item.value !== null ? item.value : item.estimated_value,
         'ASP-RC Shipping Order (Leg 2)': item.asp_rc_shipping_order_code || '',
         'Model Name': item.sr_model_name || '',
         'Fault Description': item.sr_fault_description || '',
@@ -382,16 +385,26 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
                         {[stationMap.get(item.station_code)?.city || item.city, stationMap.get(item.station_code)?.state || item.state].filter(Boolean).join(', ') || stationMap.get(item.station_code)?.region || item.region}
                       </div>
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-slate-600 truncate max-w-[140px]">
+                    <td className="py-2.5 px-3 font-mono text-slate-600 truncate max-w-[150px]">
                       <div className="font-semibold text-slate-900">{item.shipping_order_code}</div>
+                      {item.delivery_challan_code && (
+                        <div className="text-[10px] text-blue-700 font-semibold truncate" title={`Delivery Challan: ${item.delivery_challan_code}`}>
+                          DC: {item.delivery_challan_code}
+                        </div>
+                      )}
                       {item.asp_rc_shipping_order_code && (
-                        <div className="text-[10px] text-purple-700 font-medium">
+                        <div className="text-[10px] text-purple-700 font-medium truncate">
                           RC: {item.asp_rc_shipping_order_code}
                         </div>
                       )}
                     </td>
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">
-                      {formatINR((item.estimated_value || 8000) * (item.quantity || 1))}
+                    <td className="py-2.5 px-3 text-right font-mono">
+                      <div className="font-bold text-emerald-700">
+                        {formatINR((item.value !== undefined && item.value !== null && item.value > 0 ? item.value : (item.estimated_value || 8000)) * (item.deliver_qty || item.quantity || 1))}
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-sans">
+                        Qty: {item.deliver_qty || item.quantity || 1}
+                      </div>
                     </td>
                     <td className="py-2.5 px-3 text-center">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getScreeningStatusStyle(item.screening_status)}`}>

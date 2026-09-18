@@ -79,6 +79,7 @@ export interface ShippingOrder {
   pickup_status?: PickupStatus;
   pickup_date?: string;
   pickup_remarks?: string;
+  delivery_challan_code?: string; // Leg 1 Delivery Challan Code from Shipping Order
 
   // Leg 2 Outbound Hub Transfer (CWH -> RC)
   asp_rc_shipping_order_code?: string;
@@ -114,6 +115,11 @@ export interface DefectiveItem {
   screening_status: ScreeningStatus;
   item_remarks?: string;
   estimated_value: number;
+
+  // Delivery Challan details from Shipping Order File
+  delivery_challan_code?: string;
+  deliver_qty?: number;
+  value?: number;
 
   // Leg 2 Outbound Hub Transfer (CWH -> RC)
   asp_rc_shipping_order_code?: string;
