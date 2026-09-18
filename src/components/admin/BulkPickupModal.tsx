@@ -71,14 +71,12 @@ export const BulkPickupModal: React.FC<BulkPickupModalProps> = ({
     return map;
   }, [stations]);
 
-  // Orders currently awaiting courier pickup
+  // All active consignments requiring courier pickup or AWB allocation
   const awaitingPickupOrders = useMemo(() => {
     return orders.filter((so) => {
       const motoInfo = getMotorolaStatusInfo(so.motorola_status);
-      const hasAwb = Boolean(so.active_awb || so.excel_ref_awb);
       return (
         motoInfo.code === 2 &&
-        hasAwb &&
         so.crm_status !== 'Delivered at CWH' &&
         so.crm_status !== 'Pending Inward at CWH' &&
         so.crm_status !== 'CWH to Create DC' &&
@@ -94,6 +92,14 @@ export const BulkPickupModal: React.FC<BulkPickupModalProps> = ({
     });
   }, [orders]);
 
+  const pendingAwbCount = useMemo(() => {
+    return awaitingPickupOrders.filter((so) => !so.active_awb && !so.excel_ref_awb).length;
+  }, [awaitingPickupOrders]);
+
+  const awbAssignedCount = useMemo(() => {
+    return awaitingPickupOrders.filter((so) => Boolean(so.active_awb || so.excel_ref_awb)).length;
+  }, [awaitingPickupOrders]);
+
   if (!isOpen) return null;
 
   // 1. Download Blank Excel Template
@@ -101,6 +107,7 @@ export const BulkPickupModal: React.FC<BulkPickupModalProps> = ({
     const templateData = [
       {
         'Shipping Order Code': 'SORLC26091400342',
+        'Delivery Challan Code': 'DC-068-2026-0041',
         'Courier Partner': 'BlueDart Express',
         'AWB Number': '53677967711',
         'Pickup Date': new Date().toISOString().slice(0, 10),
@@ -109,6 +116,7 @@ export const BulkPickupModal: React.FC<BulkPickupModalProps> = ({
       },
       {
         'Shipping Order Code': 'SORLC26091400343',
+        'Delivery Challan Code': 'DC-068-2026-0042',
         'Courier Partner': 'Delhivery Surface',
         'AWB Number': '53678202266',
         'Pickup Date': new Date().toISOString().slice(0, 10),
@@ -118,23 +126,35 @@ export const BulkPickupModal: React.FC<BulkPickupModalProps> = ({
     ];
 
     const ws = XLSX.utils.json_to_sheet(templateData);
+    ws['!cols'] = [
+      { wch: 22 },
+      { wch: 22 },
+      { wch: 20 },
+      { wch: 20 },
+      { wch: 14 },
+      { wch: 26 },
+      { wch: 30 },
+    ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Bulk_Pickup_Template');
     XLSX.writeFile(wb, 'Motorola_Admin_Bulk_Pickup_Template.xlsx');
     toast.success('Blank Bulk Pickup Template downloaded.');
   };
 
-  // 2. Download Pre-filled Template with All Awaiting Pickup SOs
+  // 2. Download Pre-filled Template with All Pending SOs (Both Awaiting Pickup & Pending AWB)
   const handleDownloadAwaitingSosTemplate = () => {
     if (awaitingPickupOrders.length === 0) {
-      toast.info('No shipping orders are currently awaiting courier pickup.');
+      toast.info('No shipping orders are currently pending AWB or awaiting courier pickup.');
+      return;
     }
 
     const todayStr = new Date().toISOString().slice(0, 10);
     const exportData = awaitingPickupOrders.map((so) => {
       const st = stationMap.get(so.station_code);
+      const hasAwb = Boolean(so.active_awb || so.excel_ref_awb);
       return {
         'Shipping Order Code': so.so_code,
+        'Delivery Challan Code': so.delivery_challan_code || '',
         'Origin Station': `${so.station_code} - ${st?.station_name || ''}`,
         'City': st?.city || so.city || '',
         'Total Units': so.total_items || 1,
@@ -142,31 +162,32 @@ export const BulkPickupModal: React.FC<BulkPickupModalProps> = ({
         'AWB Number': so.active_awb || so.excel_ref_awb || '',
         'Pickup Date': todayStr,
         'Courier Run Sheet / Docket': '',
-        'Pickup Remarks': 'Confirmed via courier daily run sheet',
+        'Pickup Remarks': hasAwb ? 'Confirmed via courier daily run sheet' : 'AWB allocated & pickup confirmed',
       };
     });
 
-    const ws = XLSX.utils.json_to_sheet(exportData.length > 0 ? exportData : [
-      {
-        'Shipping Order Code': '',
-        'Origin Station': '',
-        'City': '',
-        'Total Units': 1,
-        'Courier Partner': 'BlueDart Express',
-        'AWB Number': '',
-        'Pickup Date': todayStr,
-        'Courier Run Sheet / Docket': '',
-        'Pickup Remarks': '',
-      }
-    ]);
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    ws['!cols'] = [
+      { wch: 22 }, // Shipping Order Code
+      { wch: 22 }, // Delivery Challan Code
+      { wch: 32 }, // Origin Station
+      { wch: 18 }, // City
+      { wch: 12 }, // Total Units
+      { wch: 20 }, // Courier Partner
+      { wch: 22 }, // AWB Number
+      { wch: 14 }, // Pickup Date
+      { wch: 26 }, // Courier Run Sheet / Docket
+      { wch: 36 }, // Pickup Remarks
+    ];
+
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Awaiting_Pickup_Consignments');
+    XLSX.utils.book_append_sheet(wb, ws, 'Pending_Consignments');
     XLSX.writeFile(
       wb,
-      `Motorola_Awaiting_Pickup_${todayStr}.xlsx`
+      `Motorola_Pending_Pickup_AWB_${todayStr}.xlsx`
     );
     toast.success(
-      `Exported ${awaitingPickupOrders.length} consignments awaiting pickup into template.`
+      `Exported ${awaitingPickupOrders.length} pending consignments into template (${pendingAwbCount} Pending AWB).`
     );
   };
 
@@ -235,12 +256,12 @@ export const BulkPickupModal: React.FC<BulkPickupModalProps> = ({
             status = 'NOT_FOUND';
             message = `SO "${soCode || awbNumber}" not found in CRM`;
           } else {
-            const activeAwb = matchedOrder.active_awb || matchedOrder.excel_ref_awb || awbNumber;
+            const activeAwb = awbNumber?.trim() || matchedOrder.active_awb || matchedOrder.excel_ref_awb || '';
             const motoInfo = getMotorolaStatusInfo(matchedOrder.motorola_status);
 
             if (!activeAwb) {
               status = 'MISSING_AWB';
-              message = 'Missing AWB: Cannot confirm pickup without AWB number';
+              message = 'Missing AWB: Please enter AWB number in Excel to allocate and confirm pickup';
             } else if (
               matchedOrder.crm_status === 'Delivered at CWH' ||
               matchedOrder.crm_status === 'Pending Inward at CWH' ||
@@ -266,7 +287,7 @@ export const BulkPickupModal: React.FC<BulkPickupModalProps> = ({
             rowNum: index + 2,
             soCode: matchedOrder ? matchedOrder.so_code : soCode,
             courier,
-            awbNumber: matchedOrder?.active_awb || matchedOrder?.excel_ref_awb || awbNumber,
+            awbNumber: (awbNumber?.trim()) || matchedOrder?.active_awb || matchedOrder?.excel_ref_awb || '',
             pickupDate,
             runSheetRef,
             remarks,
@@ -385,15 +406,15 @@ export const BulkPickupModal: React.FC<BulkPickupModalProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Option A: Pre-filled Sheet with Awaiting Pickup SOs */}
+              {/* Option A: Pre-filled Sheet with Pending SOs */}
               <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/40 flex flex-col justify-between space-y-3 hover:border-blue-300 transition-all">
                 <div>
                   <div className="flex items-center gap-2 font-semibold text-xs text-blue-950">
                     <FileSpreadsheet className="w-4 h-4 text-blue-600" />
-                    Awaiting Pickup Consignments ({awaitingPickupOrders.length})
+                    Pending Consignments & AWB Allocation ({awaitingPickupOrders.length})
                   </div>
                   <p className="text-[11px] text-slate-600 mt-1">
-                    Export all current consignments with AWBs issued awaiting courier collection. Open in Excel, verify run sheet / date, and re-upload.
+                    Export all pending consignments ({pendingAwbCount} Pending CWH AWB, {awbAssignedCount} Awaiting Collection). Enter/verify Courier & AWB numbers and re-upload.
                   </p>
                 </div>
                 <button
@@ -402,7 +423,7 @@ export const BulkPickupModal: React.FC<BulkPickupModalProps> = ({
                   className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  Download Pending Sheet (.xlsx)
+                  Download Pending Sheet ({awaitingPickupOrders.length} SOs)
                 </button>
               </div>
 
