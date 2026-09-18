@@ -406,7 +406,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
           <div className="text-2xl font-bold font-mono text-slate-800 mt-1">
             {cwhStageOrders.length + deliveredOrders.length}
           </div>
-          <span className="text-[10px] text-slate-500 block truncate">Delivered / No action</span>
+          <span className="text-[10px] text-slate-500 block truncate">At CWH / En route to RC</span>
         </div>
       </div>
 
@@ -422,7 +422,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                 {consignmentFilter === 'action_pickup' && 'Action Required: Pickup Handover Pending'}
                 {consignmentFilter === 'waiting_awb' && 'DC Created — Awaiting CWH AWB'}
                 {consignmentFilter === 'in_transit_monitor' && 'In-Transit to CWH'}
-                {(consignmentFilter === 'cwh_received' || consignmentFilter === 'delivered') && 'At CWH / Delivered to RC'}
+                {(consignmentFilter === 'cwh_received' || consignmentFilter === 'delivered') && 'At CWH / En Route to RC'}
                 {consignmentFilter === 'pending_reissue' && 'Pickup Exceptions — Waiting Re-Issue'}
               </span>
               <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200">
@@ -659,7 +659,6 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                 <option value="2">2. CCI Send to CWH - Active Logistics</option>
                 <option value="3">3. CWH Received - At Warehouse</option>
                 <option value="4">4. ASP Send to RC - Outbound to RC</option>
-                <option value="5">5. RC Received ASP - Completed</option>
                 <option value="6">6. RC Received ASP(Negative) - Discrepancy</option>
               </select>
             </div>
