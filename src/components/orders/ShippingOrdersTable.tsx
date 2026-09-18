@@ -489,6 +489,13 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                           </div>
                           {(() => {
                             const pickup = getUnifiedPickupStatus(so);
+                            if (pickup === 'Delivered to CWH') {
+                              return (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] text-purple-800 font-sans font-semibold mt-0.5">
+                                  <PackageCheck className="w-2.5 h-2.5 text-purple-600" /> Delivered to CWH
+                                </span>
+                              );
+                            }
                             if (pickup === 'Pickup Done') {
                               return (
                                 <span className="inline-flex items-center gap-0.5 text-[9px] text-emerald-700 font-sans font-medium mt-0.5">

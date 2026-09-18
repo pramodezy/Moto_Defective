@@ -164,8 +164,8 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               </button>
             )}
 
-            {/* CCI station handover pickup button - hidden for CWH operators */}
-            {onOpenPickupModal && user?.role !== 'CWH' && motoInfo.code === 2 && !motoInfo.isDelivered && (order.active_awb || order.excel_ref_awb || order.crm_status !== 'Pending AWB') && (
+            {/* CCI station handover pickup button - hidden for CWH operators or once delivered to CWH */}
+            {onOpenPickupModal && user?.role !== 'CWH' && motoInfo.code === 2 && !motoInfo.isDelivered && (order.active_awb || order.excel_ref_awb || order.crm_status !== 'Pending AWB') && order.crm_status !== 'Delivered at CWH' && order.crm_status !== 'Pending Inward at CWH' && order.crm_status !== 'CWH to Create DC' && (
               <button
                 onClick={() => onOpenPickupModal(order)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer"

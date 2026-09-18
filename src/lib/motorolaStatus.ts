@@ -494,8 +494,17 @@ export function getUnifiedPickupStatus(order: {
     return '-';
   }
 
+  // When delivered or arrived at CWH dock/bay:
+  if (
+    order.crm_status === 'Delivered at CWH' ||
+    order.crm_status === 'Pending Inward at CWH' ||
+    order.crm_status === 'CWH to Create DC'
+  ) {
+    return 'Delivered to CWH';
+  }
+
   // During Leg 1 (CCI Send to CWH):
-  if (order.pickup_status === 'Pickup Done') {
+  if (order.crm_status === 'In Transit' || order.pickup_status === 'Pickup Done') {
     return 'Pickup Done';
   }
   if (order.pickup_status === 'Pickup Not Done' || order.crm_status === 'Pending AWB Re-Issue') {

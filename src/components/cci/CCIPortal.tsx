@@ -552,6 +552,13 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                             <span className="text-slate-400 font-mono text-sm px-2 font-semibold inline-block" title="No action required from CCI (Shipment is at CWH Received or further)">
                               -
                             </span>
+                          ) : unifiedPickup === 'Delivered to CWH' ? (
+                            <div className="flex flex-col">
+                              <span className="inline-flex items-center gap-1.5 text-xs text-purple-900 font-semibold bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200 shadow-2xs" title="Delivered at Central Warehouse dock; screening & inward in progress">
+                                <PackageCheck className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                                Delivered to CWH
+                              </span>
+                            </div>
                           ) : unifiedPickup === 'Pickup Done' ? (
                             <div className="flex flex-col">
                               <span className="inline-flex items-center gap-1.5 text-xs text-emerald-800 font-medium">
@@ -587,8 +594,16 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                         {/* 8. Actions */}
                         <td className="py-3 px-3.5 text-center whitespace-nowrap align-middle">
                           <div className="flex items-center justify-center gap-2">
-                            {/* Handover / Pickup button: STRICTLY for Code 2 (CCI send to CWH) */}
-                            {motoInfo.code === 2 && isPickupPending ? (
+                            {/* If already delivered to CWH or beyond, no courier handover/edit is allowed */}
+                            {unifiedPickup === 'Delivered to CWH' || unifiedStage.stageNumber >= 6 ? (
+                              <button
+                                onClick={() => onSelectOrder(so)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
+                                title="Consignment delivered to CWH: View Details"
+                              >
+                                Details
+                              </button>
+                            ) : motoInfo.code === 2 && isPickupPending ? (
                               <button
                                 onClick={() => onOpenPickupModal?.(so)}
                                 className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-colors cursor-pointer"
@@ -619,7 +634,13 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
                                 Create DC
                               </button>
                             ) : (
-                              <span className="text-slate-400 font-mono text-xs">-</span>
+                              <button
+                                onClick={() => onSelectOrder(so)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
+                                title="View Consignment Details"
+                              >
+                                Details
+                              </button>
                             )}
                           </div>
                         </td>
