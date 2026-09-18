@@ -29,7 +29,9 @@ export type CRMStatus =
 
 export type PickupStatus = 'Pickup Pending' | 'Pickup Done' | 'Pickup Not Done';
 
-export type PriorityTier = 1 | 2 | 3; // 1: Critical (>=15D), 2: High (8-14D), 3: Normal (<8D)
+export type PriorityTier = 1 | 2 | 3 | 4; // 1: Super Critical (>25D), 2: Critical (16-25D), 3: High (8-15D), 4: Low (0-7D)
+
+export type AgeingCriticality = 'super_critical' | 'critical' | 'high' | 'low';
 
 export interface CCIMaster {
   station_code: string;       // e.g. '068', '071', '65'

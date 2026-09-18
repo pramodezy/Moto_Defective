@@ -1,6 +1,6 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { PriorityTier, CRMStatus, ScreeningStatus } from '../types/crm';
+import { PriorityTier, AgeingCriticality, CRMStatus, ScreeningStatus } from '../types/crm';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -46,26 +46,80 @@ export function formatDateTime(dateString?: string | null): string {
   }
 }
 
-export function getPriorityBadge(tier: PriorityTier, ageDays: number) {
-  switch (tier) {
-    case 1:
+export function parseDateSafe(val?: any): Date | null {
+  if (!val) return null;
+  if (val instanceof Date && !isNaN(val.getTime())) return val;
+  const str = String(val).trim();
+  if (!str) return null;
+
+  // Direct parse
+  const direct = new Date(str);
+  if (!isNaN(direct.getTime())) return direct;
+
+  // DD-MM-YYYY or DD/MM/YYYY with optional time
+  const dmy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (dmy) {
+    const [, d, m, y, h = '0', min = '0', s = '0'] = dmy;
+    const parsed = new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min), Number(s));
+    if (!isNaN(parsed.getTime())) return parsed;
+  }
+  return null;
+}
+
+export function getAgeingBucket(ageDays: number): AgeingCriticality {
+  if (ageDays > 25) return 'super_critical';
+  if (ageDays >= 16) return 'critical';
+  if (ageDays >= 8) return 'high';
+  return 'low';
+}
+
+export function getPriorityBadge(tier: PriorityTier | number, ageDays: number) {
+  const bucket = getAgeingBucket(ageDays);
+  switch (bucket) {
+    case 'super_critical':
       return {
-        label: `Critical (${ageDays}d)`,
-        badgeClass: 'bg-rose-50 text-rose-700 border border-rose-300 font-semibold',
+        key: 'super_critical' as AgeingCriticality,
+        tier: 1,
+        label: `Super Critical (${ageDays}d)`,
+        shortLabel: 'Super Critical',
+        rangeLabel: '>25 Days',
+        badgeClass: 'bg-rose-100 text-rose-900 border border-rose-300 font-bold shadow-xs',
         dotClass: 'bg-rose-600',
+        textColor: 'text-rose-700',
       };
-    case 2:
+    case 'critical':
       return {
-        label: `High (${ageDays}d)`,
-        badgeClass: 'bg-amber-50 text-amber-800 border border-amber-300 font-medium',
-        dotClass: 'bg-amber-600',
+        key: 'critical' as AgeingCriticality,
+        tier: 2,
+        label: `Critical (${ageDays}d)`,
+        shortLabel: 'Critical',
+        rangeLabel: '16-25 Days',
+        badgeClass: 'bg-rose-50 text-rose-700 border border-rose-300 font-semibold',
+        dotClass: 'bg-rose-500',
+        textColor: 'text-rose-600',
       };
-    case 3:
+    case 'high':
+      return {
+        key: 'high' as AgeingCriticality,
+        tier: 3,
+        label: `High (${ageDays}d)`,
+        shortLabel: 'High',
+        rangeLabel: '8-15 Days',
+        badgeClass: 'bg-amber-50 text-amber-800 border border-amber-300 font-medium',
+        dotClass: 'bg-amber-500',
+        textColor: 'text-amber-600',
+      };
+    case 'low':
     default:
       return {
-        label: `Normal (${ageDays}d)`,
+        key: 'low' as AgeingCriticality,
+        tier: 4,
+        label: `Low (${ageDays}d)`,
+        shortLabel: 'Low',
+        rangeLabel: '0-7 Days',
         badgeClass: 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-medium',
         dotClass: 'bg-emerald-600',
+        textColor: 'text-emerald-600',
       };
   }
 }

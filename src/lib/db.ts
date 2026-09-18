@@ -18,6 +18,7 @@ import {
 } from '../data/seedData';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { deriveCrmStatusFromMotorolaStatus, isCompletedJourneyStatus, normalizeMotoStatusKey } from './motorolaStatus';
+import { parseDateSafe } from './utils';
 
 export interface BulkPickupUploadItem {
   soCode: string;
@@ -882,9 +883,9 @@ class CRMDatabase {
       const itemVal = (item.estimated_value || 8000) * (item.quantity || 1);
       totalVal += itemVal;
       if (item.sr_close_timestamp) {
-        const closeTime = new Date(item.sr_close_timestamp).getTime();
-        if (!isNaN(closeTime)) {
-          const ageDays = Math.max(0, Math.floor((now - closeTime) / (1000 * 60 * 60 * 24)));
+        const d = parseDateSafe(item.sr_close_timestamp);
+        if (d) {
+          const ageDays = Math.max(0, Math.floor((now - d.getTime()) / (1000 * 60 * 60 * 24)));
           if (ageDays > maxAge) maxAge = ageDays;
         }
       }
@@ -896,8 +897,8 @@ class CRMDatabase {
       }
     });
 
-    // Priority Tier: 1: >=15D, 2: 8-14D, 3: <8D
-    const tier = maxAge >= 15 ? 1 : maxAge >= 8 ? 2 : 3;
+    // Priority Tier: 1: >25D (Super Critical), 2: 16-25D (Critical), 3: 8-15D (High), 4: 0-7D (Low)
+    const tier = maxAge > 25 ? 1 : maxAge >= 16 ? 2 : maxAge >= 8 ? 3 : 4;
     const ewayRequired = totalVal >= 50000;
 
     const stationCode = soCode.startsWith('SO-PENDING-')

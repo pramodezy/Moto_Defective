@@ -46,6 +46,15 @@ export async function parseDefectiveReportFile(file: File): Promise<ParseResult>
         return String(row[matched]).trim();
       }
     }
+    // Substring fallback for variations like "SO Close Time (IST)"
+    for (const cand of candidates) {
+      const entry = Object.entries(headerMap).find(
+        ([cleanH]) => cleanH.includes(cand) || cand.includes(cleanH)
+      );
+      if (entry && row[entry[1]] !== undefined) {
+        return String(row[entry[1]]).trim();
+      }
+    }
     return '';
   };
 
@@ -70,7 +79,20 @@ export async function parseDefectiveReportFile(file: File): Promise<ParseResult>
     const excelAwb = getColVal(r, ['aspoutboundsoawb', 'outboundawb', 'awb', 'excelawb']);
     const modelName = getColVal(r, ['srmodelname', 'modelname', 'model']);
     const faultDesc = getColVal(r, ['srfaultdescription', 'faultdescription', 'fault']);
-    const srCloseDate = getColVal(r, ['srclosedatetime', 'srclosedate', 'closetime', 'closedate']);
+    const srCloseDate = getColVal(r, [
+      'soclosetime',
+      'soclosedatetime',
+      'soclosedate',
+      'soclosed',
+      'srclosetime',
+      'srclosedatetime',
+      'srclosedate',
+      'closetime',
+      'closedate',
+      'closedtime',
+      'sotime',
+      'sodate',
+    ]);
     const partsStatus = getColVal(r, ['partsstatus', 'partstatus', 'status', 'motorolastatus']);
 
     // Determine estimated value by category

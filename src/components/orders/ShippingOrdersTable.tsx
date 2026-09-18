@@ -234,7 +234,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
         'Region': st?.region || so.region || '',
         'Declared Value (INR)': so.total_declared_value,
         'Max Age (Days)': so.max_sr_age,
-        'Priority Tier': so.priority_tier === 1 ? 'Critical' : so.priority_tier === 2 ? 'High' : 'Normal',
+        'Priority Tier': so.priority_tier === 1 ? 'Super Critical' : so.priority_tier === 2 ? 'Critical' : so.priority_tier === 3 ? 'High' : 'Low',
         'Motorola Status': so.motorola_status,
         'CRM Status': normalizeMotoStatusKey(so.motorola_status) === 'not return'
           ? 'CCI to Create DC'
@@ -362,9 +362,10 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
             className="bg-slate-50 border border-slate-200 text-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-600"
           >
             <option value="ALL">All SLA Tiers</option>
-            <option value="1">Tier 1: Critical (≥15 Days)</option>
-            <option value="2">Tier 2: High (8-14 Days)</option>
-            <option value="3">Tier 3: Normal (&lt;8 Days)</option>
+            <option value="1">Tier 1: Super Critical (&gt;25 Days)</option>
+            <option value="2">Tier 2: Critical (16-25 Days)</option>
+            <option value="3">Tier 3: High (8-15 Days)</option>
+            <option value="4">Tier 4: Low (0-7 Days)</option>
           </select>
 
           {/* CRM Status */}
