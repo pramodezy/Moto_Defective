@@ -495,7 +495,10 @@ class CRMDatabase {
         excel_awb: it.excel_awb,
         screening_status: it.screening_status || 'Pending',
         item_remarks: it.item_remarks,
-        estimated_value: parseFloat(it.estimated_value || 8000),
+        estimated_value: (() => {
+          const catPrice = this.lookupCatalogPrice(it.new_part_number, it.sr_part_number);
+          return (catPrice !== undefined && catPrice > 0) ? catPrice : parseFloat(it.estimated_value || 8000);
+        })(),
         delivery_challan_code: it.delivery_challan_code || undefined,
         deliver_qty: it.deliver_qty ? parseInt(it.deliver_qty, 10) : undefined,
         value: it.value !== undefined && it.value !== null ? parseFloat(it.value) : undefined,
@@ -543,7 +546,7 @@ class CRMDatabase {
         }));
       }
 
-      // Recalculate any orders that have 0 or missing total_declared_value / total_items
+      // Recalculate parent orders whenever item sums differ from current total_declared_value
       this.shippingOrders.forEach((so) => {
         const matchingItems = this.defectiveItems.filter(
           (it) => (it.shipping_order_code || '').trim().toLowerCase() === (so.so_code || '').trim().toLowerCase()
@@ -554,10 +557,11 @@ class CRMDatabase {
             return acc + val;
           }, 0);
           const sumQty = matchingItems.reduce((acc, it) => acc + (it.deliver_qty || it.quantity || 1), 0);
-          if (sumVal > 0 && (!so.total_declared_value || so.total_declared_value === 0)) {
-            so.total_declared_value = sumVal;
+          const roundedVal = Math.round(sumVal * 100) / 100;
+          if (roundedVal > 0 && Math.abs(roundedVal - (so.total_declared_value || 0)) > 0.01) {
+            so.total_declared_value = roundedVal;
           }
-          if (sumQty > 0 && (!so.total_items || so.total_items <= 1)) {
+          if (sumQty > 0) {
             so.total_items = sumQty;
           }
           so.eway_bill_required = (so.total_declared_value || 0) >= 50000;
@@ -886,7 +890,10 @@ class CRMDatabase {
         excel_awb: it.excel_awb,
         screening_status: it.screening_status || 'Pending',
         item_remarks: it.item_remarks,
-        estimated_value: parseFloat(it.estimated_value || 8000),
+        estimated_value: (() => {
+          const catPrice = this.lookupCatalogPrice(it.new_part_number, it.sr_part_number);
+          return (catPrice !== undefined && catPrice > 0) ? catPrice : parseFloat(it.estimated_value || 8000);
+        })(),
         delivery_challan_code: it.delivery_challan_code || undefined,
         deliver_qty: it.deliver_qty ? parseInt(it.deliver_qty, 10) : undefined,
         value: it.value !== undefined && it.value !== null ? parseFloat(it.value) : undefined,
