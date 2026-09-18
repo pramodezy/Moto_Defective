@@ -2280,9 +2280,14 @@ class CRMDatabase {
         continue; // deduplicate
       }
 
-      // If AWB provided in sheet and order was missing active AWB, update it
-      if (item.awbNumber?.trim() && !so.active_awb) {
+      // If AWB provided in sheet, update order active AWB and courier
+      if (item.awbNumber?.trim()) {
         so.active_awb = item.awbNumber.trim();
+      }
+      if (item.courier?.trim()) {
+        so.courier = item.courier.trim();
+      } else if (options?.courier?.trim()) {
+        so.courier = options.courier.trim();
       }
 
       const activeAwb = so.active_awb || so.excel_ref_awb || item.awbNumber?.trim();
@@ -2327,17 +2332,24 @@ class CRMDatabase {
       so.crm_status = 'In Transit';
       so.pickup_date = effectiveDate;
       so.pickup_remarks = combinedRemarks;
-      if (item.courier?.trim()) {
-        so.courier = item.courier.trim();
-      } else if (options?.courier?.trim()) {
-        so.courier = options.courier.trim();
-      }
       so.updated_at = new Date().toISOString();
 
       seenProcessedCodes.add(so.so_code);
       validSoCodes.push(so.so_code);
       validSoIds.push(so.id);
       updatedOrders.push(so);
+
+      // Record in local awbHistory
+      this.awbHistory.unshift({
+        id: `awb-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        shipping_order_id: so.id,
+        awb_number: activeAwb,
+        courier: so.courier,
+        is_active: true,
+        pickup_date: effectiveDate,
+        created_by: user.id,
+        created_at: new Date().toISOString(),
+      });
 
       // 5. Audit Log entry
       this.auditLogs.unshift({
@@ -2354,35 +2366,46 @@ class CRMDatabase {
     }
 
     // Live update to Supabase Cloud if configured
-    if (isSupabaseConfigured && supabase && validSoCodes.length > 0) {
-      // NOTE: Do NOT include pickup_status in Supabase update payload (column does not exist in Postgres)
-      const updatePayload: Record<string, any> = {
-        crm_status: 'In Transit',
-        updated_at: new Date().toISOString(),
-      };
-      if (options?.courier?.trim()) {
-        updatePayload.courier = options.courier.trim();
+    if (isSupabaseConfigured && supabase && updatedOrders.length > 0) {
+      // Update each order with its specific active_awb and courier in Supabase
+      for (const so of updatedOrders) {
+        supabase
+          .from('shipping_orders')
+          .update({
+            crm_status: 'In Transit',
+            active_awb: so.active_awb,
+            courier: so.courier,
+            updated_at: so.updated_at,
+          })
+          .eq('so_code', so.so_code)
+          .then(({ error }) => {
+            if (error) console.warn('Supabase bulk pickup sync error:', error.message);
+          });
       }
 
-      supabase
-        .from('shipping_orders')
-        .update(updatePayload)
-        .in('so_code', validSoCodes)
-        .then(({ error }) => {
-          if (error) console.warn('Live Supabase bulk update for pickup done failed:', error.message);
-        });
-
-      // Update awb_history in Supabase
-      supabase
-        .from('awb_history')
-        .update({
-          pickup_date: defaultNowIso,
-        })
-        .in('shipping_order_id', validSoIds)
-        .eq('is_active', true)
-        .then(() => {});
+      // Update/insert awb_history in Supabase
+      for (const so of updatedOrders) {
+        if (so.active_awb) {
+          supabase
+            .from('awb_history')
+            .upsert(
+              {
+                shipping_order_id: so.id,
+                awb_number: so.active_awb,
+                courier: so.courier,
+                is_active: true,
+                pickup_date: so.pickup_date || defaultNowIso,
+                created_by: user.id,
+                created_at: new Date().toISOString(),
+              },
+              { onConflict: 'shipping_order_id,awb_number' }
+            )
+            .then(() => {});
+        }
+      }
     }
 
+    this.saveToStorage();
     this.notify();
 
     return {

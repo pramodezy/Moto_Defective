@@ -646,7 +646,13 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                           })()}
                         </div>
                       ) : (
-                        <span className="text-amber-800 text-[11px] font-sans font-medium">Pending CWH AWB</span>
+                        <span className="text-amber-800 text-[11px] font-sans font-medium">
+                          {so.crm_status === 'In Transit'
+                            ? 'In Transit (AWB Unassigned)'
+                            : so.crm_status === 'Delivered at CWH'
+                            ? 'Delivered at CWH'
+                            : 'Pending CWH AWB'}
+                        </span>
                       )}
                     </td>
 
