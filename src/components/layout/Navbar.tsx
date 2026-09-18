@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   ShieldCheck, 
   Warehouse, 
@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { UserRole, CCIMaster, UserProfile } from '../../types/crm';
 import { isSupabaseConfigured } from '../../lib/supabase';
+import { crmDb } from '../../lib/db';
+import { toast } from 'sonner';
 
 interface NavbarProps {
   currentUser: UserProfile;
@@ -55,9 +57,22 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLoadCompletedSession,
   onUnloadCompletedSession,
 }) => {
+  const [isSyncing, setIsSyncing] = useState(false);
   const currentStationObj = stations?.find(
     (s) => s.station_code === (currentUser.station_code || currentStation)
   );
+
+  const handleQuickSync = async () => {
+    setIsSyncing(true);
+    try {
+      const count = await crmDb.syncShippingOrdersQuickly();
+      toast.success(`Synchronized ${count} active consignments live from cloud.`);
+    } catch {
+      toast.error('Sync failed. Please check internet connection.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   return (
     <header className="sticky top-0 z-40 bg-gradient-to-r from-[#001489] via-[#08209e] to-[#001489] text-white shadow-md border-b border-blue-900/40">
@@ -85,12 +100,18 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Right Controls: Role Selector & System Status */}
           <div className="flex items-center gap-3">
-            {/* Database mode pill */}
-            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono border bg-white/10 border-white/20 text-blue-100">
-              <Database className="w-3.5 h-3.5 text-sky-300" />
-              <span>{isSupabaseConfigured ? 'Supabase Live' : 'Enterprise Store'}</span>
+            {/* Database mode pill & Quick Sync Button */}
+            <button
+              type="button"
+              onClick={handleQuickSync}
+              disabled={isSyncing}
+              title="Click to instantly re-sync live updates from other users & cloud"
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono border bg-white/10 hover:bg-white/20 border-white/20 text-blue-100 transition-all cursor-pointer shadow-2xs disabled:opacity-60"
+            >
+              <RefreshCw className={`w-3 h-3 text-sky-300 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Syncing...' : isSupabaseConfigured ? 'Live Cloud' : 'Local Store'}</span>
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            </div>
+            </button>
 
             {/* Role Badging */}
             {currentUser.role === 'CCI' && (

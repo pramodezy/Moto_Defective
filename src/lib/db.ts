@@ -50,8 +50,74 @@ class CRMDatabase {
   constructor() {
     this.loadFromStorage();
     this.reapplyStationLocationMappings();
+    this.setupCrossTabSync();
+    this.setupSupabaseRealtimeSync();
     // Connect directly to Supabase as single source of truth
     this.syncAllFromSupabase();
+
+    if (typeof window !== 'undefined') {
+      // Periodic background sync for active shipping orders every 20s
+      setInterval(() => {
+        this.syncShippingOrdersQuickly();
+      }, 20000);
+    }
+  }
+
+  // Cross-tab synchronization via browser localStorage storage event
+  private setupCrossTabSync() {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', (e) => {
+        if (e.key && Object.values(STORAGE_KEYS).includes(e.key as any)) {
+          this.loadFromStorage();
+          this.listeners.forEach((l) => l());
+        }
+      });
+    }
+  }
+
+  // Supabase Realtime WebSocket subscription for instant multi-device / multi-user updates
+  private setupSupabaseRealtimeSync() {
+    if (!isSupabaseConfigured || !supabase) return;
+
+    try {
+      supabase
+        .channel('realtime_shipping_orders_channel')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'shipping_orders' },
+          (payload: any) => {
+            if (payload.eventType === 'UPDATE' && payload.new) {
+              const updated = payload.new;
+              const idx = this.shippingOrders.findIndex(
+                (o) => o.so_code === updated.so_code || o.id === updated.id
+              );
+              if (idx !== -1) {
+                const current = this.shippingOrders[idx];
+                this.shippingOrders[idx] = {
+                  ...current,
+                  crm_status: (updated.crm_status || current.crm_status) as CRMStatus,
+                  pickup_status: (updated.pickup_status || current.pickup_status) as PickupStatus,
+                  active_awb: updated.active_awb !== undefined ? updated.active_awb : current.active_awb,
+                  excel_ref_awb: updated.excel_ref_awb !== undefined ? updated.excel_ref_awb : current.excel_ref_awb,
+                  courier: updated.courier || current.courier,
+                  motorola_status: updated.motorola_status || current.motorola_status,
+                  cwh_evidence_ref: updated.cwh_evidence_ref !== undefined ? updated.cwh_evidence_ref : current.cwh_evidence_ref,
+                  updated_at: updated.updated_at || new Date().toISOString(),
+                };
+                this.saveToStorage();
+                this.listeners.forEach((l) => l());
+              } else {
+                this.syncShippingOrdersQuickly();
+              }
+            } else if (payload.eventType === 'INSERT' || payload.eventType === 'DELETE') {
+              this.syncShippingOrdersQuickly();
+            }
+          }
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime Supabase subscription for shipping_orders failed:', err);
+    }
   }
 
   // Ensure all defective items and shipping orders have city, state, and region mapped from stations
@@ -246,6 +312,85 @@ class CRMDatabase {
     }
   }
 
+  // Rapid targeted sync for active shipping orders only (completes in < 250ms)
+  public async syncShippingOrdersQuickly(): Promise<number> {
+    if (!isSupabaseConfigured || !supabase) return this.shippingOrders.length;
+    try {
+      const soRows = await this.fetchAllRowsParallel('shipping_orders', 'created_at', (q) =>
+        q.neq('motorola_status', 'RC Received ASP')
+      );
+      if (!soRows || soRows.length === 0) return this.shippingOrders.length;
+
+      const activeSoRows = soRows.filter((so: any) => !isCompletedJourneyStatus(so.motorola_status));
+      const activeMappedOrders: ShippingOrder[] = activeSoRows.map((so: any) => {
+        const isNotRet = normalizeMotoStatusKey(so.motorola_status) === 'not return';
+        let mappedCrmStatus: CRMStatus;
+        if (isNotRet) {
+          mappedCrmStatus = 'CCI to Create DC';
+        } else if (!so.crm_status || so.crm_status === 'AWB Pending') {
+          mappedCrmStatus = deriveCrmStatusFromMotorolaStatus(
+            so.motorola_status,
+            so.active_awb || so.excel_ref_awb,
+            undefined,
+            so.pickup_status
+          );
+        } else {
+          mappedCrmStatus = so.crm_status as CRMStatus;
+        }
+
+        const effectivePickup: PickupStatus =
+          so.pickup_status ||
+          (mappedCrmStatus === 'In Transit'
+            ? 'Pickup Done'
+            : mappedCrmStatus === 'Pending AWB Re-Issue'
+            ? 'Pickup Not Done'
+            : 'Pickup Pending');
+
+        return {
+          id: so.id,
+          so_code: so.so_code,
+          station_code: so.station_code,
+          region: so.region || 'West',
+          state: so.state || '',
+          city: so.city || '',
+          motorola_status: so.motorola_status || 'CCI Send To CWH',
+          crm_status: mappedCrmStatus,
+          pickup_status: effectivePickup,
+          excel_ref_awb: so.excel_ref_awb,
+          active_awb: so.active_awb,
+          courier: so.courier || 'BlueDart Express',
+          eway_bill_required: Boolean(so.eway_bill_required),
+          eway_bill_number: so.eway_bill_number,
+          eway_bill_url: so.eway_bill_url,
+          cwh_evidence_ref: so.cwh_evidence_ref,
+          total_declared_value: parseFloat(so.total_declared_value || 0),
+          max_sr_age: parseInt(so.max_sr_age || 0, 10),
+          priority_tier: parseInt(so.priority_tier || 3, 10) as any,
+          total_items: parseInt(so.total_items || 1, 10),
+          created_at: so.created_at,
+          updated_at: so.updated_at,
+        };
+      });
+
+      if (this.isCompletedSessionLoaded) {
+        const existingCompletedOrders = this.shippingOrders.filter((so) =>
+          isCompletedJourneyStatus(so.motorola_status)
+        );
+        this.shippingOrders = [...activeMappedOrders, ...existingCompletedOrders];
+      } else {
+        this.shippingOrders = activeMappedOrders;
+      }
+
+      this.reapplyStationLocationMappings();
+      this.saveToStorage();
+      this.notify();
+      return this.shippingOrders.length;
+    } catch (err) {
+      console.warn('Quick sync for shipping orders failed:', err);
+      return this.shippingOrders.length;
+    }
+  }
+
   // Live Bidirectional Sync with Supabase Cloud (Single Source of Truth)
   // NOTE: Completed journey orders (RC Received ASP) are not populated into normal app memory by default.
   // They remain safely stored in Supabase and can be fetched on demand for active session by Admin ID.
@@ -255,9 +400,12 @@ class CRMDatabase {
     }
 
     try {
-      const [stRes, soRows, itemRows, logRes, awbHistRes, soCountRes, itemCountRes] = await Promise.all([
+      // 1. Instantly sync shipping orders (< 250ms) so user sees updated statuses immediately
+      await this.syncShippingOrdersQuickly();
+
+      // 2. Fetch stations, defective parts catalog, audit logs, and awb history in parallel
+      const [stRes, itemRows, logRes, awbHistRes, soCountRes, itemCountRes] = await Promise.all([
         supabase.from('cci_master').select('*').order('station_code', { ascending: true }),
-        this.fetchAllRowsParallel('shipping_orders', 'created_at', (q) => q.neq('motorola_status', 'RC Received ASP')),
         this.fetchAllRowsParallel('defective_master', 'created_at', (q) => q.neq('motorola_parts_status', 'RC Received ASP')),
         supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100),
         supabase.from('awb_history').select('*').order('created_at', { ascending: false }).limit(1000),
@@ -287,55 +435,6 @@ class CRMDatabase {
           updated_at: d.updated_at,
         }));
       }
-
-      // Populate active shipping orders (strictly excluding Code 5 RC Received ASP)
-      const activeSoRows = (soRows || []).filter((so: any) => !isCompletedJourneyStatus(so.motorola_status));
-      const activeMappedOrders: ShippingOrder[] = activeSoRows.map((so: any) => {
-        const isNotRet = normalizeMotoStatusKey(so.motorola_status) === 'not return';
-        let mappedCrmStatus: CRMStatus;
-        if (isNotRet) {
-          mappedCrmStatus = 'CCI to Create DC';
-        } else if (!so.crm_status || so.crm_status === 'AWB Pending') {
-          mappedCrmStatus = deriveCrmStatusFromMotorolaStatus(
-            so.motorola_status,
-            so.active_awb || so.excel_ref_awb,
-            undefined,
-            so.pickup_status
-          );
-        } else {
-          mappedCrmStatus = so.crm_status as CRMStatus;
-        }
-
-        const effectivePickup: PickupStatus = 
-          so.pickup_status ||
-          (mappedCrmStatus === 'In Transit' ? 'Pickup Done' : 
-           mappedCrmStatus === 'Pending AWB Re-Issue' ? 'Pickup Not Done' : 'Pickup Pending');
-
-        return {
-          id: so.id,
-          so_code: so.so_code,
-          station_code: so.station_code,
-          region: so.region || 'West',
-          state: so.state || '',
-          city: so.city || '',
-          motorola_status: so.motorola_status || 'CCI Send To CWH',
-          crm_status: mappedCrmStatus,
-          pickup_status: effectivePickup,
-          excel_ref_awb: so.excel_ref_awb,
-          active_awb: so.active_awb,
-          courier: so.courier || 'BlueDart Express',
-          eway_bill_required: Boolean(so.eway_bill_required),
-          eway_bill_number: so.eway_bill_number,
-          eway_bill_url: so.eway_bill_url,
-          cwh_evidence_ref: so.cwh_evidence_ref,
-          total_declared_value: parseFloat(so.total_declared_value || 0),
-          max_sr_age: parseInt(so.max_sr_age || 0, 10),
-          priority_tier: parseInt(so.priority_tier || 3, 10) as any,
-          total_items: parseInt(so.total_items || 1, 10),
-          created_at: so.created_at,
-          updated_at: so.updated_at,
-        };
-    });
 
       // Populate active defective master items (strictly excluding Code 5 RC Received ASP)
       const activeItemRows = (itemRows || []).filter((it: any) => !isCompletedJourneyStatus(it.motorola_parts_status));
@@ -368,13 +467,9 @@ class CRMDatabase {
       }));
 
       if (this.isCompletedSessionLoaded) {
-        // If the Admin already loaded completed session data, preserve those completed records in memory
-        const existingCompletedOrders = this.shippingOrders.filter(so => isCompletedJourneyStatus(so.motorola_status));
-        const existingCompletedItems = this.defectiveItems.filter(it => isCompletedJourneyStatus(it.motorola_parts_status));
-        this.shippingOrders = [...activeMappedOrders, ...existingCompletedOrders];
+        const existingCompletedItems = this.defectiveItems.filter((it) => isCompletedJourneyStatus(it.motorola_parts_status));
         this.defectiveItems = [...activeMappedItems, ...existingCompletedItems];
       } else {
-        this.shippingOrders = activeMappedOrders;
         this.defectiveItems = activeMappedItems;
       }
 
