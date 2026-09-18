@@ -19,7 +19,8 @@ import {
   RefreshCw,
   Info,
   Layers,
-  Clock
+  Clock,
+  Upload
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster, PriorityTier, CRMStatus, UserRole, UserProfile } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
@@ -437,13 +438,8 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
               onClick={() => setIsBulkPickupModalOpen(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-xs cursor-pointer transition-all"
             >
-              <Truck className="w-3.5 h-3.5" />
-              Bulk Pickup (Admin)
-              {selectedOrderIds.size > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-blue-800 text-[10px] font-mono">
-                  {selectedOrderIds.size}
-                </span>
-              )}
+              <Upload className="w-3.5 h-3.5" />
+              Bulk Pickup Upload
             </button>
           )}
 
@@ -823,14 +819,13 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
         </div>
       )}
 
-      {/* Admin Bulk Pickup Modal */}
+      {/* Admin Bulk Pickup Upload Modal */}
       {isBulkPickupModalOpen && user && (
         <BulkPickupModal
-          initialSelectedOrders={orders.filter((o) => selectedOrderIds.has(o.id))}
-          allOrders={orders}
-          items={items}
+          orders={orders}
           stations={stations}
           user={user}
+          isOpen={isBulkPickupModalOpen}
           onClose={() => setIsBulkPickupModalOpen(false)}
           onSuccess={() => {
             setSelectedOrderIds(new Set());

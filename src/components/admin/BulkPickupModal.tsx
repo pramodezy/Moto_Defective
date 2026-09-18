@@ -1,71 +1,67 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import {
-  X,
-  Truck,
+  Upload,
+  Download,
+  FileSpreadsheet,
   CheckCircle2,
   AlertTriangle,
-  Barcode,
+  X,
+  Truck,
+  RefreshCw,
   Layers,
-  Calendar,
-  FileSpreadsheet,
-  Building2,
+  FileCheck,
+  ChevronLeft,
+  ChevronRight,
   ShieldCheck,
-  Search,
-  CheckSquare,
-  Square,
-  Sparkles
+  Building2,
+  Barcode
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
-import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile } from '../../types/crm';
-import { formatINR, formatDate } from '../../lib/utils';
-import { getMotorolaStatusInfo } from '../../lib/motorolaStatus';
-import { crmDb } from '../../lib/db';
+import { ShippingOrder, CCIMaster, UserProfile } from '../../types/crm';
+import { crmDb, BulkPickupUploadItem } from '../../lib/db';
+import { getMotorolaStatusInfo, isCompletedJourneyStatus } from '../../lib/motorolaStatus';
+import { formatDate } from '../../lib/utils';
 import { toast } from 'sonner';
 
 interface BulkPickupModalProps {
-  initialSelectedOrders: ShippingOrder[];
-  allOrders: ShippingOrder[];
-  items: DefectiveItem[];
+  orders: ShippingOrder[];
   stations: CCIMaster[];
   user: UserProfile;
+  isOpen: boolean;
   onClose: () => void;
-  onSuccess: (updatedCount: number) => void;
+  onSuccess?: (count: number) => void;
 }
 
-const COURIER_OPTIONS = [
-  'Keep Existing Assigned Couriers',
-  'BlueDart Express',
-  'Delhivery Surface',
-  'DTDC Express',
-  'FedEx India',
-  'Shadowfax Logistics',
-  'XpressBees',
-  'Safechem Logistics',
-  'Other Regional Courier',
-];
+interface ParsedPickupRow {
+  rowNum: number;
+  soCode: string;
+  courier: string;
+  awbNumber: string;
+  pickupDate?: string;
+  runSheetRef?: string;
+  remarks?: string;
+  matchedOrder?: ShippingOrder;
+  status: 'VALID' | 'NOT_FOUND' | 'MISSING_AWB' | 'ALREADY_DELIVERED' | 'DUPLICATE';
+  message: string;
+}
 
 export const BulkPickupModal: React.FC<BulkPickupModalProps> = ({
-  initialSelectedOrders,
-  allOrders,
-  items,
+  orders,
   stations,
   user,
+  isOpen,
   onClose,
   onSuccess,
 }) => {
-  const [activeTab, setActiveTab] = useState<'selected' | 'paste'>('selected');
-  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(() => {
-    return new Set(initialSelectedOrders.map((o) => o.id));
-  });
-
-  const [pastedText, setPastedText] = useState('');
-  const [pickupDate, setPickupDate] = useState(() => new Date().toISOString().slice(0, 16));
-  const [courierOverride, setCourierOverride] = useState<string>('Keep Existing Assigned Couriers');
-  const [runSheetRef, setRunSheetRef] = useState('');
-  const [remarks, setRemarks] = useState('');
+  const [parsedRows, setParsedRows] = useState<ParsedPickupRow[]>([]);
+  const [fileName, setFileName] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [previewPage, setPreviewPage] = useState(1);
+  const previewPageSize = 10;
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Station mapping
+  // Fast station map lookup
   const stationMap = useMemo(() => {
     const map = new Map<string, CCIMaster>();
     stations.forEach((st) => {
@@ -75,500 +71,544 @@ export const BulkPickupModal: React.FC<BulkPickupModalProps> = ({
     return map;
   }, [stations]);
 
-  // Selected orders array
-  const selectedOrders = useMemo(() => {
-    return allOrders.filter((o) => selectedOrderIds.has(o.id));
-  }, [allOrders, selectedOrderIds]);
+  // Orders currently awaiting courier pickup
+  const awaitingPickupOrders = useMemo(() => {
+    return orders.filter((so) => {
+      const motoInfo = getMotorolaStatusInfo(so.motorola_status);
+      const hasAwb = Boolean(so.active_awb || so.excel_ref_awb);
+      return (
+        motoInfo.code === 2 &&
+        hasAwb &&
+        so.crm_status !== 'Delivered at CWH' &&
+        so.crm_status !== 'Pending Inward at CWH' &&
+        so.crm_status !== 'CWH to Create DC' &&
+        so.crm_status !== 'Pickup Pending for RC' &&
+        so.crm_status !== 'In Transit to RC' &&
+        so.crm_status !== 'CWH Shipped to RC' &&
+        so.crm_status !== 'Delivered to RC' &&
+        so.crm_status !== 'Delivered to RC (Discrepancies)' &&
+        so.crm_status !== 'In Transit' &&
+        so.pickup_status !== 'Pickup Done' &&
+        !motoInfo.isDelivered
+      );
+    });
+  }, [orders]);
 
-  // Item counts & values
-  const totalUnits = useMemo(() => {
-    const selectedCodes = new Set(selectedOrders.map((o) => o.so_code));
-    return items
-      .filter((it) => selectedCodes.has(it.shipping_order_code))
-      .reduce((sum, it) => sum + (it.quantity || 1), 0);
-  }, [selectedOrders, items]);
+  if (!isOpen) return null;
 
-  const totalValue = useMemo(() => {
-    return selectedOrders.reduce((sum, o) => sum + (o.total_declared_value || 0), 0);
-  }, [selectedOrders]);
+  // 1. Download Blank Excel Template
+  const handleDownloadBlankTemplate = () => {
+    const templateData = [
+      {
+        'Shipping Order Code': 'SORLC26091400342',
+        'Courier Partner': 'BlueDart Express',
+        'AWB Number': '53677967711',
+        'Pickup Date': new Date().toISOString().slice(0, 10),
+        'Courier Run Sheet / Docket': 'RUN-DEL-89412',
+        'Pickup Remarks': 'Physical pickup confirmed',
+      },
+      {
+        'Shipping Order Code': 'SORLC26091400343',
+        'Courier Partner': 'Delhivery Surface',
+        'AWB Number': '53678202266',
+        'Pickup Date': new Date().toISOString().slice(0, 10),
+        'Courier Run Sheet / Docket': 'RUN-DEL-89413',
+        'Pickup Remarks': 'Verified on courier manifest',
+      },
+    ];
 
-  // Analyze eligibility of selected orders
-  const eligibilityAnalysis = useMemo(() => {
-    const eligible: ShippingOrder[] = [];
-    const ineligible: { order: ShippingOrder; reason: string }[] = [];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Bulk_Pickup_Template');
+    XLSX.writeFile(wb, 'Motorola_Admin_Bulk_Pickup_Template.xlsx');
+    toast.success('Blank Bulk Pickup Template downloaded.');
+  };
 
-    for (const order of selectedOrders) {
-      const activeAwb = order.active_awb || order.excel_ref_awb;
-      const motoInfo = getMotorolaStatusInfo(order.motorola_status);
-
-      if (!activeAwb) {
-        ineligible.push({ order, reason: 'Pending AWB: CWH has not issued an AWB token yet' });
-        continue;
-      }
-      if (
-        order.crm_status === 'Delivered at CWH' ||
-        order.crm_status === 'Pending Inward at CWH' ||
-        order.crm_status === 'CWH to Create DC' ||
-        order.crm_status === 'Pickup Pending for RC' ||
-        order.crm_status === 'In Transit to RC' ||
-        order.crm_status === 'CWH Shipped to RC' ||
-        order.crm_status === 'Delivered to RC' ||
-        order.crm_status === 'Delivered to RC (Discrepancies)' ||
-        motoInfo.isDelivered
-      ) {
-        ineligible.push({ order, reason: `Already arrived at CWH or downstream stage (${order.crm_status})` });
-        continue;
-      }
-
-      eligible.push(order);
+  // 2. Download Pre-filled Template with All Awaiting Pickup SOs
+  const handleDownloadAwaitingSosTemplate = () => {
+    if (awaitingPickupOrders.length === 0) {
+      toast.info('No shipping orders are currently awaiting courier pickup.');
     }
 
-    return { eligible, ineligible };
-  }, [selectedOrders]);
-
-  // Handler for parsing pasted codes
-  const handleApplyPaste = () => {
-    const tokens = pastedText
-      .split(/[\n,;\t\s]+/)
-      .map((t) => t.trim().toUpperCase())
-      .filter(Boolean);
-
-    if (tokens.length === 0) {
-      toast.error('Please paste at least one SO Code or AWB number');
-      return;
-    }
-
-    const tokenSet = new Set(tokens);
-    const matched = allOrders.filter((o) => {
-      if (tokenSet.has(o.so_code.toUpperCase()) || tokenSet.has(o.id.toUpperCase())) return true;
-      if (o.active_awb && tokenSet.has(o.active_awb.trim().toUpperCase())) return true;
-      if (o.excel_ref_awb && tokenSet.has(o.excel_ref_awb.trim().toUpperCase())) return true;
-      return false;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const exportData = awaitingPickupOrders.map((so) => {
+      const st = stationMap.get(so.station_code);
+      return {
+        'Shipping Order Code': so.so_code,
+        'Origin Station': `${so.station_code} - ${st?.station_name || ''}`,
+        'City': st?.city || so.city || '',
+        'Total Units': so.total_items || 1,
+        'Courier Partner': so.courier || 'BlueDart Express',
+        'AWB Number': so.active_awb || so.excel_ref_awb || '',
+        'Pickup Date': todayStr,
+        'Courier Run Sheet / Docket': '',
+        'Pickup Remarks': 'Confirmed via courier daily run sheet',
+      };
     });
 
-    if (matched.length === 0) {
-      toast.error(`No consignments matched the ${tokens.length} pasted codes/AWBs.`);
-      return;
-    }
-
-    const newSet = new Set(selectedOrderIds);
-    matched.forEach((o) => newSet.add(o.id));
-    setSelectedOrderIds(newSet);
-    toast.success(`Matched and added ${matched.length} consignments to batch!`);
-    setActiveTab('selected');
-    setPastedText('');
+    const ws = XLSX.utils.json_to_sheet(exportData.length > 0 ? exportData : [
+      {
+        'Shipping Order Code': '',
+        'Origin Station': '',
+        'City': '',
+        'Total Units': 1,
+        'Courier Partner': 'BlueDart Express',
+        'AWB Number': '',
+        'Pickup Date': todayStr,
+        'Courier Run Sheet / Docket': '',
+        'Pickup Remarks': '',
+      }
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Awaiting_Pickup_Consignments');
+    XLSX.writeFile(
+      wb,
+      `Motorola_Awaiting_Pickup_${todayStr}.xlsx`
+    );
+    toast.success(
+      `Exported ${awaitingPickupOrders.length} consignments awaiting pickup into template.`
+    );
   };
 
-  const toggleOrderSelection = (id: string) => {
-    const next = new Set(selectedOrderIds);
-    if (next.has(id)) {
-      next.delete(id);
-    } else {
-      next.add(id);
-    }
-    setSelectedOrderIds(next);
+  // 3. Process Uploaded File
+  const handleFileUpload = (file: File) => {
+    if (!file) return;
+    setFileName(file.name);
+    setPreviewPage(1);
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const rawJson: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+        if (rawJson.length === 0) {
+          toast.error('The uploaded file contains no data.');
+          return;
+        }
+
+        // Fast lookup map for orders by SO Code and AWB
+        const soMap = new Map<string, ShippingOrder>();
+        const awbMap = new Map<string, ShippingOrder>();
+        orders.forEach((o) => {
+          soMap.set(o.so_code.trim().toUpperCase(), o);
+          soMap.set(o.id.trim().toUpperCase(), o);
+          if (o.active_awb) awbMap.set(o.active_awb.trim().toUpperCase(), o);
+          if (o.excel_ref_awb) awbMap.set(o.excel_ref_awb.trim().toUpperCase(), o);
+        });
+
+        const seenSos = new Set<string>();
+        const parsed: ParsedPickupRow[] = [];
+
+        rawJson.forEach((row, index) => {
+          const keys = Object.keys(row);
+          const findVal = (patterns: string[]) => {
+            for (const key of keys) {
+              const cleanKey = key.trim().toLowerCase().replace(/[\s_-]+/g, '');
+              if (patterns.some((p) => cleanKey.includes(p))) {
+                return String(row[key] || '').trim();
+              }
+            }
+            return '';
+          };
+
+          const soCode = findVal(['shippingordercode', 'shippingorder', 'socode', 'so_code', 'so']);
+          const awbNumber = findVal(['awbnumber', 'awbno', 'awb', 'waybill', 'trackingnumber', 'tracking']);
+          const courier = findVal(['courierpartner', 'courier', 'carrier', 'transporter']) || 'BlueDart Express';
+          const pickupDate = findVal(['pickupdate', 'date', 'handoverdate', 'dispatchdate']);
+          const runSheetRef = findVal(['courierrunsheet', 'runsheet', 'docket', 'manifest']);
+          const remarks = findVal(['pickupremarks', 'remarks', 'notes', 'comments']);
+
+          if (!soCode && !awbNumber) return; // Skip empty rows
+
+          const normSo = soCode.toUpperCase();
+          const normAwb = awbNumber.toUpperCase();
+          const matchedOrder = (normSo ? soMap.get(normSo) : undefined) || (normAwb ? awbMap.get(normAwb) : undefined);
+
+          let status: ParsedPickupRow['status'] = 'VALID';
+          let message = 'Ready to mark Pickup Done';
+
+          if (!matchedOrder) {
+            status = 'NOT_FOUND';
+            message = `SO "${soCode || awbNumber}" not found in CRM`;
+          } else {
+            const activeAwb = matchedOrder.active_awb || matchedOrder.excel_ref_awb || awbNumber;
+            const motoInfo = getMotorolaStatusInfo(matchedOrder.motorola_status);
+
+            if (!activeAwb) {
+              status = 'MISSING_AWB';
+              message = 'Missing AWB: Cannot confirm pickup without AWB number';
+            } else if (
+              matchedOrder.crm_status === 'Delivered at CWH' ||
+              matchedOrder.crm_status === 'Pending Inward at CWH' ||
+              matchedOrder.crm_status === 'CWH to Create DC' ||
+              matchedOrder.crm_status === 'Pickup Pending for RC' ||
+              matchedOrder.crm_status === 'In Transit to RC' ||
+              matchedOrder.crm_status === 'CWH Shipped to RC' ||
+              matchedOrder.crm_status === 'Delivered to RC' ||
+              matchedOrder.crm_status === 'Delivered to RC (Discrepancies)' ||
+              motoInfo.isDelivered
+            ) {
+              status = 'ALREADY_DELIVERED';
+              message = `Already reached CWH or downstream stage (${matchedOrder.crm_status})`;
+            } else if (seenSos.has(matchedOrder.so_code)) {
+              status = 'DUPLICATE';
+              message = 'Duplicate entry in uploaded sheet';
+            } else {
+              seenSos.add(matchedOrder.so_code);
+            }
+          }
+
+          parsed.push({
+            rowNum: index + 2,
+            soCode: matchedOrder ? matchedOrder.so_code : soCode,
+            courier,
+            awbNumber: matchedOrder?.active_awb || matchedOrder?.excel_ref_awb || awbNumber,
+            pickupDate,
+            runSheetRef,
+            remarks,
+            matchedOrder,
+            status,
+            message,
+          });
+        });
+
+        setParsedRows(parsed);
+        const validCount = parsed.filter((p) => p.status === 'VALID').length;
+        toast.success(`Parsed ${parsed.length} rows (${validCount} valid consignments ready).`);
+      } catch (err: any) {
+        console.error('Failed to parse Excel file:', err);
+        toast.error('Failed to read Excel/CSV file: ' + (err.message || 'Unknown error'));
+      }
+    };
+
+    reader.readAsArrayBuffer(file);
   };
 
-  const removeIneligible = () => {
-    const eligibleIds = new Set(eligibilityAnalysis.eligible.map((o) => o.id));
-    setSelectedOrderIds(eligibleIds);
-    toast.success(`Removed ${eligibilityAnalysis.ineligible.length} ineligible consignments from selection`);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (eligibilityAnalysis.eligible.length === 0) {
-      toast.error('No eligible consignments selected for pickup confirmation.');
+  // 4. Submit Batch to Database
+  const handleSubmitBatch = async () => {
+    const validRows = parsedRows.filter((r) => r.status === 'VALID');
+    if (validRows.length === 0) {
+      toast.error('No valid consignments available to submit.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const courier = courierOverride !== 'Keep Existing Assigned Couriers' ? courierOverride : undefined;
-      const combinedRemarks = [
-        runSheetRef ? `Run Sheet / Docket: ${runSheetRef}` : '',
-        remarks ? remarks.trim() : '',
-      ]
-        .filter(Boolean)
-        .join(' | ');
+      const recordsToUpdate: BulkPickupUploadItem[] = validRows.map((r) => ({
+        soCode: r.soCode,
+        courier: r.courier,
+        awbNumber: r.awbNumber,
+        pickupDate: r.pickupDate,
+        runSheetRef: r.runSheetRef,
+        remarks: r.remarks,
+      }));
 
-      const eligibleCodes = eligibilityAnalysis.eligible.map((o) => o.so_code);
-      const result = crmDb.bulkConfirmPickupDone(eligibleCodes, user, {
-        pickupDate: pickupDate ? new Date(pickupDate).toISOString() : new Date().toISOString(),
-        courier,
-        remarks: combinedRemarks || 'Bulk pickup verified and confirmed by Admin',
-      });
+      const res = crmDb.bulkConfirmPickupDone(recordsToUpdate, user);
 
-      confetti({
-        particleCount: 75,
-        spread: 70,
-        origin: { y: 0.6 },
-      });
-
-      toast.success(
-        `Successfully marked ${result.successCount} consignments as Pickup Done (In Transit)!`
-      );
-
-      if (result.skippedOrders.length > 0) {
-        toast.warning(`Skipped ${result.skippedOrders.length} orders that were ineligible`);
+      if (res.successCount > 0) {
+        if (res.skippedOrders.length > 0) {
+          toast.warning(
+            `Marked ${res.successCount} orders as "Pickup Done" (In Transit). ${res.skippedOrders.length} skipped.`
+          );
+        } else {
+          toast.success(
+            `Successfully marked ${res.successCount} orders as "Pickup Done" & transitioned to "In Transit" (synced to cloud)!`
+          );
+        }
+        onSuccess?.(res.successCount);
+        onClose();
+      } else {
+        toast.error('Failed to update consignments: No eligible orders were updated');
       }
-
-      onSuccess(result.successCount);
-      onClose();
     } catch (err: any) {
-      toast.error(err.message || 'Failed to complete bulk pickup confirmation');
+      toast.error('Database update failed: ' + (err.message || 'Error executing bulk pickup'));
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const validRowsCount = parsedRows.filter((r) => r.status === 'VALID').length;
+  const invalidRowsCount = parsedRows.filter((r) => r.status !== 'VALID').length;
+
+  // Pagination for preview table
+  const totalPreviewPages = Math.ceil(parsedRows.length / previewPageSize) || 1;
+  const paginatedPreviewRows = parsedRows.slice(
+    (previewPage - 1) * previewPageSize,
+    previewPage * previewPageSize
+  );
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-4xl max-h-[90vh] shadow-2xl flex flex-col overflow-hidden text-slate-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn">
+      <div className="relative w-full max-w-4xl max-h-[92vh] flex flex-col rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-slate-800">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-[#1e293b] flex items-center justify-between bg-[#131d36]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+            <div className="p-2.5 rounded-xl bg-blue-50 text-blue-700 border border-blue-200">
               <Truck className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-white tracking-wide">
-                  Admin Bulk Pickup Confirmation
-                </h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  ADMIN RIGHTS
+                <h3 className="text-base font-bold text-slate-900">
+                  Admin Bulk Courier Pickup Upload
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                  EXCEL / CSV
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
-                Acknowledge courier physical collection & transition multiple consignments to In Transit in one batch
+              <p className="text-xs text-slate-500">
+                Download the pending pickup sheet, verify courier run sheet/AWBs, and upload to move multiple SOs to "Pickup Done" (In Transit)
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
             disabled={isSubmitting}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Metrics Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-6 py-3 bg-[#0b1329] border-b border-[#1e293b] text-xs">
-          <div className="bg-[#131d36] p-2.5 rounded-lg border border-[#1e293b]">
-            <span className="text-slate-400 block text-[11px]">Selected Consignments</span>
-            <span className="text-base font-bold text-white font-mono">{selectedOrders.length}</span>
-          </div>
-          <div className="bg-[#131d36] p-2.5 rounded-lg border border-[#1e293b]">
-            <span className="text-slate-400 block text-[11px]">Defective Units</span>
-            <span className="text-base font-bold text-cyan-400 font-mono">{totalUnits} units</span>
-          </div>
-          <div className="bg-[#131d36] p-2.5 rounded-lg border border-[#1e293b]">
-            <span className="text-slate-400 block text-[11px]">Total Declared Value</span>
-            <span className="text-base font-bold text-emerald-400 font-mono">{formatINR(totalValue)}</span>
-          </div>
-          <div className="bg-[#131d36] p-2.5 rounded-lg border border-[#1e293b]">
-            <span className="text-slate-400 block text-[11px]">Eligible for Pickup</span>
-            <span className="text-base font-bold text-blue-400 font-mono">
-              {eligibilityAnalysis.eligible.length}
-              {eligibilityAnalysis.ineligible.length > 0 && (
-                <span className="text-xs text-amber-400 font-normal ml-1">
-                  ({eligibilityAnalysis.ineligible.length} invalid)
-                </span>
-              )}
-            </span>
-          </div>
-        </div>
-
-        {/* Ineligible warning banner if any */}
-        {eligibilityAnalysis.ineligible.length > 0 && (
-          <div className="px-6 py-2 bg-amber-950/40 border-b border-amber-900/50 flex items-center justify-between text-xs text-amber-300">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>
-                {eligibilityAnalysis.ineligible.length} selected consignment(s) cannot be confirmed (missing AWB or already at CWH).
+        {/* Content Body */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Step 1: Download Templates */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+              <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[11px] font-bold">
+                1
               </span>
+              Download Pickup Manifest Template
             </div>
-            <button
-              onClick={removeIneligible}
-              type="button"
-              className="px-2 py-0.5 rounded bg-amber-800/50 hover:bg-amber-800 text-amber-200 text-[11px] font-semibold transition-colors"
-            >
-              Deselect Ineligible
-            </button>
-          </div>
-        )}
 
-        {/* Tab Navigation */}
-        <div className="flex items-center gap-2 px-6 pt-3 border-b border-[#1e293b] bg-[#0d1527]">
-          <button
-            type="button"
-            onClick={() => setActiveTab('selected')}
-            className={`pb-2 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-              activeTab === 'selected'
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            Selected Consignments ({selectedOrders.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('paste')}
-            className={`pb-2 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-              activeTab === 'paste'
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            Paste SO Codes / AWBs
-          </button>
-        </div>
-
-        {/* Main Content Area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          {activeTab === 'paste' ? (
-            <div className="space-y-3">
-              <div className="bg-[#131d36] border border-[#1e293b] p-4 rounded-xl">
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Bulk Quick Entry (Paste SO Codes or Courier AWB Numbers)
-                </label>
-                <p className="text-[11px] text-slate-400 mb-3">
-                  Paste a list copied from your Excel run sheet, courier docket, or manifest. Separate with commas, tabs, or newlines.
-                </p>
-                <textarea
-                  rows={6}
-                  value={pastedText}
-                  onChange={(e) => setPastedText(e.target.value)}
-                  placeholder="Example:&#10;SORLC26091400342&#10;SORLC26091400343&#10;114589204481&#10;114589204482"
-                  className="w-full bg-[#0b1329] border border-[#1e293b] rounded-lg p-3 text-xs font-mono text-cyan-300 placeholder:text-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-                <div className="flex justify-end gap-2 mt-3">
-                  <button
-                    type="button"
-                    onClick={() => setPastedText('')}
-                    className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700"
-                  >
-                    Clear Text
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleApplyPaste}
-                    className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 flex items-center gap-1.5 shadow-md shadow-blue-900/30"
-                  >
-                    <Search className="w-3.5 h-3.5" />
-                    Match & Add to Batch
-                  </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Option A: Pre-filled Sheet with Awaiting Pickup SOs */}
+              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/40 flex flex-col justify-between space-y-3 hover:border-blue-300 transition-all">
+                <div>
+                  <div className="flex items-center gap-2 font-semibold text-xs text-blue-950">
+                    <FileSpreadsheet className="w-4 h-4 text-blue-600" />
+                    Awaiting Pickup Consignments ({awaitingPickupOrders.length})
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-1">
+                    Export all current consignments with AWBs issued awaiting courier collection. Open in Excel, verify run sheet / date, and re-upload.
+                  </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleDownloadAwaitingSosTemplate}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Download Pending Sheet (.xlsx)
+                </button>
+              </div>
+
+              {/* Option B: Blank Template */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col justify-between space-y-3 hover:border-slate-300 transition-all">
+                <div>
+                  <div className="flex items-center gap-2 font-semibold text-xs text-slate-800">
+                    <FileSpreadsheet className="w-4 h-4 text-slate-600" />
+                    Blank Pickup Template
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-1">
+                    Clean template with column schema: Shipping Order Code, Courier Partner, AWB Number, Pickup Date, Run Sheet, Remarks.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDownloadBlankTemplate}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Download Blank Schema (.xlsx)
+                </button>
               </div>
             </div>
-          ) : (
-            <div className="space-y-4">
-              {/* Consignments Table */}
-              <div className="border border-[#1e293b] rounded-xl overflow-hidden bg-[#131d36]/60">
+          </div>
+
+          {/* Step 2: Upload Completed File */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+              <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[11px] font-bold">
+                2
+              </span>
+              Upload Verified File
+            </div>
+
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={(e) => {
+                if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+              }}
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+            />
+
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                if (e.dataTransfer.files?.[0]) handleFileUpload(e.dataTransfer.files[0]);
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              className={`p-6 rounded-xl border-2 border-dashed flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
+                isDragging
+                  ? 'border-blue-500 bg-blue-50/50'
+                  : 'border-slate-300 hover:border-blue-400 bg-slate-50/40 hover:bg-blue-50/20'
+              }`}
+            >
+              <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center mb-2">
+                <Upload className="w-5 h-5" />
+              </div>
+              <p className="text-xs font-semibold text-slate-800">
+                {fileName ? (
+                  <span className="text-blue-700 font-mono font-bold flex items-center gap-1.5">
+                    <FileCheck className="w-4 h-4" /> {fileName}
+                  </span>
+                ) : (
+                  'Click to browse or drag & drop your Excel/CSV file here'
+                )}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Supports Microsoft Excel (.xlsx, .xls) and CSV files
+              </p>
+            </div>
+          </div>
+
+          {/* Step 3: Parse Results & Table Preview */}
+          {parsedRows.length > 0 && (
+            <div className="space-y-4 pt-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[11px] font-bold">
+                    3
+                  </span>
+                  Validation Summary ({parsedRows.length} Rows)
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    {validRowsCount} Valid
+                  </span>
+                  {invalidRowsCount > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      {invalidRowsCount} Skipped / Error
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Preview Table */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs bg-white">
                 <div className="max-h-60 overflow-y-auto">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead className="sticky top-0 bg-[#0b1329] text-slate-400 uppercase text-[10px] tracking-wider border-b border-[#1e293b]">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="sticky top-0 bg-slate-100 text-slate-600 border-b border-slate-200 font-mono text-[10px] uppercase">
                       <tr>
-                        <th className="py-2.5 px-3 w-10 text-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedOrders.length > 0 && selectedOrders.every((o) => selectedOrderIds.has(o.id))}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedOrderIds(new Set(allOrders.map((o) => o.id)));
-                              } else {
-                                setSelectedOrderIds(new Set());
-                              }
-                            }}
-                            className="rounded border-slate-700 text-blue-600 focus:ring-0 cursor-pointer"
-                          />
-                        </th>
+                        <th className="py-2.5 px-3">Row</th>
                         <th className="py-2.5 px-3">SO Code</th>
-                        <th className="py-2.5 px-3">Station</th>
-                        <th className="py-2.5 px-3">Courier & AWB</th>
-                        <th className="py-2.5 px-3">Current Status</th>
-                        <th className="py-2.5 px-3">Eligibility</th>
+                        <th className="py-2.5 px-3">Courier Partner</th>
+                        <th className="py-2.5 px-3">AWB Number</th>
+                        <th className="py-2.5 px-3">Pickup Date</th>
+                        <th className="py-2.5 px-3">Run Sheet / Docket</th>
+                        <th className="py-2.5 px-3">Status & Notes</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-[#1e293b]/60">
-                      {selectedOrders.map((so) => {
-                        const activeAwb = so.active_awb || so.excel_ref_awb;
-                        const motoInfo = getMotorolaStatusInfo(so.motorola_status);
-                        const isEligible =
-                          activeAwb &&
-                          so.crm_status !== 'Delivered at CWH' &&
-                          so.crm_status !== 'Pending Inward at CWH' &&
-                          so.crm_status !== 'CWH to Create DC' &&
-                          so.crm_status !== 'Pickup Pending for RC' &&
-                          so.crm_status !== 'In Transit to RC' &&
-                          so.crm_status !== 'CWH Shipped to RC' &&
-                          so.crm_status !== 'Delivered to RC' &&
-                          so.crm_status !== 'Delivered to RC (Discrepancies)' &&
-                          !motoInfo.isDelivered;
-
-                        const station = stationMap.get(so.station_code);
-
-                        return (
-                          <tr
-                            key={so.id}
-                            className={`hover:bg-slate-800/40 transition-colors ${
-                              !isEligible ? 'opacity-60 bg-amber-950/10' : ''
-                            }`}
-                          >
-                            <td className="py-2 px-3 text-center">
-                              <input
-                                type="checkbox"
-                                checked={selectedOrderIds.has(so.id)}
-                                onChange={() => toggleOrderSelection(so.id)}
-                                className="rounded border-slate-700 text-blue-600 focus:ring-0 cursor-pointer"
-                              />
-                            </td>
-                            <td className="py-2 px-3 font-mono font-semibold text-white">
-                              {so.so_code}
-                            </td>
-                            <td className="py-2 px-3 text-slate-300">
-                              <span className="font-mono text-[11px] text-cyan-300 mr-1.5">
-                                {so.station_code}
+                    <tbody className="divide-y divide-slate-100">
+                      {paginatedPreviewRows.map((r, i) => (
+                        <tr
+                          key={i}
+                          className={`hover:bg-slate-50 transition-colors ${
+                            r.status !== 'VALID' ? 'bg-amber-50/40 text-amber-900' : ''
+                          }`}
+                        >
+                          <td className="py-2 px-3 font-mono text-slate-400">
+                            #{r.rowNum}
+                          </td>
+                          <td className="py-2 px-3 font-mono font-semibold text-slate-900">
+                            {r.soCode}
+                          </td>
+                          <td className="py-2 px-3 text-slate-600">
+                            {r.courier}
+                          </td>
+                          <td className="py-2 px-3 font-mono font-semibold text-emerald-700">
+                            {r.awbNumber || '—'}
+                          </td>
+                          <td className="py-2 px-3 text-slate-600">
+                            {r.pickupDate || 'Today'}
+                          </td>
+                          <td className="py-2 px-3 font-mono text-slate-600">
+                            {r.runSheetRef || '—'}
+                          </td>
+                          <td className="py-2 px-3">
+                            {r.status === 'VALID' ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                Ready
                               </span>
-                              <span className="text-slate-400 text-[11px]">
-                                {station?.station_name || so.station_code}
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-600" title={r.message}>
+                                <AlertTriangle className="w-3 h-3 text-rose-500 shrink-0" />
+                                <span className="truncate max-w-[160px]">{r.message}</span>
                               </span>
-                            </td>
-                            <td className="py-2 px-3">
-                              {activeAwb ? (
-                                <div>
-                                  <span className="font-mono text-emerald-400 font-semibold block text-[11px]">
-                                    {activeAwb}
-                                  </span>
-                                  <span className="text-[10px] text-slate-400">
-                                    {so.courier || 'BlueDart'}
-                                  </span>
-                                </div>
-                              ) : (
-                                <span className="text-amber-400 text-[11px] font-semibold">
-                                  No AWB
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-2 px-3">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
-                                {so.crm_status}
-                              </span>
-                            </td>
-                            <td className="py-2 px-3">
-                              {isEligible ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                                  Ready
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-[11px] text-amber-400 font-semibold" title={!activeAwb ? 'Missing AWB' : 'Already at/past CWH'}>
-                                  <AlertTriangle className="w-3 h-3 text-amber-500" />
-                                  {!activeAwb ? 'Needs AWB' : 'At CWH'}
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-
-                      {selectedOrders.length === 0 && (
-                        <tr>
-                          <td colSpan={6} className="py-8 text-center text-slate-500">
-                            No consignments currently selected. Choose from table or paste codes.
+                            )}
                           </td>
                         </tr>
-                      )}
+                      ))}
                     </tbody>
                   </table>
                 </div>
-              </div>
 
-              {/* Handover Parameters Form */}
-              <div className="bg-[#131d36] border border-[#1e293b] p-4 rounded-xl space-y-4">
-                <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider">
-                  <ShieldCheck className="w-4 h-4 text-cyan-400" />
-                  Courier Handover Parameters
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                  {/* Pickup Date & Time */}
-                  <div>
-                    <label className="block font-semibold text-slate-300 mb-1">
-                      Physical Pickup Date & Time
-                    </label>
-                    <input
-                      type="datetime-local"
-                      value={pickupDate}
-                      onChange={(e) => setPickupDate(e.target.value)}
-                      className="w-full bg-[#0b1329] border border-[#1e293b] rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-blue-500"
-                    />
+                {/* Pagination footer for preview */}
+                {totalPreviewPages > 1 && (
+                  <div className="px-4 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
+                    <span>
+                      Page {previewPage} of {totalPreviewPages} ({parsedRows.length} total rows)
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewPage((p) => Math.max(1, p - 1))}
+                        disabled={previewPage === 1}
+                        className="p-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-white cursor-pointer"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewPage((p) => Math.min(totalPreviewPages, p + 1))}
+                        disabled={previewPage === totalPreviewPages}
+                        className="p-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-white cursor-pointer"
+                      >
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-
-                  {/* Courier Override */}
-                  <div>
-                    <label className="block font-semibold text-slate-300 mb-1">
-                      Courier Partner
-                    </label>
-                    <select
-                      value={courierOverride}
-                      onChange={(e) => setCourierOverride(e.target.value)}
-                      className="w-full bg-[#0b1329] border border-[#1e293b] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
-                    >
-                      {COURIER_OPTIONS.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Courier Run Sheet / Docket */}
-                  <div>
-                    <label className="block font-semibold text-slate-300 mb-1">
-                      Courier Run Sheet / Docket Ref (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={runSheetRef}
-                      onChange={(e) => setRunSheetRef(e.target.value)}
-                      placeholder="e.g. BD-DEL-RUN-98431"
-                      className="w-full bg-[#0b1329] border border-[#1e293b] rounded-lg px-3 py-2 text-xs font-mono text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-
-                  {/* Operation Notes */}
-                  <div>
-                    <label className="block font-semibold text-slate-300 mb-1">
-                      Admin Notes / Handover Remarks
-                    </label>
-                    <input
-                      type="text"
-                      value={remarks}
-                      onChange={(e) => setRemarks(e.target.value)}
-                      placeholder="e.g. Verified against physical courier handover sheet"
-                      className="w-full bg-[#0b1329] border border-[#1e293b] rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           )}
         </div>
 
         {/* Footer Actions */}
-        <div className="px-6 py-4 border-t border-[#1e293b] bg-[#0b1329] flex items-center justify-between">
-          <div className="text-xs text-slate-400">
-            {eligibilityAnalysis.eligible.length > 0 ? (
-              <span className="text-emerald-400 font-semibold">
-                ✓ {eligibilityAnalysis.eligible.length} consignment(s) will transition to 'In Transit'
+        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+          <div className="text-xs text-slate-500">
+            {validRowsCount > 0 ? (
+              <span className="text-emerald-700 font-semibold">
+                ✓ Ready to transition {validRowsCount} consignment(s) to 'In Transit'
               </span>
             ) : (
-              <span className="text-slate-500">Select at least one eligible consignment</span>
+              <span>Download template, fill pickup data, and upload sheet</span>
             )}
           </div>
 
@@ -577,27 +617,25 @@ export const BulkPickupModal: React.FC<BulkPickupModalProps> = ({
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="button"
-              onClick={handleSubmit}
-              disabled={isSubmitting || eligibilityAnalysis.eligible.length === 0}
-              className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-blue-900/40 flex items-center gap-2 cursor-pointer transition-all"
+              onClick={handleSubmitBatch}
+              disabled={isSubmitting || validRowsCount === 0}
+              className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-blue-700/20 flex items-center gap-2 cursor-pointer transition-all"
             >
               {isSubmitting ? (
                 <>
-                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Processing Bulk Confirmation...</span>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Updating Consignments...</span>
                 </>
               ) : (
                 <>
                   <Truck className="w-4 h-4" />
-                  <span>
-                    Confirm Pickup Done ({eligibilityAnalysis.eligible.length} Orders)
-                  </span>
+                  <span>Confirm Bulk Pickup Done ({validRowsCount})</span>
                 </>
               )}
             </button>

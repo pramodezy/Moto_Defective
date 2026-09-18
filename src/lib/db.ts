@@ -19,6 +19,15 @@ import {
 import { supabase, isSupabaseConfigured } from './supabase';
 import { deriveCrmStatusFromMotorolaStatus, isCompletedJourneyStatus, normalizeMotoStatusKey } from './motorolaStatus';
 
+export interface BulkPickupUploadItem {
+  soCode: string;
+  courier?: string;
+  awbNumber?: string;
+  pickupDate?: string;
+  runSheetRef?: string;
+  remarks?: string;
+}
+
 const STORAGE_KEYS = {
   STATIONS: 'moto_crm_stations_v2',
   SHIPPING_ORDERS: 'moto_crm_shipping_orders_v2',
@@ -1849,7 +1858,7 @@ class CRMDatabase {
 
   // --- ADMIN / BULK PICKUP CONFIRMATION ACTION ---
   public bulkConfirmPickupDone(
-    soIdsOrCodes: string[],
+    itemsOrCodes: (string | BulkPickupUploadItem)[],
     user: UserProfile,
     options?: {
       pickupDate?: string;
@@ -1867,29 +1876,67 @@ class CRMDatabase {
 
     const updatedOrders: ShippingOrder[] = [];
     const skippedOrders: { code: string; reason: string }[] = [];
-    const nowIso = options?.pickupDate ? new Date(options.pickupDate).toISOString() : new Date().toISOString();
-    const cleanRemarks = options?.remarks?.trim() || 'Bulk pickup confirmed by Admin';
+    const defaultNowIso = options?.pickupDate ? new Date(options.pickupDate).toISOString() : new Date().toISOString();
+    const defaultRemarks = options?.remarks?.trim() || 'Bulk pickup confirmed by Admin';
 
-    // Build lookup set of target codes/IDs/AWBs
-    const targetSet = new Set(soIdsOrCodes.map((s) => s.trim().toUpperCase()).filter(Boolean));
+    // Map items into structured items
+    const structuredItems: BulkPickupUploadItem[] = itemsOrCodes.map((item) => {
+      if (typeof item === 'string') {
+        return {
+          soCode: item.trim(),
+          courier: options?.courier,
+          pickupDate: options?.pickupDate,
+          remarks: options?.remarks,
+        };
+      }
+      return item;
+    }).filter((it) => it.soCode || it.awbNumber);
 
-    // Find all matching shipping orders
-    const matchingOrders = this.shippingOrders.filter((o) => {
-      if (targetSet.has(o.id.toUpperCase()) || targetSet.has(o.so_code.toUpperCase())) return true;
-      if (o.active_awb && targetSet.has(o.active_awb.trim().toUpperCase())) return true;
-      if (o.excel_ref_awb && targetSet.has(o.excel_ref_awb.trim().toUpperCase())) return true;
-      return false;
+    // Fast lookup map for orders by SO code and AWB
+    const soByCode = new Map<string, ShippingOrder>();
+    const soByAwb = new Map<string, ShippingOrder>();
+    this.shippingOrders.forEach((o) => {
+      soByCode.set(o.so_code.toUpperCase(), o);
+      soByCode.set(o.id.toUpperCase(), o);
+      if (o.active_awb) soByAwb.set(o.active_awb.trim().toUpperCase(), o);
+      if (o.excel_ref_awb) soByAwb.set(o.excel_ref_awb.trim().toUpperCase(), o);
     });
 
     const validSoCodes: string[] = [];
     const validSoIds: string[] = [];
+    const seenProcessedCodes = new Set<string>();
 
-    for (const so of matchingOrders) {
-      const activeAwb = so.active_awb || so.excel_ref_awb;
+    for (const item of structuredItems) {
+      const codeKey = (item.soCode || '').trim().toUpperCase();
+      const awbKey = (item.awbNumber || '').trim().toUpperCase();
+      
+      const so = (codeKey ? soByCode.get(codeKey) : undefined) || (awbKey ? soByAwb.get(awbKey) : undefined);
 
-      // 1. Must have an AWB issued
+      if (!so) {
+        skippedOrders.push({
+          code: item.soCode || item.awbNumber || 'UNKNOWN',
+          reason: 'Shipping order not found in CRM',
+        });
+        continue;
+      }
+
+      if (seenProcessedCodes.has(so.so_code)) {
+        continue; // deduplicate
+      }
+
+      // If AWB provided in sheet and order was missing active AWB, update it
+      if (item.awbNumber?.trim() && !so.active_awb) {
+        so.active_awb = item.awbNumber.trim();
+      }
+
+      const activeAwb = so.active_awb || so.excel_ref_awb || item.awbNumber?.trim();
+
+      // 1. Must have an AWB
       if (!activeAwb) {
-        skippedOrders.push({ code: so.so_code, reason: 'No AWB assigned yet (CWH must assign AWB first)' });
+        skippedOrders.push({
+          code: so.so_code,
+          reason: 'No AWB assigned yet (CWH must issue AWB before pickup confirmation)',
+        });
         continue;
       }
 
@@ -1912,21 +1959,31 @@ class CRMDatabase {
         continue;
       }
 
-      // 3. Apply state update
+      // 3. Resolve row pickup date and remarks
+      const effectiveDate = item.pickupDate ? new Date(item.pickupDate).toISOString() : defaultNowIso;
+      const combinedRemarks = [
+        item.runSheetRef ? `Run Sheet: ${item.runSheetRef}` : '',
+        item.remarks ? item.remarks : defaultRemarks,
+      ].filter(Boolean).join(' | ');
+
+      // 4. Apply state update
       so.pickup_status = 'Pickup Done';
       so.crm_status = 'In Transit';
-      so.pickup_date = nowIso;
-      so.pickup_remarks = cleanRemarks;
-      if (options?.courier?.trim()) {
+      so.pickup_date = effectiveDate;
+      so.pickup_remarks = combinedRemarks;
+      if (item.courier?.trim()) {
+        so.courier = item.courier.trim();
+      } else if (options?.courier?.trim()) {
         so.courier = options.courier.trim();
       }
       so.updated_at = new Date().toISOString();
 
+      seenProcessedCodes.add(so.so_code);
       validSoCodes.push(so.so_code);
       validSoIds.push(so.id);
       updatedOrders.push(so);
 
-      // 4. Audit Log entry
+      // 5. Audit Log entry
       this.auditLogs.unshift({
         id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         shipping_order_id: so.id,
@@ -1935,7 +1992,7 @@ class CRMDatabase {
         user_role: user.role,
         action: 'ADMIN_BULK_PICKUP_DONE',
         awb: activeAwb,
-        remarks: `Bulk pickup confirmed by ${user.role} (${user.username}). Consignment transitioned to In Transit. AWB: ${activeAwb} (${so.courier}). Notes: ${cleanRemarks}`,
+        remarks: `Bulk pickup confirmed by ${user.role} (${user.username}). Consignment transitioned to In Transit. AWB: ${activeAwb} (${so.courier}). Notes: ${combinedRemarks}`,
         created_at: new Date().toISOString(),
       });
     }
@@ -1963,7 +2020,7 @@ class CRMDatabase {
       supabase
         .from('awb_history')
         .update({
-          pickup_date: nowIso,
+          pickup_date: defaultNowIso,
         })
         .in('shipping_order_id', validSoIds)
         .eq('is_active', true)
