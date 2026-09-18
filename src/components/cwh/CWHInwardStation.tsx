@@ -698,20 +698,6 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
             ))}
           </select>
 
-          {/* Priority / Ageing Scope Selector */}
-          <select
-            value={selectedPriority}
-            onChange={(e) => setSelectedPriority(e.target.value)}
-            aria-label="Filter by Ageing Criticality"
-            className="bg-slate-50 border border-slate-300 text-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#001489] transition-colors"
-          >
-            <option value="ALL">All Priorities ({priorityCounts.total})</option>
-            <option value="super_critical">🚨 Super Critical &gt;25d ({priorityCounts.superCritical})</option>
-            <option value="critical">⚠️ Critical 16-25d ({priorityCounts.critical})</option>
-            <option value="high">⏱️ High 8-15d ({priorityCounts.high})</option>
-            <option value="low">🟢 Low 0-7d ({priorityCounts.low})</option>
-          </select>
-
           {/* Reset Filters Button */}
           {(selectedStation !== 'ALL' || selectedRegion !== 'ALL' || selectedPriority !== 'ALL' || searchQuery) && (
             <button
