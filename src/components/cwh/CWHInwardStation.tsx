@@ -32,6 +32,8 @@ import {
   getUnifiedPickupStatus
 } from '../../lib/motorolaStatus';
 import { BulkAwbUploadModal } from './BulkAwbUploadModal';
+import { CourierReceiptModal } from './CourierReceiptModal';
+import { crmDb } from '../../lib/db';
 
 interface CWHInwardStationProps {
   orders: ShippingOrder[];
@@ -45,6 +47,14 @@ interface CWHInwardStationProps {
     soId: string,
     data: { dcNumber: string; courier?: string; remarks?: string }
   ) => void;
+  onAcknowledgeDelivery?: (
+    soId: string,
+    data: {
+      cartonCondition: string;
+      receivedBoxes: number;
+      remarks?: string;
+    }
+  ) => void;
 }
 
 export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
@@ -56,6 +66,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   onOpenAwbModal,
   onSelectOrder,
   onDispatchToRc,
+  onAcknowledgeDelivery,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStation, setSelectedStation] = useState<string>('ALL');
@@ -64,6 +75,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     'needs_awb' | 'pickup_pending' | 'in_transit' | 'awb_reissue' | 'at_cwh' | 'discrepancies' | 'outbound_rc'
   >('needs_awb');
   const [isBulkAwbModalOpen, setIsBulkAwbModalOpen] = useState(false);
+  const [receivingOrder, setReceivingOrder] = useState<ShippingOrder | null>(null);
 
   // Create DC to RC Modal State
   const [dcModalOrder, setDcModalOrder] = useState<ShippingOrder | null>(null);
@@ -97,6 +109,18 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       });
     }
     setDcModalOrder(null);
+  };
+
+  const handleConfirmDelivery = (
+    soId: string,
+    data: { cartonCondition: string; receivedBoxes: number; remarks?: string }
+  ) => {
+    if (onAcknowledgeDelivery) {
+      onAcknowledgeDelivery(soId, data);
+    } else {
+      crmDb.acknowledgeCourierDelivery(soId, user, data);
+    }
+    setReceivingOrder(null);
   };
 
   // Station name lookup with code normalization
@@ -225,10 +249,19 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       ) {
         return false;
       }
-      if (o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done') return false;
+      if (
+        o.crm_status === 'Pending AWB Re-Issue' || 
+        o.pickup_status === 'Pickup Not Done' ||
+        o.crm_status === 'Delivered at CWH' ||
+        o.crm_status === 'Pending Inward at CWH' ||
+        o.crm_status === 'CWH to Create DC' ||
+        o.crm_status === 'Discrepancies'
+      ) {
+        return false;
+      }
       
       const effectivePickup = getUnifiedPickupStatus(o);
-      // Strictly only orders where pickup is done / en route
+      // Strictly only orders where pickup is done / actively en route
       return effectivePickup === 'Pickup Done' || o.crm_status === 'In Transit';
     });
   }, [stationScopedOrders]);
@@ -345,7 +378,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     {
       id: 'in_transit',
       label: 'In-Transit',
-      sublabel: 'En Route: CCI → CWH',
+      sublabel: 'En Route to CWH',
       count: inTransitOrders.length,
       icon: Truck,
       activeClasses: 'border-sky-500 bg-sky-50/70 shadow-sm ring-1 ring-sky-500',
@@ -364,7 +397,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     {
       id: 'at_cwh',
       label: 'At CWH Hub',
-      sublabel: 'CCTV Unbox & DC',
+      sublabel: 'Dock Inward & CCTV',
       count: atCwhOrders.length,
       icon: Video,
       activeClasses: 'border-purple-500 bg-purple-50/70 shadow-sm ring-1 ring-purple-500',
@@ -400,7 +433,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       color: 'text-blue-800 bg-blue-50 border-blue-200',
     },
     in_transit: {
-      desc: 'Station confirmed "Pickup Done". Consignment is actively en route to CWH.',
+      desc: 'Consignment en route with courier. When delivered at warehouse dock, click "Acknowledge Delivery" to record intake.',
       color: 'text-sky-800 bg-sky-50 border-sky-200',
     },
     awb_reissue: {
@@ -408,7 +441,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       color: 'text-rose-800 bg-rose-50 border-rose-300 font-semibold',
     },
     at_cwh: {
-      desc: 'Consignment delivered at CWH bay. Unbox under CCTV & inspect defective units.',
+      desc: 'Consignments delivered at CWH. Staged boxes require CCTV unboxing & screening; verified packages require DC creation to RC.',
       color: 'text-purple-800 bg-purple-50 border-purple-200',
     },
     discrepancies: {
@@ -733,10 +766,10 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                           /* 4. CCTV Verified Clean — Awaiting Motorola CRM Receipt Entry (CWH Received) */
                           <>
                             <span
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-900 border border-amber-300 shadow-2xs"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-sky-50 text-sky-900 border border-sky-300 shadow-2xs"
                               title="CCTV physical inspection verified clean. Please update receipt to 'CWH Received' in Motorola CRM to unlock DC creation to RC."
                             >
-                              <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <Clock className="w-3.5 h-3.5 text-sky-600 shrink-0" />
                               Awaiting Moto CRM Inward
                             </span>
                             <button
@@ -745,11 +778,29 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                               className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
                             >
                               <Video className="w-3 h-3 text-slate-600" />
-                              CCTV
+                              CCTV Log
+                            </button>
+                          </>
+                        ) : so.crm_status === 'Delivered at CWH' ? (
+                          /* 5. Delivered at CWH Dock: Staged at Bay -> Perform CCTV Unboxing & Screening */
+                          <>
+                            <button
+                              onClick={() => onOpenUnboxing(so)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#001489] hover:bg-[#08209e] text-white shadow-xs transition-colors cursor-pointer"
+                              title="Unbox consignment under CCTV camera and screen units/parts for discrepancies"
+                            >
+                              <Video className="w-3.5 h-3.5" />
+                              CCTV Inward &amp; Screen
+                            </button>
+                            <button
+                              onClick={() => onSelectOrder(so)}
+                              className="px-2.5 py-1.5 rounded-lg text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
+                            >
+                              Details
                             </button>
                           </>
                         ) : isDiscrepancy ? (
-                          /* 5. Discrepancy Queue */
+                          /* 6. Discrepancy Queue */
                           <>
                             <button
                               onClick={() => onOpenUnboxing(so)}
@@ -765,24 +816,22 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                               View
                             </button>
                           </>
-                        ) : so.crm_status === 'Delivered at CWH' || so.crm_status === 'In Transit' ? (
-                          /* 6. Delivered at CWH / In Transit: CCTV Inward */
+                        ) : so.crm_status === 'In Transit' || activeSubTab === 'in_transit' ? (
+                          /* 7. In Transit: Parcel with Courier -> Acknowledge Delivery at CWH Gate */
                           <>
                             <button
-                              onClick={() => onOpenUnboxing(so)}
-                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[#001489] hover:bg-[#08209e] text-white shadow-xs transition-colors cursor-pointer"
+                              onClick={() => setReceivingOrder(so)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors cursor-pointer"
+                              title="Acknowledge physical package delivery from courier at CWH dock"
                             >
-                              <Video className="w-3 h-3" />
-                              {so.crm_status === 'Delivered at CWH'
-                                ? 'CCTV Inward & Unbox'
-                                : 'Unbox Under CCTV'}
+                              <PackageCheck className="w-3.5 h-3.5" />
+                              Acknowledge Delivery
                             </button>
                             <button
-                              onClick={() => onOpenAwbModal(so)}
-                              title="Assign / Retoken AWB"
-                              className="px-2 py-1.5 rounded-lg text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
+                              onClick={() => onSelectOrder(so)}
+                              className="px-2.5 py-1.5 rounded-lg text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
                             >
-                              AWB
+                              Details
                             </button>
                           </>
                         ) : so.crm_status === 'Pickup Pending' || activeSubTab === 'pickup_pending' ? (
@@ -1018,6 +1067,15 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         stations={stations}
         user={user}
       />
+
+      {/* Courier Dock Receipt Acknowledgment Modal */}
+      {receivingOrder && (
+        <CourierReceiptModal
+          order={receivingOrder}
+          onClose={() => setReceivingOrder(null)}
+          onConfirm={handleConfirmDelivery}
+        />
+      )}
     </div>
   );
 };

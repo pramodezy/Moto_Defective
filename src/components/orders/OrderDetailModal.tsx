@@ -277,6 +277,8 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                   <span className="font-bold text-sky-900">
                     {order.crm_status === 'Pending Inward at CWH'
                       ? 'CCTV Inward Complete — Awaiting Motorola CRM Receipt:'
+                      : order.crm_status === 'Delivered at CWH'
+                      ? 'Delivered at CWH Dock — Staged for CCTV Screening:'
                       : unifiedPickup === 'Pickup Done' || order.crm_status === 'In Transit'
                       ? 'Consignment In-Transit to CWH:'
                       : `Awaiting Courier Pickup at Station (${order.station_code}):`}
@@ -284,8 +286,10 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                   <span className="text-sky-800 ml-1.5">
                     {order.crm_status === 'Pending Inward at CWH'
                       ? 'Physical verification completed clean under CCTV bay. Please enter receipt in Motorola CRM to advance status to "CWH Received" and unlock DC creation to RC.'
+                      : order.crm_status === 'Delivered at CWH'
+                      ? 'Consignment arrived at CWH dock from courier. Please proceed to CCTV bay for unboxing and line-item screening.'
                       : unifiedPickup === 'Pickup Done' || order.crm_status === 'In Transit'
-                      ? `Dispatched from ${order.station_code} via ${order.courier || 'courier'}. Consignment is en-route to Central Warehouse. Verify inward upon arrival.`
+                      ? `Dispatched from ${order.station_code} via ${order.courier || 'courier'}. Consignment is en-route to Central Warehouse. Acknowledge delivery upon arrival at dock.`
                       : `AWB token (${order.active_awb || order.excel_ref_awb || 'Assigned'}) is generated. Station is packing and handing over parcel to courier. Inward verification will activate once in-transit.`}
                   </span>
                 </div>

@@ -347,19 +347,37 @@ export function getUnifiedStageDetails(order: {
     };
   }
 
-  // Stage 6: At CWH (Inward & Screening)
+  // Stage 6: At CWH (Screening & Inward sub-stages)
+  if (crm === 'Delivered at CWH') {
+    return {
+      key: 'delivered_at_cwh',
+      stageName: 'Delivered at CWH (Screening Pending)',
+      badgeClass: 'bg-amber-50 text-amber-900 border-amber-300 font-medium',
+      meaning: 'Courier delivered parcel to CWH dock. Physical carton staged for CCTV unboxing & screening.',
+      stageNumber: 6,
+    };
+  }
+
+  if (crm === 'Pending Inward at CWH') {
+    return {
+      key: 'pending_inward_cwh',
+      stageName: 'At CWH (Awaiting Moto Inward)',
+      badgeClass: 'bg-sky-50 text-sky-900 border-sky-300 font-medium',
+      meaning: 'CCTV inspection completed clean. Please enter inward receipt in Motorola CRM to advance to CWH Received.',
+      stageNumber: 6,
+    };
+  }
+
   if (
+    crm === 'CWH to Create DC' ||
     motoInfo.code === 3 ||
-    normMoto.includes('cwh received') ||
-    crm === 'Delivered at CWH' ||
-    crm === 'Pending Inward at CWH' ||
-    crm === 'CWH to Create DC'
+    normMoto.includes('cwh received')
   ) {
     return {
       key: 'at_cwh',
-      stageName: 'At CWH (Inward & Screening)',
+      stageName: 'At CWH (Ready to Create DC)',
       badgeClass: 'bg-purple-50 text-purple-800 border-purple-300 font-medium',
-      meaning: 'Consignment arrived at CWH bay for unboxing, CCTV inspection, and staging.',
+      meaning: 'Received in Motorola CRM. CWH to create outbound Delivery Challan to Repair Center in Lenovo CRM.',
       stageNumber: 6,
     };
   }

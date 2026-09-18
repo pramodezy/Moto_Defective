@@ -1153,7 +1153,58 @@ class CRMDatabase {
     };
   }
 
-  // --- CWH INWARD VERIFICATION & CCTV UNBOXING (STAGE 1 QTY & STAGE 2 PART MATCHING) ---
+  // --- STEP 1: CWH COURIER RECEIPT ACKNOWLEDGMENT (DOCK / GATE INTAKE) ---
+  public acknowledgeCourierDelivery(
+    soId: string,
+    user: UserProfile,
+    deliveryNotes?: {
+      cartonCondition?: string;
+      receivedBoxes?: number;
+      remarks?: string;
+    }
+  ): ShippingOrder {
+    const so = this.shippingOrders.find((o) => o.id === soId || o.so_code === soId);
+    if (!so) throw new Error('Shipping Order not found');
+
+    const oldStatus = so.crm_status;
+    so.crm_status = 'Delivered at CWH';
+    so.pickup_status = 'Pickup Done';
+    so.updated_at = new Date().toISOString();
+
+    // Constituent defective line items remain with screening_status = 'Pending' (untouched)
+
+    this.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      shipping_order_id: so.id,
+      so_code: so.so_code,
+      user_name: user.full_name,
+      user_role: user.role,
+      action: 'COURIER_DELIVERY_ACKNOWLEDGED',
+      old_status: oldStatus,
+      new_status: 'Delivered at CWH',
+      remarks: `Courier delivery acknowledged at CWH dock by ${user.full_name} (${user.role}). Package staged for CCTV unboxing & screening.${
+        deliveryNotes?.cartonCondition ? ` Outer condition: ${deliveryNotes.cartonCondition}.` : ''
+      }${deliveryNotes?.receivedBoxes ? ` Parcels received: ${deliveryNotes.receivedBoxes}.` : ''}${
+        deliveryNotes?.remarks ? ` Notes: ${deliveryNotes.remarks}` : ''
+      }`,
+      created_at: new Date().toISOString(),
+    });
+
+    if (isSupabaseConfigured && supabase) {
+      supabase.from('shipping_orders').update({
+        crm_status: so.crm_status,
+        pickup_status: so.pickup_status,
+        updated_at: so.updated_at,
+      }).eq('so_code', so.so_code).then(({ error }) => {
+        if (error) console.warn('Live Supabase update for courier delivery acknowledgment failed:', error.message);
+      });
+    }
+
+    this.notify();
+    return so;
+  }
+
+  // --- STEP 2: CWH INWARD VERIFICATION & CCTV UNBOXING (STAGE 1 QTY & STAGE 2 PART MATCHING) ---
   public inwardVerifyConsignment(
     soId: string,
     screeningMap: Record<string, { status: ScreeningStatus; remarks?: string; partMatched?: boolean }>,

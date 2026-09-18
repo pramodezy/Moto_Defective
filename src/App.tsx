@@ -168,6 +168,20 @@ export function App() {
     }
   };
 
+  // CWH Courier Dock Receipt Acknowledgment handler
+  const handleAcknowledgeDelivery = (
+    soId: string,
+    data: { cartonCondition: string; receivedBoxes: number; remarks?: string }
+  ) => {
+    if (!currentUser) return;
+    try {
+      crmDb.acknowledgeCourierDelivery(soId, currentUser, data);
+      toast.success('Courier delivery acknowledged! Consignment staged for CCTV inward screening.');
+    } catch (err: any) {
+      toast.error(err.message || 'Courier receipt acknowledgment failed');
+    }
+  };
+
   // Assign AWB handler
   const handleAssignAwb = (
     soId: string,
@@ -351,6 +365,7 @@ export function App() {
                 onOpenAwbModal={setAwbModalOrder}
                 onSelectOrder={setSelectedOrder}
                 onDispatchToRc={handleDispatchToRc}
+                onAcknowledgeDelivery={handleAcknowledgeDelivery}
               />
             )}
             {activeTab === 'orders' && (
