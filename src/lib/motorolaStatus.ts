@@ -136,6 +136,33 @@ export function getMotorolaStatusInfo(status?: string | null): MotorolaStatusDef
 }
 
 /**
+ * Checks whether an AWB string is a placeholder/dummy value from Motorola exports
+ * (e.g. Virtual DC, 0000, 12345, NA, By Hand, Road, etc.)
+ */
+export function isDummyAwb(awb?: string | null): boolean {
+  if (!awb) return true;
+  const clean = String(awb).trim().toLowerCase();
+  if (
+    !clean ||
+    clean === 'na' ||
+    clean === 'virtual dc' ||
+    clean === 'by hand' ||
+    clean === 'none' ||
+    clean === 'road' ||
+    clean === '0' ||
+    clean === '00' ||
+    clean === '000' ||
+    clean === '0000'
+  ) {
+    return true;
+  }
+  // All repeating digits or simple sequential tests (like 123, 1234, 12345, 123456, 12345678, 123456789)
+  if (/^(0+|1+|2+|3+|4+|5+|6+|7+|8+|9+)$/.test(clean)) return true;
+  if (/^123(4(5(6(7(89?)?)?)?)?)?$/.test(clean)) return true;
+  return false;
+}
+
+/**
  * Derives CRM logistics status accurately from Motorola Parts Status, AWB token, and Operational flags
  */
 export function deriveCrmStatusFromMotorolaStatus(
@@ -208,15 +235,19 @@ export function deriveCrmStatusFromMotorolaStatus(
     if (pickupStatus === 'Pickup Done' || existingCrmStatus === 'In Transit') {
       return 'In Transit';
     }
-    // If AWB is issued by CWH -> Pickup Pending
-    if (awb && awb.trim()) {
+    // If explicitly in Pending AWB, preserve it
+    if (existingCrmStatus === 'Pending AWB') {
+      return 'Pending AWB';
+    }
+    // If genuine AWB has been issued by CWH -> Pickup Pending
+    if (awb && awb.trim() && !isDummyAwb(awb)) {
       return 'Pickup Pending';
     }
     // Default initial state awaiting AWB generation
     return 'Pending AWB';
   }
 
-  return existingCrmStatus || (awb && awb.trim() ? 'Pickup Pending' : 'Pending AWB');
+  return existingCrmStatus || (awb && awb.trim() && !isDummyAwb(awb) ? 'Pickup Pending' : 'Pending AWB');
 }
 
 /**
@@ -257,7 +288,11 @@ export function isAwbIssueRequired(order: ShippingOrder): boolean {
   }
 
   // Active Pending AWB without assigned token
-  return order.crm_status === 'Pending AWB' && !order.active_awb && !order.excel_ref_awb;
+  const hasValidAwb = Boolean(
+    (order.active_awb && !isDummyAwb(order.active_awb)) ||
+    (order.excel_ref_awb && !isDummyAwb(order.excel_ref_awb))
+  );
+  return order.crm_status === 'Pending AWB' || !hasValidAwb;
 }
 
 export interface UnifiedStage {

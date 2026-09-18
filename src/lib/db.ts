@@ -1346,7 +1346,7 @@ class CRMDatabase {
     const cleanPn = (s?: string) => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
     // --- STEP 1: Aggregate File-Level SO Totals & Populate Global Part Price Catalog ---
-    const fileSoMap = new Map<string, { totalValue: number; totalQty: number; dcCode?: string; carrier?: string; tracking?: string }>();
+    const fileSoMap = new Map<string, { totalValue: number; totalQty: number; dcCode?: string }>();
     this.shippingOrderDetails = [];
 
     for (const row of rows) {
@@ -1355,14 +1355,10 @@ class CRMDatabase {
         totalValue: 0,
         totalQty: 0,
         dcCode: row.deliveryChallanCode,
-        carrier: row.carrier,
-        tracking: row.trackingNumber,
       };
       curr.totalValue += (row.value || 0);
       curr.totalQty += (row.deliverQty || 1);
       if (!curr.dcCode && row.deliveryChallanCode) curr.dcCode = row.deliveryChallanCode;
-      if (!curr.carrier && row.carrier) curr.carrier = row.carrier;
-      if (!curr.tracking && row.trackingNumber) curr.tracking = row.trackingNumber;
       fileSoMap.set(soK, curr);
 
       // Ingest into Part Price Catalog
@@ -1501,8 +1497,6 @@ class CRMDatabase {
         so.total_declared_value = Math.round(fileSummary.totalValue * 100) / 100;
         so.total_items = fileSummary.totalQty;
         if (fileSummary.dcCode) so.delivery_challan_code = fileSummary.dcCode;
-        if (fileSummary.carrier) so.courier = fileSummary.carrier;
-        if (fileSummary.tracking) so.active_awb = fileSummary.tracking;
         so.eway_bill_required = so.total_declared_value >= 50000;
         updatedSoCodes.add(so.so_code);
       } else if (updatedSoCodes.has(so.so_code)) {

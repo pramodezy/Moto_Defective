@@ -30,6 +30,7 @@ import { SlaBadge } from '../layout/SlaBadge';
 import { 
   getMotorolaStatusInfo, 
   isAwbIssueRequired, 
+  isDummyAwb,
   getCwhActionDetails,
   getUnifiedStageDetails,
   getUnifiedPickupStatus
@@ -205,7 +206,11 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         o.pickup_status === 'Pickup Done'
       ) return false;
       if (motoInfo.code === 1 || o.crm_status === 'CCI to Create DC') return false;
-      return o.crm_status === 'Pending AWB' || (!o.active_awb && !o.excel_ref_awb);
+      const hasValidAwb = Boolean(
+        (o.active_awb && !isDummyAwb(o.active_awb)) ||
+        (o.excel_ref_awb && !isDummyAwb(o.excel_ref_awb))
+      );
+      return o.crm_status === 'Pending AWB' || !hasValidAwb;
     });
   }, [stationScopedOrders]);
 
@@ -236,9 +241,6 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       if (o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done') return false;
       // Exclude Not Return
       if (motoInfo.code === 1 || o.crm_status === 'CCI to Create DC') return false;
-      // Exclude unassigned AWB
-      if (o.crm_status === 'Pending AWB' && !o.active_awb && !o.excel_ref_awb) return false;
-      if (isAwbIssueRequired(o) && !o.active_awb && !o.excel_ref_awb) return false;
 
       // Strictly exclude orders that have already reached In Transit, Delivered, or Inward
       if (
@@ -252,8 +254,11 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         return false;
       }
 
-      const hasAwb = Boolean(o.active_awb || o.excel_ref_awb);
-      return hasAwb || o.crm_status === 'Pickup Pending';
+      const hasValidAwb = Boolean(
+        (o.active_awb && !isDummyAwb(o.active_awb)) ||
+        (o.excel_ref_awb && !isDummyAwb(o.excel_ref_awb))
+      );
+      return (o.crm_status === 'Pickup Pending' && hasValidAwb) || (hasValidAwb && o.crm_status !== 'Pending AWB');
     });
   }, [stationScopedOrders]);
 
