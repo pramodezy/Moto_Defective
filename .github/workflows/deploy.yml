@@ -41,10 +41,12 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
+        continue-on-error: true
 
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        continue-on-error: true
 
       # Also push dist to gh-pages branch (in case Source is set to Deploy from Branch)
       - name: Deploy to gh-pages branch fallback
