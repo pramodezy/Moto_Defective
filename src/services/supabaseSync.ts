@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { CCIMaster, ShippingOrder, DefectiveItem, AuditLog } from '../types/crm';
+import { CCIMaster, ShippingOrder, DefectiveItem, AuditLog, ShippingOrderDetailRecord } from '../types/crm';
+import { ShippingOrderItemRow } from './shippingOrderIngestor';
 import { normalizeMotoStatusKey } from '../lib/motorolaStatus';
 import { 
   INITIAL_STATIONS, 
@@ -213,7 +214,7 @@ export async function pushUploadedDataToSupabase(
             item_remarks: it.item_remarks || '',
             estimated_value: it.estimated_value || 8000,
             delivery_challan_code: it.delivery_challan_code || null,
-            deliver_qty: it.deliver_qty || it.quantity || 1,
+            deliver_qty: it.deliver_qty !== undefined && it.deliver_qty !== null ? it.deliver_qty : (it.quantity || 1),
             value: it.value !== undefined && it.value !== null ? it.value : (it.estimated_value || 8000),
           })),
           { onConflict: 'composite_key' }
@@ -305,4 +306,80 @@ export async function pullCciMasterFromSupabase(): Promise<{ success: boolean; c
     };
   }
 }
+
+export async function pushShippingOrderDetailsToSupabase(
+  rows: ShippingOrderItemRow[],
+  onProgress?: (msg: string) => void
+): Promise<{ success: boolean; insertedCount: number; message: string }> {
+  if (!isSupabaseConfigured || !supabase) {
+    return { success: false, insertedCount: 0, message: 'Supabase not configured' };
+  }
+  if (rows.length === 0) {
+    return { success: true, insertedCount: 0, message: 'No rows to ingest' };
+  }
+
+  try {
+    onProgress?.(`Ingesting ${rows.length} Shipping Order line details to Supabase Cloud...`);
+    let inserted = 0;
+    const batchSize = 100;
+    for (let i = 0; i < rows.length; i += batchSize) {
+      const batch = rows.slice(i, i + batchSize);
+      const records = batch.map((r) => ({
+        shipping_order_code: r.shippingOrderCode,
+        delivery_challan_code: r.deliveryChallanCode || null,
+        item_code: r.itemCode,
+        old_pn: r.oldPn || null,
+        order_pn: r.orderPn || null,
+        description: r.description || null,
+        unit_price: r.unitPrice || 0,
+        deliver_qty: r.deliverQty || 1,
+        received_qty: r.receivedQty || 0,
+        value: r.value || 0,
+        way_bill_no: r.trackingNumber || null,
+        carrier: r.carrier || null,
+        date_issued: r.dateIssued || null,
+        shipping_order_status: r.shippingOrderStatus || null,
+      }));
+
+      const { error } = await supabase.from('shipping_order_details').insert(records);
+      if (error) {
+        if (error.code === 'PGRST205' || error.message?.includes('does not exist')) {
+          console.warn('Table shipping_order_details does not exist in Supabase yet. Run the migration SQL.', error);
+          return {
+            success: false,
+            insertedCount: 0,
+            message: 'Table shipping_order_details not found. Please execute the migration SQL in Supabase SQL Editor.',
+          };
+        }
+        throw error;
+      }
+      inserted += batch.length;
+      onProgress?.(`Saved ${inserted} / ${rows.length} Shipping Order detail lines in Supabase...`);
+    }
+
+    return {
+      success: true,
+      insertedCount: inserted,
+      message: `Successfully stored ${inserted} detail lines in Supabase Cloud`,
+    };
+  } catch (err: any) {
+    console.warn('pushShippingOrderDetailsToSupabase warning:', err);
+    return { success: false, insertedCount: 0, message: err.message || 'Failed to save to Supabase' };
+  }
+}
+
+export async function fetchShippingOrderDetailsBySo(soCode: string): Promise<ShippingOrderDetailRecord[]> {
+  if (!isSupabaseConfigured || !supabase || !soCode) return [];
+  try {
+    const { data, error } = await supabase
+      .from('shipping_order_details')
+      .select('*')
+      .eq('shipping_order_code', soCode.trim());
+    if (error || !data) return [];
+    return data as ShippingOrderDetailRecord[];
+  } catch (_) {
+    return [];
+  }
+}
+
 

@@ -8,7 +8,8 @@ import {
   ScreeningStatus,
   IngestionResult,
   CRMStatus,
-  PickupStatus
+  PickupStatus,
+  ShippingOrderDetailRecord
 } from '../types/crm';
 import { 
   INITIAL_STATIONS, 
@@ -20,7 +21,11 @@ import { supabase, isSupabaseConfigured } from './supabase';
 import { deriveCrmStatusFromMotorolaStatus, isCompletedJourneyStatus, normalizeMotoStatusKey } from './motorolaStatus';
 import { parseDateSafe } from './utils';
 import { ShippingOrderItemRow } from '../services/shippingOrderIngestor';
-import { pushUploadedDataToSupabase } from '../services/supabaseSync';
+import { 
+  pushUploadedDataToSupabase, 
+  pushShippingOrderDetailsToSupabase, 
+  fetchShippingOrderDetailsBySo 
+} from '../services/supabaseSync';
 
 export interface BulkPickupUploadItem {
   soCode: string;
@@ -54,6 +59,7 @@ class CRMDatabase {
   private auditLogs: AuditLog[] = [];
   private awbHistory: AWBHistory[] = [];
   private partPriceCatalog: Map<string, number> = new Map();
+  private shippingOrderDetails: ShippingOrderDetailRecord[] = [];
   private listeners: Set<() => void> = new Set();
 
   // Admin on-demand session store for completed journey (RC Received ASP)
@@ -69,6 +75,55 @@ class CRMDatabase {
     if (k1 && this.partPriceCatalog.has(k1)) return this.partPriceCatalog.get(k1);
     if (k2 && this.partPriceCatalog.has(k2)) return this.partPriceCatalog.get(k2);
     return undefined;
+  }
+
+  // Fetch verified line details directly from Supabase Cloud shipping_order_details table
+  public async fetchShippingOrderDetails(soCode: string): Promise<ShippingOrderDetailRecord[]> {
+    const clean = (s?: string) => (s || '').trim().toUpperCase();
+    const target = clean(soCode);
+    const local = this.shippingOrderDetails.filter((r) => clean(r.shipping_order_code) === target);
+    if (local.length > 0) return local;
+
+    const fromCloud = await fetchShippingOrderDetailsBySo(soCode);
+    if (fromCloud.length > 0) {
+      this.shippingOrderDetails.push(...fromCloud);
+      return fromCloud;
+    }
+    return [];
+  }
+
+  // Direct summary from imported Shipping Order file lines
+  public getShippingOrderFileSummary(soCode: string): {
+    hasFileRecord: boolean;
+    totalValue: number;
+    totalDeliverQty: number;
+    lineItemsCount: number;
+    dcCode?: string;
+    carrier?: string;
+    wayBillNo?: string;
+  } {
+    const clean = (s?: string) => (s || '').trim().toUpperCase();
+    const target = clean(soCode);
+    const lines = this.shippingOrderDetails.filter((r) => clean(r.shipping_order_code) === target);
+    if (lines.length === 0) {
+      return { hasFileRecord: false, totalValue: 0, totalDeliverQty: 0, lineItemsCount: 0 };
+    }
+
+    const totalVal = lines.reduce((acc, l) => acc + (l.value || 0), 0);
+    const totalQty = lines.reduce((acc, l) => acc + (l.deliver_qty || 1), 0);
+    const firstDc = lines.find((l) => l.delivery_challan_code)?.delivery_challan_code;
+    const firstCarrier = lines.find((l) => l.carrier)?.carrier;
+    const firstWaybill = lines.find((l) => l.way_bill_no)?.way_bill_no;
+
+    return {
+      hasFileRecord: true,
+      totalValue: Math.round(totalVal * 100) / 100,
+      totalDeliverQty: totalQty,
+      lineItemsCount: lines.length,
+      dcCode: firstDc,
+      carrier: firstCarrier,
+      wayBillNo: firstWaybill,
+    };
   }
 
   constructor() {
@@ -1290,9 +1345,27 @@ class CRMDatabase {
     const clean = (s?: string) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     const cleanPn = (s?: string) => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-    // --- STEP 1: Populate Global Motorola Part Price Catalog ---
-    // Reads every part and unit price in file (chronological iteration keeps latest price)
+    // --- STEP 1: Aggregate File-Level SO Totals & Populate Global Part Price Catalog ---
+    const fileSoMap = new Map<string, { totalValue: number; totalQty: number; dcCode?: string; carrier?: string; tracking?: string }>();
+    this.shippingOrderDetails = [];
+
     for (const row of rows) {
+      const soK = clean(row.shippingOrderCode);
+      const curr = fileSoMap.get(soK) || {
+        totalValue: 0,
+        totalQty: 0,
+        dcCode: row.deliveryChallanCode,
+        carrier: row.carrier,
+        tracking: row.trackingNumber,
+      };
+      curr.totalValue += (row.value || 0);
+      curr.totalQty += (row.deliverQty || 1);
+      if (!curr.dcCode && row.deliveryChallanCode) curr.dcCode = row.deliveryChallanCode;
+      if (!curr.carrier && row.carrier) curr.carrier = row.carrier;
+      if (!curr.tracking && row.trackingNumber) curr.tracking = row.trackingNumber;
+      fileSoMap.set(soK, curr);
+
+      // Ingest into Part Price Catalog
       const unitPrice = (row.unitPrice && row.unitPrice > 0)
         ? row.unitPrice
         : (row.value && row.deliverQty ? (row.value / row.deliverQty) : 0);
@@ -1301,6 +1374,24 @@ class CRMDatabase {
         if (row.orderPn) this.partPriceCatalog.set(cleanPn(row.orderPn), unitPrice);
         if (row.oldPn) this.partPriceCatalog.set(cleanPn(row.oldPn), unitPrice);
       }
+
+      // Keep in-memory line details
+      this.shippingOrderDetails.push({
+        shipping_order_code: row.shippingOrderCode,
+        delivery_challan_code: row.deliveryChallanCode,
+        item_code: row.itemCode,
+        old_pn: row.oldPn,
+        order_pn: row.orderPn,
+        description: row.description,
+        unit_price: unitPrice,
+        deliver_qty: row.deliverQty,
+        received_qty: row.receivedQty,
+        value: row.value,
+        way_bill_no: row.trackingNumber,
+        carrier: row.carrier,
+        date_issued: row.dateIssued,
+        shipping_order_status: row.shippingOrderStatus,
+      });
     }
 
     // Group existing defective items by clean shipping_order_code
@@ -1332,13 +1423,7 @@ class CRMDatabase {
       const orderPn = clean(row.orderPn);
       const oldPn = clean(row.oldPn);
 
-      // Part-level composite matching strategy:
-      // 1. Match on new_part_number
-      // 2. Match on sr_part_number
-      // 3. Match on orderPn / oldPn
-      // 4. If SO has only 1 candidate defective item, match directly
       let matchedItem: DefectiveItem | undefined = undefined;
-
       if (itemCode) {
         matchedItem = candidates.find((it) => clean(it.new_part_number) === itemCode);
         if (!matchedItem) {
@@ -1366,14 +1451,14 @@ class CRMDatabase {
         continue;
       }
 
-      // Update DC Code, Deliver Qty, and Value
+      // Update DC Code, Deliver Qty, and Value strictly from file
       if (row.deliveryChallanCode) {
         matchedItem.delivery_challan_code = row.deliveryChallanCode;
       }
       matchedItem.deliver_qty = row.deliverQty;
       matchedItem.value = row.value;
 
-      // Also update standard quantity & estimated_value
+      // Update standard quantity & estimated_value
       matchedItem.quantity = row.deliverQty;
       const unitVal = (row.unitPrice && row.unitPrice > 0)
         ? row.unitPrice
@@ -1388,10 +1473,8 @@ class CRMDatabase {
     }
 
     // --- TIER 2: Global Motorola Part Price Catalog Fallback ---
-    // Apply exact Motorola unit price to all active defective items that match any part in catalog
     let catalogFallbackUpdated = 0;
     this.defectiveItems.forEach((it) => {
-      // If item was already matched with exact consignment in Tier 1, keep Tier 1 consignment price
       if (updatedItemIds.has(it.id)) return;
 
       const catPrice = this.lookupCatalogPrice(it.new_part_number, it.sr_part_number);
@@ -1408,10 +1491,25 @@ class CRMDatabase {
       }
     });
 
-    // Recalculate parent Shipping Orders (sums all parts' values & quantities)
-    for (const soCode of updatedSoCodes) {
-      this.recalculateShippingOrder(soCode);
-    }
+    // --- STEP 2: Update Parent Shipping Orders (File-Authoritative Declared Values) ---
+    this.shippingOrders.forEach((so) => {
+      const soK = clean(so.so_code);
+      const fileSummary = fileSoMap.get(soK);
+
+      if (fileSummary) {
+        // If present in uploaded file, value is STRICTLY the file sum (even if 0)
+        so.total_declared_value = Math.round(fileSummary.totalValue * 100) / 100;
+        so.total_items = fileSummary.totalQty;
+        if (fileSummary.dcCode) so.delivery_challan_code = fileSummary.dcCode;
+        if (fileSummary.carrier) so.courier = fileSummary.carrier;
+        if (fileSummary.tracking) so.active_awb = fileSummary.tracking;
+        so.eway_bill_required = so.total_declared_value >= 50000;
+        updatedSoCodes.add(so.so_code);
+      } else if (updatedSoCodes.has(so.so_code)) {
+        // Fallback for orders not in file: calculate from constituent parts
+        this.recalculateShippingOrder(so.so_code);
+      }
+    });
 
     // Persist to local storage
     this.saveToStorage();
@@ -1422,18 +1520,24 @@ class CRMDatabase {
       user_name: user.full_name || user.username,
       user_role: user.role,
       action: 'INGEST_SHIPPING_ORDER_DC',
-      remarks: `Ingested Delivery Challans from Shipping Order file. Updated ${updatedItemIds.size} parts across ${updatedSoCodes.size} Shipping Orders. Skipped ${skippedNotReturnCount} 'Not Return' parts.`,
+      remarks: `Ingested Shipping Order export. Imported ${rows.length} lines. Updated ${updatedItemIds.size} parts across ${updatedSoCodes.size} Shipping Orders.`,
       created_at: new Date().toISOString(),
     });
 
-    // Cloud push to Supabase if configured
-    if (isSupabaseConfigured && updatedItemIds.size > 0) {
+    // Cloud push to Supabase table shipping_order_details & masters
+    if (isSupabaseConfigured) {
       try {
+        // 1. Push raw line details to Supabase Cloud
+        await pushShippingOrderDetailsToSupabase(rows);
+
+        // 2. Push updated orders and items to Supabase
         const itemsToPush = this.defectiveItems.filter((i) => updatedItemIds.has(i.id));
         const ordersToPush = this.shippingOrders.filter((o) => updatedSoCodes.has(o.so_code));
-        await pushUploadedDataToSupabase(ordersToPush, itemsToPush, this.stations);
+        if (ordersToPush.length > 0 || itemsToPush.length > 0) {
+          await pushUploadedDataToSupabase(ordersToPush, itemsToPush, this.stations);
+        }
       } catch (err) {
-        console.warn('Supabase cloud push after DC ingestion warning:', err);
+        console.warn('Supabase cloud push after Shipping Order ingestion warning:', err);
       }
     }
 

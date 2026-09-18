@@ -8,11 +8,13 @@ export interface ShippingOrderItemRow {
   orderPn?: string;
   description?: string;
   deliverQty: number;
+  receivedQty?: number;
   value: number;
   unitPrice?: number;
   dateIssued?: string;
   carrier?: string;
   trackingNumber?: string;
+  shippingOrderStatus?: string;
 }
 
 export interface ShippingOrderParseResult {
@@ -79,6 +81,8 @@ export async function parseShippingOrderFile(file: File): Promise<ShippingOrderP
     const desc = getColVal(r, ['description', 'partdescription']);
     const qtyStr = getColVal(r, ['deliverqty', 'deliveredqty', 'quantity', 'qty']);
     const deliverQty = Math.max(1, parseInt(qtyStr.replace(/[^0-9]/g, ''), 10) || 1);
+    const recvQtyStr = getColVal(r, ['receivedqty', 'rcvdqty']);
+    const receivedQty = recvQtyStr ? parseInt(recvQtyStr.replace(/[^0-9]/g, ''), 10) : undefined;
     const valStr = getColVal(r, ['value', 'declaredvalue', 'totalvalue', 'amount']);
     const val = parseFloat(valStr.replace(/[^0-9.]/g, '')) || 0;
     const unitPriceStr = getColVal(r, ['unitprice', 'price']);
@@ -86,6 +90,7 @@ export async function parseShippingOrderFile(file: File): Promise<ShippingOrderP
     const dateIssued = getColVal(r, ['dateissued', 'issueddate']);
     const carrier = getColVal(r, ['carriershipper', 'carrier', 'shipper', 'courier']);
     const tracking = getColVal(r, ['trackingnumber', 'waybillno', 'docketnumber']);
+    const soStatus = getColVal(r, ['shippingorderstatus', 'sostatus', 'status']);
 
     uniqueSos.add(soCode);
     totalValue += val;
@@ -98,11 +103,13 @@ export async function parseShippingOrderFile(file: File): Promise<ShippingOrderP
       orderPn: orderPn || undefined,
       description: desc || undefined,
       deliverQty,
+      receivedQty: receivedQty !== undefined && !isNaN(receivedQty) ? receivedQty : undefined,
       value: val,
       unitPrice: unitPrice || undefined,
       dateIssued: dateIssued || undefined,
       carrier: carrier || undefined,
       trackingNumber: tracking || undefined,
+      shippingOrderStatus: soStatus || undefined,
     });
   }
 

@@ -13,7 +13,7 @@ import {
   Loader2,
   Package
 } from 'lucide-react';
-import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile } from '../../types/crm';
+import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile, ShippingOrderDetailRecord } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle, getScreeningStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
 import { printConsignmentManifest } from '../../services/manifestGenerator';
@@ -61,6 +61,16 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
 
   const [orderItems, setOrderItems] = useState<DefectiveItem[]>(initialMatched);
   const [isLoadingItems, setIsLoadingItems] = useState<boolean>(initialMatched.length === 0);
+  const [fileDetails, setFileDetails] = useState<ShippingOrderDetailRecord[]>([]);
+
+  // Fetch verified line details directly from Supabase Cloud shipping_order_details table
+  useEffect(() => {
+    let isCancelled = false;
+    crmDb.fetchShippingOrderDetails(order.so_code).then((res) => {
+      if (!isCancelled) setFileDetails(res);
+    });
+    return () => { isCancelled = true; };
+  }, [order.so_code]);
 
   useEffect(() => {
     if (initialMatched.length > 0) {
@@ -86,16 +96,21 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
     };
   }, [initialMatched, order.so_code, order.id]);
 
+  const fileSummary = useMemo(() => {
+    return crmDb.getShippingOrderFileSummary(order.so_code);
+  }, [order.so_code]);
+
   const itemsCalculatedValue = orderItems.reduce((acc, item) => {
     const val = (item.value && item.value > 0) ? item.value : ((item.estimated_value || 8000) * (item.quantity || 1));
     return acc + val;
   }, 0);
 
-  const totalValue = itemsCalculatedValue > 0
-    ? itemsCalculatedValue
-    : (order.total_declared_value && order.total_declared_value > 0
-        ? order.total_declared_value
-        : (8000 * (order.total_items || 1)));
+  // If the shipping order file has this SO, respect its file value strictly (even if ₹0.00)
+  const totalValue = fileSummary.hasFileRecord
+    ? fileSummary.totalValue
+    : (order.total_declared_value !== undefined && order.total_declared_value !== null)
+    ? order.total_declared_value
+    : itemsCalculatedValue;
 
   const totalItemCount = orderItems.length > 0 
     ? orderItems.length 
@@ -357,13 +372,17 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
               <span className="text-xs text-slate-500">Declared Value</span>
               <div className="text-lg font-bold text-slate-900 font-mono mt-0.5">
-                {formatINR(totalValue || order.total_declared_value)}
+                {formatINR(totalValue)}
               </div>
-              {order.eway_bill_required && (
+              {fileSummary.hasFileRecord ? (
+                <span className="inline-block mt-1 text-[10px] text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 font-medium">
+                  Verified SO File
+                </span>
+              ) : order.eway_bill_required ? (
                 <span className="inline-block mt-1 text-[10px] text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-300 font-medium">
                   E-Way Bill Required (≥ ₹50K)
                 </span>
-              )}
+              ) : null}
             </div>
 
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
@@ -555,11 +574,20 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                   </thead>
                   <tbody className="divide-y divide-slate-200 text-slate-700">
                     {orderItems.map((item) => {
-                      const displayQty = item.deliver_qty ?? item.quantity ?? 1;
-                      const displayValue = (item.value && item.value > 0)
+                      const cleanPn = (s?: string) => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+                      const matchedFileRow = fileDetails.find(
+                        (f) => cleanPn(f.item_code) === cleanPn(item.new_part_number) || cleanPn(f.item_code) === cleanPn(item.sr_part_number)
+                      );
+
+                      const displayQty = matchedFileRow
+                        ? matchedFileRow.deliver_qty
+                        : (item.deliver_qty ?? item.quantity ?? 1);
+                      const displayValue = matchedFileRow
+                        ? matchedFileRow.value
+                        : (item.value && item.value > 0)
                         ? item.value
                         : ((item.estimated_value || 8000) * (item.quantity || 1));
-                      const dcCode = item.delivery_challan_code || order.delivery_challan_code;
+                      const dcCode = matchedFileRow?.delivery_challan_code || item.delivery_challan_code || order.delivery_challan_code;
 
                       return (
                         <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
@@ -585,7 +613,16 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                           </td>
                           <td className="py-2.5 px-3 text-center font-mono text-slate-900 font-semibold">{displayQty}</td>
                           <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">
-                            {formatINR(displayValue)}
+                            <div>{formatINR(displayValue)}</div>
+                            {matchedFileRow ? (
+                              <span className="text-[9px] font-normal text-blue-700 bg-blue-50 px-1 py-0.2 rounded border border-blue-200">
+                                SO File
+                              </span>
+                            ) : item.value && item.value > 0 ? (
+                              <span className="text-[9px] font-normal text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
+                                DC Matched
+                              </span>
+                            ) : null}
                           </td>
                           <td className="py-2.5 px-3 text-center">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getScreeningStatusStyle(item.screening_status)}`}>

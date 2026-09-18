@@ -171,3 +171,24 @@ export interface IngestionResult {
   errors: string[];
   timestamp: string;
 }
+
+export interface ShippingOrderDetailRecord {
+  id?: string;
+  shipping_order_code: string;
+  delivery_challan_code?: string;
+  item_code: string;
+  old_pn?: string;
+  order_pn?: string;
+  description?: string;
+  unit_price: number;
+  deliver_qty: number;
+  received_qty?: number;
+  value: number;
+  way_bill_no?: string;
+  carrier?: string;
+  mode_of_transport?: string;
+  date_issued?: string;
+  shipping_order_status?: string;
+  created_at?: string;
+}
+
