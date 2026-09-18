@@ -765,8 +765,26 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                               AWB
                             </button>
                           </>
+                        ) : so.crm_status === 'Pickup Pending' || activeSubTab === 'pickup_pending' ? (
+                          /* 6. Pickup Pending: Awaiting Courier Handover at Station */
+                          <>
+                            <button
+                              onClick={() => onOpenAwbModal(so)}
+                              title="Edit / Retoken AWB Docket Number"
+                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-sky-50 text-sky-800 border border-sky-200 hover:border-sky-300 shadow-2xs transition-colors cursor-pointer"
+                            >
+                              <Barcode className="w-3 h-3 text-sky-700" />
+                              Edit AWB
+                            </button>
+                            <button
+                              onClick={() => onSelectOrder(so)}
+                              className="px-2.5 py-1.5 rounded-lg text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
+                            >
+                              Details
+                            </button>
+                          </>
                         ) : (
-                          /* 6. Outbound RC / History */
+                          /* 7. Outbound RC / History */
                           <button
                             onClick={() => onSelectOrder(so)}
                             className="px-3 py-1.5 rounded-lg text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"

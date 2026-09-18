@@ -395,6 +395,7 @@ export function App() {
         <OrderDetailModal
           order={selectedOrder}
           items={items}
+          user={currentUser || undefined}
           station={stations.find((s) => s.station_code === selectedOrder.station_code)}
           onClose={() => setSelectedOrder(null)}
           onOpenInward={(o) => {

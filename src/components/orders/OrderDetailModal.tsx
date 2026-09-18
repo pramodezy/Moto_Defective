@@ -12,7 +12,7 @@ import {
   AlertTriangle,
   Loader2
 } from 'lucide-react';
-import { ShippingOrder, DefectiveItem, CCIMaster } from '../../types/crm';
+import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle, getScreeningStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
 import { printConsignmentManifest } from '../../services/manifestGenerator';
@@ -30,6 +30,7 @@ interface OrderDetailModalProps {
   order: ShippingOrder | null;
   items: DefectiveItem[];
   station?: CCIMaster;
+  user?: UserProfile;
   onClose: () => void;
   onOpenInward?: (order: ShippingOrder) => void;
   onOpenAwbModal?: (order: ShippingOrder) => void;
@@ -40,6 +41,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   order,
   items,
   station,
+  user,
   onClose,
   onOpenInward,
   onOpenAwbModal,
@@ -87,6 +89,30 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   const needsAwb = isAwbIssueRequired(order);
   const stage = getUnifiedStageDetails(order);
   const unifiedPickup = getUnifiedPickupStatus(order);
+
+  // Inward verification is ONLY available when the parcel has left the station / arrived at CWH
+  const isEligibleForInward = Boolean(
+    onOpenInward &&
+    !motoInfo.isDelivered &&
+    order.crm_status !== 'CWH to Create DC' &&
+    order.crm_status !== 'Pickup Pending' &&
+    order.crm_status !== 'Pending AWB' &&
+    order.crm_status !== 'Pending AWB Re-Issue' &&
+    order.crm_status !== 'CCI to Create DC' &&
+    unifiedPickup !== 'Pickup Pending' &&
+    unifiedPickup !== 'Pickup Not Done' &&
+    (motoInfo.code >= 3 || order.crm_status === 'Delivered at CWH' || order.crm_status === 'Pending Inward at CWH' || order.crm_status === 'In Transit')
+  );
+
+  const hasLeg2Started = Boolean(
+    order.asp_rc_shipping_order_code ||
+    order.asp_rc_ship_date ||
+    order.asp_rc_delivered_date ||
+    order.rc_receive_remark ||
+    motoInfo.code >= 4 ||
+    order.crm_status === 'Delivered to RC' ||
+    order.crm_status === 'Delivered to RC (Discrepancies)'
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
@@ -138,7 +164,8 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               </button>
             )}
 
-            {onOpenPickupModal && motoInfo.code === 2 && !motoInfo.isDelivered && (order.active_awb || order.excel_ref_awb || order.crm_status !== 'Pending AWB') && (
+            {/* CCI station handover pickup button - hidden for CWH operators */}
+            {onOpenPickupModal && user?.role !== 'CWH' && motoInfo.code === 2 && !motoInfo.isDelivered && (order.active_awb || order.excel_ref_awb || order.crm_status !== 'Pending AWB') && (
               <button
                 onClick={() => onOpenPickupModal(order)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer"
@@ -149,17 +176,23 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               </button>
             )}
 
-            {onOpenAwbModal && motoInfo.code === 2 && needsAwb && (
+            {/* AWB modal / Retoken button */}
+            {onOpenAwbModal && !motoInfo.isDelivered && (
+              (user?.role === 'CWH' && motoInfo.code <= 3 && order.crm_status !== 'CWH to Create DC') ||
+              (user?.role !== 'CWH' && motoInfo.code === 2 && needsAwb)
+            ) && (
               <button
                 onClick={() => onOpenAwbModal(order)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#001489] hover:bg-[#08209e] text-white shadow-xs transition-colors cursor-pointer"
+                title="Edit or Retoken AWB Docket Number"
               >
                 <Barcode className="w-4 h-4" />
-                AWB / Retoken
+                {user?.role === 'CWH' ? 'Edit AWB' : 'AWB / Retoken'}
               </button>
             )}
 
-            {onOpenInward && motoInfo.code === 2 && order.crm_status !== 'CWH to Create DC' && !motoInfo.isDelivered && (
+            {/* Inward verification - ONLY visible when eligible (arrived / in-transit, not pickup pending) */}
+            {isEligibleForInward && onOpenInward && (
               <button
                 onClick={() => onOpenInward(order)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-700 hover:bg-purple-800 text-white shadow-xs transition-colors cursor-pointer"
@@ -237,21 +270,39 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               )}
             </div>
           ) : motoInfo.code === 2 ? (
-            <div className="p-3 rounded-xl bg-sky-50 border border-sky-200 flex items-center gap-3 text-xs shadow-xs">
-              <Truck className="w-5 h-5 text-sky-700 shrink-0" />
-              <div>
-                <span className="font-bold text-sky-900">
-                  {order.pickup_status === 'Pickup Done' 
-                    ? 'In-Transit Monitoring (CCI):' 
-                    : '⚡ Action for CCI — Pickup Handover Pending:'}
-                </span>
-                <span className="text-sky-800 ml-1.5">
-                  {order.pickup_status === 'Pickup Done'
-                    ? 'Consignment is in-transit to CWH. CCI to monitor shipment until delivery & updated as "CWH Received" in Moto CRM.'
-                    : 'AWB updated from CWH. Handover parcel to courier & update pickup status (Pickup Done / Not Done).'}
-                </span>
+            user?.role === 'CWH' ? (
+              <div className="p-3 rounded-xl bg-sky-50 border border-sky-200 flex items-center gap-3 text-xs shadow-xs">
+                <Truck className="w-5 h-5 text-sky-700 shrink-0" />
+                <div>
+                  <span className="font-bold text-sky-900">
+                    {unifiedPickup === 'Pickup Done' || order.crm_status === 'In Transit'
+                      ? 'Consignment In-Transit to CWH:'
+                      : `Awaiting Courier Pickup at Station (${order.station_code}):`}
+                  </span>
+                  <span className="text-sky-800 ml-1.5">
+                    {unifiedPickup === 'Pickup Done' || order.crm_status === 'In Transit'
+                      ? `Dispatched from ${order.station_code} via ${order.courier || 'courier'}. Consignment is en-route to Central Warehouse. Verify inward upon arrival.`
+                      : `AWB token (${order.active_awb || order.excel_ref_awb || 'Assigned'}) is generated. Station is packing and handing over parcel to courier. Inward verification will activate once in-transit.`}
+                  </span>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-sky-50 border border-sky-200 flex items-center gap-3 text-xs shadow-xs">
+                <Truck className="w-5 h-5 text-sky-700 shrink-0" />
+                <div>
+                  <span className="font-bold text-sky-900">
+                    {order.pickup_status === 'Pickup Done' 
+                      ? 'In-Transit Monitoring (CCI):' 
+                      : '⚡ Action for CCI — Pickup Handover Pending:'}
+                  </span>
+                  <span className="text-sky-800 ml-1.5">
+                    {order.pickup_status === 'Pickup Done'
+                      ? 'Consignment is in-transit to CWH. CCI to monitor shipment until delivery & updated as "CWH Received" in Moto CRM.'
+                      : 'AWB updated from CWH. Handover parcel to courier & update pickup status (Pickup Done / Not Done).'}
+                  </span>
+                </div>
+              </div>
+            )
           ) : motoInfo.code === 1 ? (
             <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-200 flex items-start gap-3 text-xs shadow-xs">
               <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
@@ -392,37 +443,52 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               </div>
 
               {/* Leg 2 Box */}
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900 flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-purple-600" />
-                    Leg 2: Central Warehouse → Repair Center (RC)
-                  </span>
-                  <span className="font-mono text-[11px] text-purple-800 font-semibold">
-                    {order.asp_rc_shipping_order_code || (motoInfo.code <= 2 ? '-' : 'Pending DC')}
-                  </span>
+              {hasLeg2Started ? (
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-900 flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-purple-600" />
+                      Leg 2: Central Warehouse → Repair Center (RC)
+                    </span>
+                    <span className="font-mono text-[11px] text-purple-800 font-semibold">
+                      {order.asp_rc_shipping_order_code || 'Pending DC'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-600 grid grid-cols-2 gap-1 pt-1 border-t border-slate-200">
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">Outbound Ship Date</span>
+                      <span className="font-mono text-slate-700">
+                        {order.asp_rc_ship_date ? formatDate(order.asp_rc_ship_date) : 'Awaiting CWH Dispatch'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">RC Delivery Date</span>
+                      <span className="font-mono text-emerald-700 font-medium">
+                        {order.asp_rc_delivered_date ? formatDate(order.asp_rc_delivered_date) : (order.asp_rc_ship_date ? 'In Progress' : '-')}
+                      </span>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-slate-400 block text-[10px]">RC Acknowledgment / Remark</span>
+                      <span className="text-slate-700 truncate block" title={order.rc_receive_remark || '-'}>
+                        {order.rc_receive_remark || '-'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-[11px] text-slate-600 grid grid-cols-2 gap-1 pt-1 border-t border-slate-200">
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Outbound Ship Date</span>
-                    <span className="font-mono text-slate-700">
-                      {order.asp_rc_ship_date ? formatDate(order.asp_rc_ship_date) : (motoInfo.code <= 2 ? '-' : 'Awaiting CWH Dispatch')}
+              ) : (
+                <div className="p-3 rounded-lg bg-slate-50/70 border border-dashed border-slate-200 flex flex-col justify-center text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-600 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-slate-300" />
+                      Leg 2: Central Warehouse → Repair Center (RC)
                     </span>
+                    <span className="text-[10px] font-semibold text-slate-500 bg-slate-200/70 px-2 py-0.5 rounded">Not Started</span>
                   </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">RC Delivery Date</span>
-                    <span className="font-mono text-emerald-700 font-medium">
-                      {order.asp_rc_delivered_date ? formatDate(order.asp_rc_delivered_date) : (order.asp_rc_ship_date ? 'In Progress' : '-')}
-                    </span>
-                  </div>
-                  <div className="col-span-2">
-                    <span className="text-slate-400 block text-[10px]">RC Acknowledgment / Remark</span>
-                    <span className="text-slate-700 truncate block" title={order.rc_receive_remark || '-'}>
-                      {order.rc_receive_remark || '-'}
-                    </span>
-                  </div>
+                  <p className="text-[11px] text-slate-500 pt-1 border-t border-slate-200/60 leading-relaxed">
+                    Consignment is currently in Leg 1. Outbound DC to Lenovo RC will be initiated once verified at CWH.
+                  </p>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
