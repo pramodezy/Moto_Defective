@@ -96,13 +96,26 @@ export async function parseDefectiveReportFile(file: File): Promise<ParseResult>
     const partsStatus = getColVal(r, ['partsstatus', 'partstatus', 'status', 'motorolastatus']);
 
     // Determine estimated value by category
-    let estimatedVal = 8000;
+    let estimatedVal = 3500;
     const catLower = category.toLowerCase();
-    if (catLower.includes('main board') || catLower.includes('pcb')) estimatedVal = 14500;
-    else if (catLower.includes('display') || catLower.includes('screen') || catLower.includes('oled')) estimatedVal = 9800;
+    if (catLower.includes('handset') || catLower.includes('swap') || catLower.includes('doa')) estimatedVal = 18000;
+    else if (catLower.includes('main board') || catLower.includes('pcb')) estimatedVal = 14500;
+    else if (catLower.includes('display') || catLower.includes('screen') || catLower.includes('oled') || catLower.includes('tp lcm')) estimatedVal = 9800;
     else if (catLower.includes('camera')) estimatedVal = 3200;
     else if (catLower.includes('battery')) estimatedVal = 1800;
+    else if (catLower.includes('sub board') || catLower.includes('small board')) estimatedVal = 850;
     else if (catLower.includes('cable') || catLower.includes('adapter') || catLower.includes('charger')) estimatedVal = 750;
+    else if (catLower.includes('speaker') || catLower.includes('receiver') || catLower.includes('fpc') || catLower.includes('vibrator') || catLower.includes('fps')) estimatedVal = 150;
+    else if (
+      catLower.includes('adhesive') ||
+      catLower.includes('tape') ||
+      catLower.includes('screw') ||
+      catLower.includes('gasket') ||
+      catLower.includes('cushion') ||
+      catLower.includes('mesh') ||
+      catLower.includes('film') ||
+      catLower.includes('label')
+    ) estimatedVal = 21;
 
     // Leg 2 Outbound Hub Transfer (CWH -> RC) columns
     const aspRcSo = getColVal(r, ['asprcshippingordercode', 'asprcshippingorder', 'asprcsocode', 'asprcso']);
