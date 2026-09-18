@@ -2383,25 +2383,27 @@ class CRMDatabase {
           });
       }
 
-      // Update/insert awb_history in Supabase
-      for (const so of updatedOrders) {
-        if (so.active_awb) {
-          supabase
-            .from('awb_history')
-            .upsert(
-              {
-                shipping_order_id: so.id,
-                awb_number: so.active_awb,
-                courier: so.courier,
-                is_active: true,
-                pickup_date: so.pickup_date || defaultNowIso,
-                created_by: user.id,
-                created_at: new Date().toISOString(),
-              },
-              { onConflict: 'shipping_order_id,awb_number' }
-            )
-            .then(() => {});
-        }
+      // Insert into awb_history in Supabase
+      const isUuid = (str?: string) => Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+      const awbHistoryRows = updatedOrders
+        .filter((so) => Boolean(so.active_awb && isUuid(so.id)))
+        .map((so) => ({
+          shipping_order_id: so.id,
+          awb_number: so.active_awb,
+          courier: so.courier,
+          is_active: true,
+          pickup_date: so.pickup_date || defaultNowIso,
+          created_by: isUuid(user.id) ? user.id : null,
+          created_at: new Date().toISOString(),
+        }));
+
+      if (awbHistoryRows.length > 0) {
+        supabase
+          .from('awb_history')
+          .insert(awbHistoryRows)
+          .then(({ error }) => {
+            if (error) console.warn('Supabase awb_history insert error:', error.message);
+          });
       }
     }
 
