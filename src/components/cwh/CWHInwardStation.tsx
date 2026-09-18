@@ -57,7 +57,6 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   onSelectOrder,
   onDispatchToRc,
 }) => {
-  const [scanInput, setScanInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStation, setSelectedStation] = useState<string>('ALL');
   const [selectedRegion, setSelectedRegion] = useState<string>('ALL');
@@ -124,12 +123,12 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     return Array.from(regSet).sort();
   }, [stations]);
 
-  // Quick scanner handler
-  const handleQuickScan = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!scanInput.trim()) return;
+  // Smart barcode scan & inspect handler
+  const handleSmartInspect = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!searchQuery.trim()) return;
 
-    const term = scanInput.trim().toLowerCase();
+    const term = searchQuery.trim().toLowerCase();
     const matchedOrder = orders.find(
       (o) =>
         o.so_code.toLowerCase() === term ||
@@ -140,9 +139,9 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
 
     if (matchedOrder) {
       onOpenUnboxing(matchedOrder);
-      setScanInput('');
+      setSearchQuery('');
     } else {
-      alert(`No active consignment found matching barcode "${scanInput}". Please verify the SO or AWB number.`);
+      alert(`No active consignment found matching barcode "${searchQuery}". Showing search results below.`);
     }
   };
 
@@ -391,42 +390,41 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     },
   ];
 
+  const queueGuidance = {
+    needs_awb: {
+      desc: 'Generate AWB tokens on courier portal and assign here for station pickup.',
+      color: 'text-amber-800 bg-amber-50 border-amber-200',
+    },
+    pickup_pending: {
+      desc: 'AWB token issued by CWH. Awaiting courier physical pickup & station handover.',
+      color: 'text-blue-800 bg-blue-50 border-blue-200',
+    },
+    in_transit: {
+      desc: 'Station confirmed "Pickup Done". Consignment is actively en route to CWH.',
+      color: 'text-sky-800 bg-sky-50 border-sky-200',
+    },
+    awb_reissue: {
+      desc: 'Courier pickup missed/failed. Cancel stale token and issue a fresh AWB.',
+      color: 'text-rose-800 bg-rose-50 border-rose-300 font-semibold',
+    },
+    at_cwh: {
+      desc: 'Consignment delivered at CWH bay. Unbox under CCTV & inspect defective units.',
+      color: 'text-purple-800 bg-purple-50 border-purple-200',
+    },
+    discrepancies: {
+      desc: 'Units flagged as damaged, missing, or mismatched during unboxing inspection.',
+      color: 'text-rose-800 bg-rose-50 border-rose-300 font-semibold',
+    },
+    outbound_rc: {
+      desc: 'Dispatched from CWH to destination Repair Center.',
+      color: 'text-blue-800 bg-blue-50 border-blue-200',
+    },
+  }[activeSubTab];
+
   return (
-    <div className="space-y-4">
-      {/* 1. Executive Operations Header */}
-      <div className="rounded-2xl p-4 sm:p-5 bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-[#001489]/10 text-[#001489] border border-[#001489]/20 shadow-xs">
-            <Warehouse className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-slate-900 font-['Outfit']">
-                CWH Inward Verification & Logistics Hub
-              </h2>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-sky-50 text-sky-800 border border-sky-200 font-medium">
-                Bay 4
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Lead: <strong className="text-slate-800 font-semibold">{user.full_name}</strong> • Scope: <span className="font-mono font-semibold text-slate-900">{stationScopedOrders.length}</span> consignments across active stations
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          <button
-            onClick={() => setIsBulkAwbModalOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            Upload Bulk AWB Sheet
-          </button>
-        </div>
-      </div>
-
-      {/* 2. Interactive KPI Metric Pipeline Cards (7 Active Stages) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-2.5">
+    <div className="space-y-3">
+      {/* 1. Interactive KPI Metric Pipeline Cards (7 Active Direct Stages) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-2">
         {kpiTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeSubTab === tab.id;
@@ -434,13 +432,13 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
             <button
               key={tab.id}
               onClick={() => setActiveSubTab(tab.id as any)}
-              className={`p-3 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between ${
+              className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between ${
                 isActive
                   ? tab.activeClasses
                   : 'bg-white hover:bg-slate-50/90 border-slate-200 hover:border-slate-300'
               }`}
             >
-              <div className="flex items-center justify-between gap-1 mb-2">
+              <div className="flex items-center justify-between gap-1 mb-1.5">
                 <div className={`p-1.5 rounded-lg ${isActive ? tab.activePill : 'bg-slate-100 text-slate-600'}`}>
                   <Icon className="w-3.5 h-3.5" />
                 </div>
@@ -467,54 +465,45 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         })}
       </div>
 
-      {/* 3. Unified Command & Filter Bar (Scanner + Live Search + Station + Region) */}
-      <div className="p-3 bg-white border border-slate-200 rounded-xl shadow-xs flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5">
-        {/* Quick Barcode Scanner / Rapid Inward Input */}
-        <form onSubmit={handleQuickScan} className="flex items-center gap-1.5 flex-1 max-w-md">
-          <div className="relative flex-1">
-            <Barcode className="w-4 h-4 text-[#001489] absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={scanInput}
-              onChange={(e) => setScanInput(e.target.value)}
-              placeholder="Scan SO Code / AWB barcode..."
-              className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
-            />
-          </div>
-          <button
-            type="submit"
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#001489] hover:bg-[#08209e] text-white shadow-xs transition-colors cursor-pointer whitespace-nowrap"
-          >
-            Inspect
-          </button>
-        </form>
-
-        <div className="hidden lg:block w-px h-6 bg-slate-200" />
-
-        {/* Live Keyword Search */}
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+      {/* 2. Unified Command & Filter Bar */}
+      <div className="p-2.5 bg-white border border-slate-200 rounded-xl shadow-xs flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5">
+        {/* Smart Search & Barcode Scan Input */}
+        <form onSubmit={handleSmartInspect} className="relative flex-1 min-w-[280px]">
+          <Barcode className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search active table (SO, Station, City, AWB)..."
-            className="w-full pl-8 pr-7 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
+            placeholder="Scan barcode or search SO, AWB, Station..."
+            className="w-full pl-9 pr-24 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
           />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+          {searchQuery ? (
+            <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                title="Clear"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="submit"
+                className="px-2 py-0.5 text-[11px] font-semibold bg-[#001489] hover:bg-[#08209e] text-white rounded cursor-pointer"
+                title="Inspect Barcode"
+              >
+                Inspect
+              </button>
+            </div>
+          ) : (
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-sans pointer-events-none">
+              Press Enter to Inspect
+            </span>
           )}
-        </div>
+        </form>
 
-        <div className="hidden lg:block w-px h-6 bg-slate-200" />
-
-        {/* Station Scope Selector */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Station Scope Selector */}
           <select
             value={selectedStation}
             onChange={(e) => setSelectedStation(e.target.value)}
@@ -547,86 +536,52 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
           {/* Reset Filters Button */}
           {(selectedStation !== 'ALL' || selectedRegion !== 'ALL' || searchQuery) && (
             <button
+              type="button"
               onClick={() => {
                 setSelectedStation('ALL');
                 setSelectedRegion('ALL');
                 setSearchQuery('');
               }}
-              className="text-xs text-[#001489] hover:underline font-medium cursor-pointer whitespace-nowrap ml-1"
+              className="text-xs text-[#001489] hover:underline font-medium cursor-pointer whitespace-nowrap px-1"
             >
               Reset
             </button>
           )}
+
+          {/* Upload Bulk AWB Sheet Button */}
+          <button
+            type="button"
+            onClick={() => setIsBulkAwbModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer whitespace-nowrap ml-auto"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            Upload Bulk AWB Sheet
+          </button>
         </div>
       </div>
 
-      {/* 4. Active Queue Context Guidance */}
-      {activeSubTab === 'needs_awb' && (
-        <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 flex items-center gap-2.5 shadow-xs">
-          <span className="p-1.5 rounded-lg bg-amber-100 text-amber-800 shrink-0">
-            <Barcode className="w-4 h-4" />
-          </span>
-          <div className="text-xs">
-            <p className="font-semibold text-amber-900">
-              Stage 2: Pending Initial AWB Generation (CWH Action)
-            </p>
-            <p className="text-amber-800/90 mt-0.5">
-              Service centers created shipping orders in Moto CRM. Generate AWB tokens on courier portal and issue here for pickup.
-            </p>
+      {/* 3. Clean Data Table for Consignments with Integrated Context Badge */}
+      <div className="space-y-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              {kpiTabs.find((t) => t.id === activeSubTab)?.label} Queue
+            </span>
+            <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200">
+              {filteredOrders.length}
+            </span>
+            {queueGuidance && (
+              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] border ${queueGuidance.color}`}>
+                <span>{queueGuidance.desc}</span>
+              </span>
+            )}
           </div>
-        </div>
-      )}
-
-      {activeSubTab === 'pickup_pending' && (
-        <div className="p-3.5 rounded-xl bg-blue-50/80 border border-blue-200 flex items-center gap-2.5 shadow-xs">
-          <span className="p-1.5 rounded-lg bg-blue-100 text-blue-800 shrink-0">
-            <Clock className="w-4 h-4" />
+          <span className="text-[11px] text-slate-500">
+            Scope: <strong className="text-slate-800 font-mono">{stationScopedOrders.length}</strong> active consignments
           </span>
-          <div className="text-xs">
-            <p className="font-semibold text-blue-950">
-              Stage 3: Pickup Pending (Awaiting Courier at CCI)
-            </p>
-            <p className="text-blue-900/90 mt-0.5">
-              AWB token issued by CWH. Awaiting courier physical pickup and service center handover confirmation (&quot;Pickup Done&quot;).
-            </p>
-          </div>
         </div>
-      )}
 
-      {activeSubTab === 'in_transit' && (
-        <div className="p-3.5 rounded-xl bg-sky-50/80 border border-sky-300 flex items-center gap-2.5 shadow-xs">
-          <span className="p-1.5 rounded-lg bg-sky-100 text-sky-800 shrink-0">
-            <Truck className="w-4 h-4" />
-          </span>
-          <div className="text-xs">
-            <p className="font-semibold text-sky-950">
-              Stage 5: In-Transit (En Route: CCI → CWH)
-            </p>
-            <p className="text-sky-900/90 mt-0.5">
-              CCI confirmed &quot;Pickup Done&quot; / courier scan completed. Consignment is actively on the vehicle en route to CWH.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {activeSubTab === 'awb_reissue' && (
-        <div className="p-3.5 rounded-xl bg-rose-50 border-2 border-rose-400 flex items-center gap-2.5 shadow-xs">
-          <span className="p-1.5 rounded-lg bg-rose-100 text-rose-800 shrink-0">
-            <AlertTriangle className="w-4 h-4" />
-          </span>
-          <div className="text-xs">
-            <p className="font-bold text-rose-950">
-              Stage 4: Pending AWB Re-Issue (Exception Queue)
-            </p>
-            <p className="text-rose-900/90 mt-0.5">
-              Service centers flagged &quot;Pickup Not Done&quot; (courier delayed/missed slot). Cancel previous courier token and assign a fresh AWB token to re-attempt pickup.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* 5. Clean Data Table for Consignments */}
-      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-xs">
+        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-100/90 text-slate-600 border-b border-slate-200 font-mono text-[11px] tracking-wider uppercase">
@@ -866,6 +821,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
           </table>
         </div>
       </div>
+    </div>
 
       {/* Modal: Create DC to RC in Lenovo CRM */}
       {dcModalOrder && (
