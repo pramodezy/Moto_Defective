@@ -256,6 +256,7 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
       ['moto_crm_stations_v1', 'moto_crm_shipping_orders_v1', 'moto_crm_defective_items_v1', 'moto_crm_audit_logs_v1', 'moto_crm_awb_history_v1',
        'moto_crm_stations_v2', 'moto_crm_shipping_orders_v2', 'moto_crm_defective_items_v2', 'moto_crm_audit_logs_v2', 'moto_crm_awb_history_v2'
       ].forEach((k) => localStorage.removeItem(k));
+      crmDb.clearAllLocalData();
       await crmDb.syncAllFromSupabase();
       refreshSupabase();
       setSyncResult({

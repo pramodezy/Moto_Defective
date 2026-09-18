@@ -398,7 +398,7 @@ class CRMDatabase {
       const soRows = await this.fetchAllRowsParallel('shipping_orders', 'created_at', (q) =>
         q.neq('motorola_status', 'RC Received ASP')
       );
-      if (!soRows || soRows.length === 0) return this.shippingOrders.length;
+      if (soRows === null || soRows === undefined) return this.shippingOrders.length;
 
       const activeSoRows = soRows.filter((so: any) => !isCompletedJourneyStatus(so.motorola_status));
       const activeMappedOrders: ShippingOrder[] = activeSoRows.map((so: any) => {
@@ -569,7 +569,7 @@ class CRMDatabase {
         this.defectiveItems = activeMappedItems;
       }
 
-      if (logRes.data && logRes.data.length > 0) {
+      if (logRes.data) {
         this.auditLogs = logRes.data.map((l: any) => ({
           id: l.id,
           shipping_order_id: l.shipping_order_id,
@@ -585,7 +585,7 @@ class CRMDatabase {
         }));
       }
 
-      if (awbHistRes?.data && awbHistRes.data.length > 0) {
+      if (awbHistRes?.data) {
         this.awbHistory = awbHistRes.data.map((h: any) => ({
           id: h.id,
           shipping_order_id: h.shipping_order_id,
@@ -770,8 +770,8 @@ class CRMDatabase {
 
       this.stations = savedStations ? JSON.parse(savedStations) : INITIAL_STATIONS;
       // Filter out any previously stored completed orders so default start is always active pipeline only
-      const rawOrders = savedOrders ? JSON.parse(savedOrders) : INITIAL_SHIPPING_ORDERS;
-      const rawItems = savedItems ? JSON.parse(savedItems) : INITIAL_DEFECTIVE_ITEMS;
+      const rawOrders = savedOrders ? JSON.parse(savedOrders) : (isSupabaseConfigured ? [] : INITIAL_SHIPPING_ORDERS);
+      const rawItems = savedItems ? JSON.parse(savedItems) : (isSupabaseConfigured ? [] : INITIAL_DEFECTIVE_ITEMS);
       this.shippingOrders = rawOrders
         .filter((so: any) => !isCompletedJourneyStatus(so.motorola_status))
         .map((so: any) => {
@@ -810,18 +810,28 @@ class CRMDatabase {
           return { ...so, pickup_status: pickupStatus };
         });
       this.defectiveItems = rawItems.filter((it: any) => !isCompletedJourneyStatus(it.motorola_parts_status));
-      this.auditLogs = savedLogs ? JSON.parse(savedLogs) : INITIAL_AUDIT_LOGS;
+      this.auditLogs = savedLogs ? JSON.parse(savedLogs) : (isSupabaseConfigured ? [] : INITIAL_AUDIT_LOGS);
       this.awbHistory = savedAwbHistory ? JSON.parse(savedAwbHistory) : [];
 
       if (!savedStations) this.saveToStorage();
     } catch (e) {
       console.warn('Failed to load from localStorage, using initial seed data', e);
-      this.stations = INITIAL_STATIONS;
-      this.shippingOrders = INITIAL_SHIPPING_ORDERS;
-      this.defectiveItems = INITIAL_DEFECTIVE_ITEMS;
-      this.auditLogs = INITIAL_AUDIT_LOGS;
+      this.stations = isSupabaseConfigured ? [] : INITIAL_STATIONS;
+      this.shippingOrders = isSupabaseConfigured ? [] : INITIAL_SHIPPING_ORDERS;
+      this.defectiveItems = isSupabaseConfigured ? [] : INITIAL_DEFECTIVE_ITEMS;
+      this.auditLogs = isSupabaseConfigured ? [] : INITIAL_AUDIT_LOGS;
       this.awbHistory = [];
     }
+  }
+
+  public clearAllLocalData(): void {
+    this.shippingOrders = [];
+    this.defectiveItems = [];
+    this.awbHistory = [];
+    this.auditLogs = [];
+    this.shippingOrderDetails = [];
+    this.saveToStorage();
+    this.notify();
   }
 
   private saveToStorage() {
