@@ -62,7 +62,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   const [selectedStation, setSelectedStation] = useState<string>('ALL');
   const [selectedRegion, setSelectedRegion] = useState<string>('ALL');
   const [activeSubTab, setActiveSubTab] = useState<
-    'needs_awb' | 'pickup_pending' | 'in_transit' | 'awb_reissue' | 'at_cwh' | 'discrepancies' | 'outbound_rc' | 'history'
+    'needs_awb' | 'pickup_pending' | 'in_transit' | 'awb_reissue' | 'at_cwh' | 'discrepancies' | 'outbound_rc'
   >('needs_awb');
   const [isBulkAwbModalOpen, setIsBulkAwbModalOpen] = useState(false);
 
@@ -284,20 +284,6 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     });
   }, [stationScopedOrders]);
 
-  // 7. Delivered Archive & History: RC Received ASP (Code 5 & 6)
-  const historyOrders = useMemo(() => {
-    return stationScopedOrders.filter((o) => {
-      const moto = (o.motorola_status || '').toLowerCase();
-      const motoInfo = getMotorolaStatusInfo(o.motorola_status);
-      return (
-        motoInfo.code === 5 ||
-        motoInfo.isDelivered ||
-        o.crm_status === 'Delivered to RC' ||
-        (moto.includes('rc received') && !moto.includes('negative'))
-      );
-    });
-  }, [stationScopedOrders]);
-
   const currentDisplayOrders = useMemo(() => {
     switch (activeSubTab) {
       case 'needs_awb':
@@ -314,12 +300,10 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         return discrepancyOrders;
       case 'outbound_rc':
         return outboundRcOrders;
-      case 'history':
-        return historyOrders;
       default:
         return needsAwbOrders;
     }
-  }, [activeSubTab, needsAwbOrders, pickupPendingOrders, inTransitOrders, awbReissueOrders, atCwhOrders, discrepancyOrders, outboundRcOrders, historyOrders]);
+  }, [activeSubTab, needsAwbOrders, pickupPendingOrders, inTransitOrders, awbReissueOrders, atCwhOrders, discrepancyOrders, outboundRcOrders]);
 
   const filteredOrders = useMemo(() => {
     if (!searchQuery.trim()) return currentDisplayOrders;
@@ -405,15 +389,6 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       activeClasses: 'border-blue-500 bg-blue-50/70 shadow-sm ring-1 ring-blue-500',
       activePill: 'bg-blue-600 text-white',
     },
-    {
-      id: 'history',
-      label: 'Delivered to RC',
-      sublabel: 'Received at RC',
-      count: historyOrders.length,
-      icon: CheckCircle2,
-      activeClasses: 'border-emerald-500 bg-emerald-50/70 shadow-sm ring-1 ring-emerald-500',
-      activePill: 'bg-emerald-600 text-white',
-    },
   ];
 
   return (
@@ -450,8 +425,8 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         </div>
       </div>
 
-      {/* 2. Interactive KPI Metric Pipeline Cards (8 Distinct Stages) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2.5">
+      {/* 2. Interactive KPI Metric Pipeline Cards (7 Active Stages) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-2.5">
         {kpiTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeSubTab === tab.id;
