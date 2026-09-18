@@ -467,9 +467,13 @@ export const UnboxingModal: React.FC<UnboxingModalProps> = ({
                   <>
                     <strong>Discrepancy Tagged:</strong> Consignment will be moved to <strong className="text-slate-900">⚠️ CWH Received - Discrepancies</strong> queue (Status: <em>CWH Received - Discrepancies</em>).
                   </>
-                ) : (
+                ) : (order.motorola_status || '').toLowerCase().includes('cwh received') ? (
                   <>
                     <strong>Clean Inward:</strong> All units and parts verified clean. Consignment will be moved to <strong className="text-slate-900">🏢 At CWH → Create DC to RC</strong> queue.
+                  </>
+                ) : (
+                  <>
+                    <strong>CCTV Inward Complete:</strong> All units and parts verified clean under CCTV. Consignment will be held in <strong className="text-slate-900">Pending Inward at CWH</strong>. Update receipt to <em>&apos;CWH Received&apos;</em> in Motorola CRM to enable outbound DC creation to RC.
                   </>
                 )}
               </span>

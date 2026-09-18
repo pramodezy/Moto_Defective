@@ -191,12 +191,9 @@ export function deriveCrmStatusFromMotorolaStatus(
     ) {
       return existingCrmStatus;
     }
-    // If inward verified clean and waiting for DC to RC creation
-    if (existingCrmStatus === 'CWH to Create DC') {
-      return 'CWH to Create DC';
-    }
-    // If screening passed / staging for inward
-    if (screeningStatus === 'Passed' || existingCrmStatus === 'Pending Inward at CWH') {
+    // If inward verified clean under CCTV, but Moto CRM is still 'CCI Send to CWH':
+    // Gating rule: Create DC to RC must NOT reflect until Motorola status is updated to CWH Received
+    if (existingCrmStatus === 'CWH to Create DC' || existingCrmStatus === 'Pending Inward at CWH' || screeningStatus === 'Passed') {
       return 'Pending Inward at CWH';
     }
     // If physically arrived at CWH bay

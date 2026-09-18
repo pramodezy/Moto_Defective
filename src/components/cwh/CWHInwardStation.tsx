@@ -710,12 +710,13 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                             <Barcode className="w-3 h-3" />
                             Issue AWB
                           </button>
-                        ) : so.crm_status === 'CWH to Create DC' ? (
-                          /* 3. At CWH: Create DC to RC */
+                        ) : (so.crm_status === 'CWH to Create DC' && (motoInfo.code === 3 || (so.motorola_status || '').toLowerCase().includes('cwh received'))) ? (
+                          /* 3. At CWH & Motorola Status is CWH Received: Create DC to RC */
                           <>
                             <button
                               onClick={() => handleOpenDcModal(so)}
                               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-purple-700 hover:bg-purple-800 text-white shadow-xs transition-colors cursor-pointer"
+                              title="Create Delivery Challan to Repair Center (Lenovo CRM)"
                             >
                               <Send className="w-3 h-3" />
                               Create DC to RC
@@ -728,8 +729,27 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                               <Video className="w-3 h-3" />
                             </button>
                           </>
+                        ) : so.crm_status === 'Pending Inward at CWH' ? (
+                          /* 4. CCTV Verified Clean — Awaiting Motorola CRM Receipt Entry (CWH Received) */
+                          <>
+                            <span
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-900 border border-amber-300 shadow-2xs"
+                              title="CCTV physical inspection verified clean. Please update receipt to 'CWH Received' in Motorola CRM to unlock DC creation to RC."
+                            >
+                              <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              Awaiting Moto CRM Inward
+                            </span>
+                            <button
+                              onClick={() => onOpenUnboxing(so)}
+                              title="Review CCTV Inspection Log"
+                              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
+                            >
+                              <Video className="w-3 h-3 text-slate-600" />
+                              CCTV
+                            </button>
+                          </>
                         ) : isDiscrepancy ? (
-                          /* 4. Discrepancy Queue */
+                          /* 5. Discrepancy Queue */
                           <>
                             <button
                               onClick={() => onOpenUnboxing(so)}
@@ -745,15 +765,15 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                               View
                             </button>
                           </>
-                        ) : so.crm_status === 'Delivered at CWH' || so.crm_status === 'Pending Inward at CWH' || so.crm_status === 'In Transit' ? (
-                          /* 5. Delivered at CWH / In Transit: CCTV Inward */
+                        ) : so.crm_status === 'Delivered at CWH' || so.crm_status === 'In Transit' ? (
+                          /* 6. Delivered at CWH / In Transit: CCTV Inward */
                           <>
                             <button
                               onClick={() => onOpenUnboxing(so)}
                               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[#001489] hover:bg-[#08209e] text-white shadow-xs transition-colors cursor-pointer"
                             >
                               <Video className="w-3 h-3" />
-                              {so.crm_status === 'Delivered at CWH' || so.crm_status === 'Pending Inward at CWH'
+                              {so.crm_status === 'Delivered at CWH'
                                 ? 'CCTV Inward & Unbox'
                                 : 'Unbox Under CCTV'}
                             </button>

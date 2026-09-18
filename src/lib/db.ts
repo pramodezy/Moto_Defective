@@ -1211,7 +1211,14 @@ class CRMDatabase {
       }
     });
 
-    const newStatus: CRMStatus = hasDiscrepancy ? 'Discrepancies' : 'CWH to Create DC';
+    const motoLower = (so.motorola_status || '').toLowerCase();
+    const isMotoCwhReceived = motoLower.includes('cwh received') && !motoLower.includes('discrepanc');
+
+    // Gating rule: 'CWH to Create DC' requires Motorola status to be 'CWH Received'.
+    // If Motorola status is still 'CCI Send to CWH', status is 'Pending Inward at CWH' awaiting Moto CRM update.
+    const newStatus: CRMStatus = hasDiscrepancy 
+      ? 'Discrepancies' 
+      : (isMotoCwhReceived ? 'CWH to Create DC' : 'Pending Inward at CWH');
     so.crm_status = newStatus;
     // NOTE: so.motorola_status strictly reflects Motorola CRM feed from uploaded files and must NOT be overwritten by internal actions
     so.pickup_status = 'Pickup Done';
@@ -1231,7 +1238,9 @@ class CRMDatabase {
       new_status: newStatus,
       remarks: hasDiscrepancy 
         ? `Consignment inward verified with Discrepancies under CCTV Bay. Notes: ${discrepancyNotes.join('; ')}. Evidence attached.`
-        : `Consignment inward verified successfully. All ${qtyVerification?.expectedQty || so.total_items || 1} units and parts passed inspection under CCTV. Ready for formal inward entry.`,
+        : isMotoCwhReceived
+        ? `Consignment inward verified clean under CCTV. Motorola status is CWH Received; ready to Create DC to RC.`
+        : `Consignment inward verified clean under CCTV. Awaiting receipt entry in Motorola CRM to update status to 'CWH Received' before DC to RC can be created.`,
       created_at: new Date().toISOString(),
     });
 

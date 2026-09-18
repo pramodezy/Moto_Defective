@@ -140,10 +140,14 @@ export function App() {
       const hasItemDiscrepancy = Object.values(screeningMap).some(
         (v) => ['Damaged', 'Missing', 'Failed'].includes(v.status) || v.partMatched === false
       );
+      const targetOrder = orders.find((o) => o.id === soId || o.so_code === soId);
+      const isMotoCwhReceived = (targetOrder?.motorola_status || '').toLowerCase().includes('cwh received');
       if (isQtyMismatch || isCartonIssue || hasItemDiscrepancy) {
-        toast.warning('Discrepancy tagged! Consignment routed to Discrepancies queue (Status: RC Received ASP Negative).');
-      } else {
+        toast.warning('Discrepancy tagged! Consignment routed to Discrepancies queue.');
+      } else if (isMotoCwhReceived) {
         toast.success('Inward verified clean! Consignment at CWH ready to Create DC to RC.');
+      } else {
+        toast.info('CCTV inward verified! Update status to "CWH Received" in Motorola CRM to unlock DC creation to RC.');
       }
     } catch (err: any) {
       toast.error(err.message || 'Verification failed');
