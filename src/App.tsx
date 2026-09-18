@@ -15,6 +15,7 @@ import { CciDirectory } from './components/admin/CciDirectory';
 import { ShippingOrdersTable } from './components/orders/ShippingOrdersTable';
 import { OrderDetailModal } from './components/orders/OrderDetailModal';
 import { CWHInwardStation } from './components/cwh/CWHInwardStation';
+import { CWHReportsHub } from './components/cwh/CWHReportsHub';
 import { UnboxingModal } from './components/cwh/UnboxingModal';
 import { AwbDispatchModal } from './components/cwh/AwbDispatchModal';
 import { CCIPortal } from './components/cci/CCIPortal';
@@ -392,6 +393,14 @@ export function App() {
             )}
             {activeTab === 'audit' && (
               <AuditLogsViewer logs={logs} />
+            )}
+            {activeTab === 'cwh_reports' && currentUser && (
+              <CWHReportsHub
+                orders={orders}
+                items={items}
+                stations={stations}
+                user={currentUser}
+              />
             )}
           </>
         )}

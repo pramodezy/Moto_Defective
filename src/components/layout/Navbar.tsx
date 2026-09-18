@@ -331,6 +331,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <History className="w-3.5 h-3.5" />
                 Unboxing & Dispatch Logs
               </button>
+
+              <button
+                onClick={() => onTabChange('cwh_reports')}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
+                  activeTab === 'cwh_reports'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                Reports & MIS
+              </button>
             </>
           )}
 
