@@ -10,7 +10,8 @@ import {
   FileText,
   Barcode,
   AlertTriangle,
-  Loader2
+  Loader2,
+  Package
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle, getScreeningStatusStyle } from '../../lib/utils';
@@ -71,23 +72,38 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
     setIsLoadingItems(true);
     crmDb.fetchItemsForOrder(order.so_code, order.id).then((fetched) => {
       if (!isCancelled) {
-        if (fetched.length > 0) {
-          setOrderItems(fetched);
-        }
+        setOrderItems(fetched);
         setIsLoadingItems(false);
       }
     }).catch(() => {
-      if (!isCancelled) setIsLoadingItems(false);
+      if (!isCancelled) {
+        setOrderItems([]);
+        setIsLoadingItems(false);
+      }
     });
     return () => {
       isCancelled = true;
     };
   }, [initialMatched, order.so_code, order.id]);
 
-  const totalValue = order.total_declared_value || orderItems.reduce((acc, item) => {
-    if (item.value !== undefined && item.value !== null) return acc + item.value;
-    return acc + ((item.estimated_value || 8000) * (item.quantity || 1));
+  const itemsCalculatedValue = orderItems.reduce((acc, item) => {
+    const val = (item.value && item.value > 0) ? item.value : ((item.estimated_value || 8000) * (item.quantity || 1));
+    return acc + val;
   }, 0);
+
+  const totalValue = itemsCalculatedValue > 0
+    ? itemsCalculatedValue
+    : (order.total_declared_value && order.total_declared_value > 0
+        ? order.total_declared_value
+        : (8000 * (order.total_items || 1)));
+
+  const totalItemCount = orderItems.length > 0 
+    ? orderItems.length 
+    : (order.total_items || 1);
+
+  const totalUnitCount = orderItems.length > 0 
+    ? orderItems.reduce((s, i) => s + (i.deliver_qty || i.quantity || 1), 0) 
+    : (order.total_items || 1);
   const motoInfo = getMotorolaStatusInfo(order.motorola_status);
   const needsAwb = isAwbIssueRequired(order);
   const stage = getUnifiedStageDetails(order);
@@ -353,7 +369,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
               <span className="text-xs text-slate-500">Total Items / Qty</span>
               <div className="text-lg font-bold text-slate-900 font-mono mt-0.5">
-                {orderItems.length} items ({orderItems.reduce((s, i) => s + (i.quantity || 1), 0)} units)
+                {totalItemCount} items ({totalUnitCount} units)
               </div>
               <span className="text-[10px] text-slate-500">Constituent line items</span>
             </div>
@@ -513,7 +529,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                 <Layers className="w-4 h-4 text-sky-700" />
-                Constituent Defective Line Items ({orderItems.length})
+                Constituent Defective Line Items ({totalItemCount})
               </h3>
               <span className="text-xs text-slate-500">
                 Composite Key: <code className="text-[#001489]">SR#_DefectivePart#_IssuedPart#</code>
@@ -540,7 +556,9 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                   <tbody className="divide-y divide-slate-200 text-slate-700">
                     {orderItems.map((item) => {
                       const displayQty = item.deliver_qty ?? item.quantity ?? 1;
-                      const displayValue = item.value ?? ((item.estimated_value || 8000) * (item.quantity || 1));
+                      const displayValue = (item.value && item.value > 0)
+                        ? item.value
+                        : ((item.estimated_value || 8000) * (item.quantity || 1));
                       const dcCode = item.delivery_challan_code || order.delivery_challan_code;
 
                       return (
@@ -582,10 +600,30 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                         </tr>
                       );
                     })}
-                    {orderItems.length === 0 && (
+                    {isLoadingItems && (
                       <tr>
-                        <td colSpan={10} className="py-8 text-center text-slate-400">
-                          No line items found for this shipping order.
+                        <td colSpan={10} className="py-8 text-center text-slate-500">
+                          <div className="flex items-center justify-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin text-sky-600" />
+                            <span>Loading constituent parts for {order.so_code}...</span>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {!isLoadingItems && orderItems.length === 0 && (
+                      <tr>
+                        <td colSpan={10} className="py-8 px-4 text-center bg-slate-50/50">
+                          <div className="flex flex-col items-center justify-center gap-2">
+                            <div className="p-3 bg-white rounded-full border border-slate-200 shadow-2xs">
+                              <Package className="w-6 h-6 text-sky-700" />
+                            </div>
+                            <span className="font-semibold text-slate-800 text-sm">
+                              Consignment Parcel ({totalItemCount} units • {formatINR(totalValue)})
+                            </span>
+                            <p className="text-xs text-slate-500 max-w-md">
+                              Direct line items are registered at the consignment level. Physical part serial numbers and fault inspections will be scanned and verified during CWH inward unboxing.
+                            </p>
+                          </div>
                         </td>
                       </tr>
                     )}

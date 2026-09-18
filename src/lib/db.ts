@@ -531,6 +531,27 @@ class CRMDatabase {
         }));
       }
 
+      // Recalculate any orders that have 0 or missing total_declared_value / total_items
+      this.shippingOrders.forEach((so) => {
+        const matchingItems = this.defectiveItems.filter(
+          (it) => (it.shipping_order_code || '').trim().toLowerCase() === (so.so_code || '').trim().toLowerCase()
+        );
+        if (matchingItems.length > 0) {
+          const sumVal = matchingItems.reduce((acc, it) => {
+            const val = (it.value !== undefined && it.value > 0) ? it.value : ((it.estimated_value || 8000) * (it.quantity || 1));
+            return acc + val;
+          }, 0);
+          const sumQty = matchingItems.reduce((acc, it) => acc + (it.deliver_qty || it.quantity || 1), 0);
+          if (sumVal > 0 && (!so.total_declared_value || so.total_declared_value === 0)) {
+            so.total_declared_value = sumVal;
+          }
+          if (sumQty > 0 && (!so.total_items || so.total_items <= 1)) {
+            so.total_items = sumQty;
+          }
+          so.eway_bill_required = (so.total_declared_value || 0) >= 50000;
+        }
+      });
+
       this.reapplyStationLocationMappings();
       this.saveToStorage();
       this.notify();
@@ -809,11 +830,16 @@ class CRMDatabase {
     // 2. Query Supabase directly on-demand
     if (!isSupabaseConfigured || !supabase) return [];
     try {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(soId || '');
       let query = supabase.from('defective_master').select('*');
-      if (soId) {
+      if (cleanCode && isUuid) {
         query = query.or(`shipping_order_code.eq.${cleanCode},shipping_order_id.eq.${soId}`);
-      } else {
+      } else if (cleanCode) {
         query = query.eq('shipping_order_code', cleanCode);
+      } else if (isUuid) {
+        query = query.eq('shipping_order_id', soId);
+      } else {
+        return [];
       }
       const { data, error } = await query;
       if (error || !data || data.length === 0) return [];
