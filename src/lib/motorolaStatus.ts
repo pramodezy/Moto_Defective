@@ -181,6 +181,20 @@ export function deriveCrmStatusFromMotorolaStatus(
     if (screeningStatus === 'Damaged' || screeningStatus === 'Missing' || screeningStatus === 'Failed' || existingCrmStatus === 'Discrepancies') {
       return 'Discrepancies';
     }
+    // If already in outbound RC stages, preserve operational state
+    if (
+      existingCrmStatus === 'Pickup Pending for RC' ||
+      existingCrmStatus === 'In Transit to RC' ||
+      existingCrmStatus === 'CWH Shipped to RC' ||
+      existingCrmStatus === 'Delivered to RC' ||
+      existingCrmStatus === 'Delivered to RC (Discrepancies)'
+    ) {
+      return existingCrmStatus;
+    }
+    // If inward verified clean and waiting for DC to RC creation
+    if (existingCrmStatus === 'CWH to Create DC') {
+      return 'CWH to Create DC';
+    }
     // If screening passed / staging for inward
     if (screeningStatus === 'Passed' || existingCrmStatus === 'Pending Inward at CWH') {
       return 'Pending Inward at CWH';

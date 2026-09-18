@@ -142,6 +142,8 @@ class CRMDatabase {
         so.crm_status !== 'In Transit to RC' &&
         so.crm_status !== 'Pickup Pending for RC' &&
         so.crm_status !== 'CWH to Create DC' &&
+        so.crm_status !== 'Pending Inward at CWH' &&
+        so.crm_status !== 'Delivered at CWH' &&
         so.crm_status !== 'CCI to Create DC'
       ) {
         if (so.crm_status === 'In Transit' || so.pickup_status === 'Pickup Done') {
@@ -1197,9 +1199,7 @@ class CRMDatabase {
         if (data.remarks) item.item_remarks = data.remarks;
         
         const isItemDiscrepancy = ['Failed', 'Damaged', 'Missing'].includes(data.status) || data.partMatched === false;
-        item.motorola_parts_status = isItemDiscrepancy
-          ? 'CWH Received - Discrepancies'
-          : '3. CWH Received';
+        // NOTE: item.motorola_parts_status is strictly managed from uploaded Motorola reports, never overwritten here
         item.updated_at = new Date().toISOString();
 
         if (isItemDiscrepancy) {
@@ -1211,9 +1211,9 @@ class CRMDatabase {
       }
     });
 
-    const newStatus: CRMStatus = hasDiscrepancy ? 'Discrepancies' : 'Pending Inward at CWH';
+    const newStatus: CRMStatus = hasDiscrepancy ? 'Discrepancies' : 'CWH to Create DC';
     so.crm_status = newStatus;
-    so.motorola_status = hasDiscrepancy ? 'CWH Received - Discrepancies' : 'CWH Received';
+    // NOTE: so.motorola_status strictly reflects Motorola CRM feed from uploaded files and must NOT be overwritten by internal actions
     so.pickup_status = 'Pickup Done';
     if (cwhEvidenceRef) {
       so.cwh_evidence_ref = cwhEvidenceRef;
@@ -1240,16 +1240,16 @@ class CRMDatabase {
       const client = supabase;
       client.from('shipping_orders').update({
         crm_status: so.crm_status,
-        motorola_status: so.motorola_status,
+        pickup_status: so.pickup_status,
         cwh_evidence_ref: so.cwh_evidence_ref,
         updated_at: so.updated_at,
       }).eq('so_code', so.so_code).then(({ error }) => {
         if (error) console.warn('Live Supabase update for inward verification failed:', error.message);
       });
 
-      // Update constituent defective line items
+      // Update constituent defective line items screening status
       client.from('defective_master').update({
-        motorola_parts_status: so.motorola_status,
+        screening_status: hasDiscrepancy ? 'Damaged' : 'Passed',
         updated_at: so.updated_at,
       }).eq('shipping_order_code', so.so_code).then(({ error }) => {
         if (error) console.warn('Live Supabase defective items update failed:', error.message);
@@ -1275,7 +1275,7 @@ class CRMDatabase {
 
     const oldStatus = so.crm_status;
     so.crm_status = 'Pickup Pending for RC';
-    so.motorola_status = 'ASP Send To RC';
+    // NOTE: so.motorola_status strictly reflects Motorola CRM feed from uploaded files and must NOT be overwritten by internal actions
     so.asp_rc_shipping_order_code = data.dcNumber;
     if (data.courier) so.courier = data.courier;
     so.updated_at = new Date().toISOString();
@@ -1284,7 +1284,6 @@ class CRMDatabase {
     this.defectiveItems
       .filter((i) => (i.shipping_order_code || '').trim() === so.so_code.trim())
       .forEach((item) => {
-        item.motorola_parts_status = 'ASP Send To RC';
         item.asp_rc_shipping_order_code = data.dcNumber;
         item.updated_at = new Date().toISOString();
       });
@@ -1306,7 +1305,7 @@ class CRMDatabase {
       const client = supabase;
       client.from('shipping_orders').update({
         crm_status: so.crm_status,
-        motorola_status: so.motorola_status,
+        asp_rc_shipping_order_code: so.asp_rc_shipping_order_code,
         courier: so.courier,
         updated_at: so.updated_at,
       }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(({ error }) => {
@@ -1314,7 +1313,7 @@ class CRMDatabase {
       });
 
       client.from('defective_master').update({
-        motorola_parts_status: so.motorola_status,
+        asp_rc_shipping_order_code: data.dcNumber,
         updated_at: so.updated_at,
       }).eq('shipping_order_code', so.so_code).then(({ error }) => {
         if (error) console.warn('Supabase defective items update failed:', error.message);
