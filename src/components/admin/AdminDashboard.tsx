@@ -20,6 +20,7 @@ import { ShippingOrder, DefectiveItem, CCIMaster } from '../../types/crm';
 import { formatINR } from '../../lib/utils';
 import { StatCard } from '../ui/StatCard';
 import { SlaBadge } from '../layout/SlaBadge';
+import { getMotorolaStatusInfo } from '../../lib/motorolaStatus';
 
 interface AdminDashboardProps {
   orders: ShippingOrder[];
@@ -65,6 +66,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const ewayRequiredCount = useMemo(() => {
     return orders.filter((so) => so.eway_bill_required);
+  }, [orders]);
+
+  const awaitingPickupCount = useMemo(() => {
+    return orders.filter((so) => {
+      const motoInfo = getMotorolaStatusInfo(so.motorola_status);
+      const hasAwb = Boolean(so.active_awb || so.excel_ref_awb);
+      return (
+        motoInfo.code === 2 &&
+        hasAwb &&
+        so.crm_status !== 'Delivered at CWH' &&
+        so.crm_status !== 'Pending Inward at CWH' &&
+        so.crm_status !== 'CWH to Create DC' &&
+        so.crm_status !== 'Pickup Pending for RC' &&
+        so.crm_status !== 'In Transit to RC' &&
+        so.crm_status !== 'CWH Shipped to RC' &&
+        so.crm_status !== 'Delivered to RC' &&
+        so.crm_status !== 'Delivered to RC (Discrepancies)' &&
+        so.crm_status !== 'In Transit' &&
+        so.pickup_status !== 'Pickup Done' &&
+        !motoInfo.isDelivered
+      );
+    }).length;
   }, [orders]);
 
   // Regional Aggregations mapped dynamically from CCI Master stations
@@ -171,6 +194,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <FileSpreadsheet className="w-4 h-4 text-[#001489]" />
               Upload Latest Dump
             </button>
+
+            {awaitingPickupCount > 0 && (
+              <button
+                onClick={() => onNavigateTab('orders')}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-amber-400/20 hover:bg-amber-400/30 text-amber-200 border border-amber-300/40 shadow-xs transition-all hover:scale-[1.02] cursor-pointer"
+                title="Consignments with AWB issued awaiting courier pickup"
+              >
+                <Truck className="w-4 h-4 text-amber-300" />
+                <span>Awaiting Pickup ({awaitingPickupCount})</span>
+              </button>
+            )}
 
             <button
               onClick={() => onNavigateTab('orders')}

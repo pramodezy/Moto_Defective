@@ -316,9 +316,11 @@ export function App() {
                 items={items}
                 stations={stations}
                 currentRole={currentRole}
+                user={currentUser}
                 onSelectOrder={setSelectedOrder}
                 onOpenAwbModal={setAwbModalOrder}
                 onOpenInward={setUnboxingOrder}
+                onOpenPickupModal={setCciPickupOrder}
                 onDeleteOrder={handleDeleteOrder}
                 onNavigateTab={setActiveTab}
                 isCompletedSessionLoaded={isCompletedSessionLoaded}
@@ -374,9 +376,11 @@ export function App() {
                 items={items}
                 stations={stations}
                 currentRole={currentRole}
+                user={currentUser}
                 onSelectOrder={setSelectedOrder}
                 onOpenAwbModal={setAwbModalOrder}
                 onOpenInward={setUnboxingOrder}
+                onOpenPickupModal={setCciPickupOrder}
               />
             )}
             {activeTab === 'vault' && (

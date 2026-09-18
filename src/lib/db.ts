@@ -1847,6 +1847,138 @@ class CRMDatabase {
     return so;
   }
 
+  // --- ADMIN / BULK PICKUP CONFIRMATION ACTION ---
+  public bulkConfirmPickupDone(
+    soIdsOrCodes: string[],
+    user: UserProfile,
+    options?: {
+      pickupDate?: string;
+      courier?: string;
+      remarks?: string;
+    }
+  ): {
+    successCount: number;
+    updatedOrders: ShippingOrder[];
+    skippedOrders: { code: string; reason: string }[];
+  } {
+    if (user.role !== 'ADMIN' && user.role !== 'CCI') {
+      throw new Error('Permission denied: Only Admin or CCI can confirm consignment pickup in bulk');
+    }
+
+    const updatedOrders: ShippingOrder[] = [];
+    const skippedOrders: { code: string; reason: string }[] = [];
+    const nowIso = options?.pickupDate ? new Date(options.pickupDate).toISOString() : new Date().toISOString();
+    const cleanRemarks = options?.remarks?.trim() || 'Bulk pickup confirmed by Admin';
+
+    // Build lookup set of target codes/IDs/AWBs
+    const targetSet = new Set(soIdsOrCodes.map((s) => s.trim().toUpperCase()).filter(Boolean));
+
+    // Find all matching shipping orders
+    const matchingOrders = this.shippingOrders.filter((o) => {
+      if (targetSet.has(o.id.toUpperCase()) || targetSet.has(o.so_code.toUpperCase())) return true;
+      if (o.active_awb && targetSet.has(o.active_awb.trim().toUpperCase())) return true;
+      if (o.excel_ref_awb && targetSet.has(o.excel_ref_awb.trim().toUpperCase())) return true;
+      return false;
+    });
+
+    const validSoCodes: string[] = [];
+    const validSoIds: string[] = [];
+
+    for (const so of matchingOrders) {
+      const activeAwb = so.active_awb || so.excel_ref_awb;
+
+      // 1. Must have an AWB issued
+      if (!activeAwb) {
+        skippedOrders.push({ code: so.so_code, reason: 'No AWB assigned yet (CWH must assign AWB first)' });
+        continue;
+      }
+
+      // 2. Consignment must not already have been delivered at CWH / processed to RC
+      if (
+        so.crm_status === 'Delivered at CWH' ||
+        so.crm_status === 'Pending Inward at CWH' ||
+        so.crm_status === 'CWH to Create DC' ||
+        so.crm_status === 'Pickup Pending for RC' ||
+        so.crm_status === 'In Transit to RC' ||
+        so.crm_status === 'CWH Shipped to RC' ||
+        so.crm_status === 'Delivered to RC' ||
+        so.crm_status === 'Delivered to RC (Discrepancies)' ||
+        isCompletedJourneyStatus(so.motorola_status)
+      ) {
+        skippedOrders.push({
+          code: so.so_code,
+          reason: `Already reached CWH or downstream stage (${so.crm_status})`,
+        });
+        continue;
+      }
+
+      // 3. Apply state update
+      so.pickup_status = 'Pickup Done';
+      so.crm_status = 'In Transit';
+      so.pickup_date = nowIso;
+      so.pickup_remarks = cleanRemarks;
+      if (options?.courier?.trim()) {
+        so.courier = options.courier.trim();
+      }
+      so.updated_at = new Date().toISOString();
+
+      validSoCodes.push(so.so_code);
+      validSoIds.push(so.id);
+      updatedOrders.push(so);
+
+      // 4. Audit Log entry
+      this.auditLogs.unshift({
+        id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        shipping_order_id: so.id,
+        so_code: so.so_code,
+        user_name: user.full_name,
+        user_role: user.role,
+        action: 'ADMIN_BULK_PICKUP_DONE',
+        awb: activeAwb,
+        remarks: `Bulk pickup confirmed by ${user.role} (${user.username}). Consignment transitioned to In Transit. AWB: ${activeAwb} (${so.courier}). Notes: ${cleanRemarks}`,
+        created_at: new Date().toISOString(),
+      });
+    }
+
+    // Live update to Supabase Cloud if configured
+    if (isSupabaseConfigured && supabase && validSoCodes.length > 0) {
+      // NOTE: Do NOT include pickup_status in Supabase update payload (column does not exist in Postgres)
+      const updatePayload: Record<string, any> = {
+        crm_status: 'In Transit',
+        updated_at: new Date().toISOString(),
+      };
+      if (options?.courier?.trim()) {
+        updatePayload.courier = options.courier.trim();
+      }
+
+      supabase
+        .from('shipping_orders')
+        .update(updatePayload)
+        .in('so_code', validSoCodes)
+        .then(({ error }) => {
+          if (error) console.warn('Live Supabase bulk update for pickup done failed:', error.message);
+        });
+
+      // Update awb_history in Supabase
+      supabase
+        .from('awb_history')
+        .update({
+          pickup_date: nowIso,
+        })
+        .in('shipping_order_id', validSoIds)
+        .eq('is_active', true)
+        .then(() => {});
+    }
+
+    this.notify();
+
+    return {
+      successCount: updatedOrders.length,
+      updatedOrders,
+      skippedOrders,
+    };
+  }
+
   // --- E-WAY BILL ATTACHMENT ---
   public attachEwayBill(soId: string, ewayNumber: string, ewayUrl: string, user: UserProfile) {
     const so = this.shippingOrders.find((o) => o.id === soId || o.so_code === soId);

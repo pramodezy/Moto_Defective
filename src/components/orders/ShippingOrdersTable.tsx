@@ -21,10 +21,11 @@ import {
   Layers,
   Clock
 } from 'lucide-react';
-import { ShippingOrder, DefectiveItem, CCIMaster, PriorityTier, CRMStatus, UserRole } from '../../types/crm';
+import { ShippingOrder, DefectiveItem, CCIMaster, PriorityTier, CRMStatus, UserRole, UserProfile } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
 import { printConsignmentManifest } from '../../services/manifestGenerator';
+import { BulkPickupModal } from '../admin/BulkPickupModal';
 import { 
   getMotorolaStatusInfo, 
   isAwbIssueRequired, 
@@ -40,9 +41,11 @@ interface ShippingOrdersTableProps {
   stations: CCIMaster[];
   currentRole: UserRole;
   currentStation?: string;
+  user?: UserProfile;
   onSelectOrder: (order: ShippingOrder) => void;
   onOpenAwbModal?: (order: ShippingOrder) => void;
   onOpenInward?: (order: ShippingOrder) => void;
+  onOpenPickupModal?: (order: ShippingOrder) => void;
   onDeleteOrder?: (order: ShippingOrder) => void;
   onNavigateTab?: (tab: string) => void;
   isCompletedSessionLoaded?: boolean;
@@ -58,9 +61,11 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
   stations,
   currentRole,
   currentStation,
+  user,
   onSelectOrder,
   onOpenAwbModal,
   onOpenInward,
+  onOpenPickupModal,
   onDeleteOrder,
   onNavigateTab,
   isCompletedSessionLoaded,
@@ -74,6 +79,9 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
   const [selectedTier, setSelectedTier] = useState<string>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
   const [selectedMotoStatus, setSelectedMotoStatus] = useState<string>('ALL');
+  const [quickFilterAwaitingPickup, setQuickFilterAwaitingPickup] = useState(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+  const [isBulkPickupModalOpen, setIsBulkPickupModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 15;
 
@@ -106,6 +114,29 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
     return Array.from(regSet).sort();
   }, [stations, orders, stationMap]);
 
+  // Consignments awaiting courier pickup (Code 2, AWB issued, not yet delivered/completed)
+  const awaitingPickupOrders = useMemo(() => {
+    return orders.filter((so) => {
+      const motoInfo = getMotorolaStatusInfo(so.motorola_status);
+      const hasAwb = Boolean(so.active_awb || so.excel_ref_awb);
+      return (
+        motoInfo.code === 2 &&
+        hasAwb &&
+        so.crm_status !== 'Delivered at CWH' &&
+        so.crm_status !== 'Pending Inward at CWH' &&
+        so.crm_status !== 'CWH to Create DC' &&
+        so.crm_status !== 'Pickup Pending for RC' &&
+        so.crm_status !== 'In Transit to RC' &&
+        so.crm_status !== 'CWH Shipped to RC' &&
+        so.crm_status !== 'Delivered to RC' &&
+        so.crm_status !== 'Delivered to RC (Discrepancies)' &&
+        so.crm_status !== 'In Transit' &&
+        so.pickup_status !== 'Pickup Done' &&
+        !motoInfo.isDelivered
+      );
+    });
+  }, [orders]);
+
   // Scoped filtering
   const filteredOrders = useMemo(() => {
     return orders.filter((so) => {
@@ -117,6 +148,27 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
       // Role scoping: if CCI, only show own station
       if (currentRole === 'CCI' && currentStation && so.station_code !== currentStation) {
         return false;
+      }
+
+      // Quick filter: Awaiting Courier Pickup
+      if (quickFilterAwaitingPickup) {
+        const motoInfo = getMotorolaStatusInfo(so.motorola_status);
+        const hasAwb = Boolean(so.active_awb || so.excel_ref_awb);
+        const isAwaiting =
+          motoInfo.code === 2 &&
+          hasAwb &&
+          so.crm_status !== 'Delivered at CWH' &&
+          so.crm_status !== 'Pending Inward at CWH' &&
+          so.crm_status !== 'CWH to Create DC' &&
+          so.crm_status !== 'Pickup Pending for RC' &&
+          so.crm_status !== 'In Transit to RC' &&
+          so.crm_status !== 'CWH Shipped to RC' &&
+          so.crm_status !== 'Delivered to RC' &&
+          so.crm_status !== 'Delivered to RC (Discrepancies)' &&
+          so.crm_status !== 'In Transit' &&
+          so.pickup_status !== 'Pickup Done' &&
+          !motoInfo.isDelivered;
+        if (!isAwaiting) return false;
       }
 
       // Strictly resolve region from CCI master station mapping
@@ -158,7 +210,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
 
       return true;
     });
-  }, [orders, currentRole, currentStation, selectedRegion, selectedTier, selectedStatus, selectedMotoStatus, searchTerm, stationMap]);
+  }, [orders, currentRole, currentStation, quickFilterAwaitingPickup, selectedRegion, selectedTier, selectedStatus, selectedMotoStatus, searchTerm, stationMap]);
 
   // Pagination
   const totalPages = Math.ceil(filteredOrders.length / pageSize) || 1;
@@ -359,6 +411,42 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
             <option value="6">6. RC Received ASP(Negative) - Discrepancy</option>
           </select>
 
+          {/* Quick Filter: Awaiting Pickup */}
+          {currentRole === 'ADMIN' && (
+            <button
+              type="button"
+              onClick={() => {
+                setQuickFilterAwaitingPickup(!quickFilterAwaitingPickup);
+                setCurrentPage(1);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                quickFilterAwaitingPickup
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                  : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200'
+              }`}
+            >
+              <Truck className="w-3.5 h-3.5" />
+              Awaiting Pickup ({awaitingPickupOrders.length})
+            </button>
+          )}
+
+          {/* Admin Bulk Pickup Action Button */}
+          {currentRole === 'ADMIN' && (
+            <button
+              type="button"
+              onClick={() => setIsBulkPickupModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-xs cursor-pointer transition-all"
+            >
+              <Truck className="w-3.5 h-3.5" />
+              Bulk Pickup (Admin)
+              {selectedOrderIds.size > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-blue-800 text-[10px] font-mono">
+                  {selectedOrderIds.size}
+                </span>
+              )}
+            </button>
+          )}
+
           {/* Export button */}
           <button
             onClick={handleExportExcel}
@@ -376,6 +464,25 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-100 text-slate-600 border-b border-slate-200 font-mono">
               <tr>
+                {currentRole === 'ADMIN' && (
+                  <th className="py-3 px-3 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all consignments on this page"
+                      checked={paginatedOrders.length > 0 && paginatedOrders.every((o) => selectedOrderIds.has(o.id))}
+                      onChange={(e) => {
+                        const next = new Set(selectedOrderIds);
+                        if (e.target.checked) {
+                          paginatedOrders.forEach((o) => next.add(o.id));
+                        } else {
+                          paginatedOrders.forEach((o) => next.delete(o.id));
+                        }
+                        setSelectedOrderIds(next);
+                      }}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-0 cursor-pointer"
+                    />
+                  </th>
+                )}
                 <th className="py-3 px-4 uppercase text-[11px]">SO Code</th>
                 <th className="py-3 px-4 uppercase text-[11px]">Station</th>
                 <th className="py-3 px-4 uppercase text-[11px]">Region</th>
@@ -395,6 +502,27 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
 
                 return (
                   <tr key={so.id} className="hover:bg-slate-50 transition-colors group">
+                    {/* Admin Checkbox */}
+                    {currentRole === 'ADMIN' && (
+                      <td className="py-3 px-3 text-center">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select order ${so.so_code}`}
+                          checked={selectedOrderIds.has(so.id)}
+                          onChange={() => {
+                            const next = new Set(selectedOrderIds);
+                            if (next.has(so.id)) {
+                              next.delete(so.id);
+                            } else {
+                              next.add(so.id);
+                            }
+                            setSelectedOrderIds(next);
+                          }}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-0 cursor-pointer"
+                        />
+                      </td>
+                    )}
+
                     {/* SO Code */}
                     <td className="py-3 px-4 font-mono font-medium text-slate-900">
                       <button
@@ -562,6 +690,32 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                           );
                         })()}
 
+                        {/* Admin Quick Pickup Done Action */}
+                        {currentRole === 'ADMIN' &&
+                          !motoInfo.isDelivered &&
+                          (so.active_awb || so.excel_ref_awb) &&
+                          so.crm_status !== 'Delivered at CWH' &&
+                          so.crm_status !== 'Pending Inward at CWH' &&
+                          so.crm_status !== 'CWH to Create DC' &&
+                          so.crm_status !== 'Pickup Pending for RC' &&
+                          so.crm_status !== 'In Transit to RC' &&
+                          so.crm_status !== 'CWH Shipped to RC' &&
+                          so.crm_status !== 'Delivered to RC' &&
+                          so.crm_status !== 'Delivered to RC (Discrepancies)' &&
+                          so.crm_status !== 'In Transit' &&
+                          so.pickup_status !== 'Pickup Done' && (
+                            <button
+                              onClick={() => {
+                                setSelectedOrderIds(new Set([so.id]));
+                                setIsBulkPickupModalOpen(true);
+                              }}
+                              title="Admin: Confirm Pickup Done for this consignment"
+                              className="p-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-900 border border-blue-200 transition-colors cursor-pointer"
+                            >
+                              <Truck className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
                         {currentRole === 'ADMIN' && onDeleteOrder && (
                           <button
                             onClick={() => onDeleteOrder(so)}
@@ -633,6 +787,56 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Admin Floating Bulk Action Bar */}
+      {currentRole === 'ADMIN' && selectedOrderIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-[#0f172a] text-white px-5 py-3 rounded-2xl shadow-2xl border border-slate-700 flex items-center gap-4 animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-400 animate-pulse" />
+            <span className="text-xs font-semibold">
+              <strong className="text-blue-400 font-mono text-sm">{selectedOrderIds.size}</strong> consignment(s) selected
+            </span>
+          </div>
+          <div className="h-4 w-px bg-slate-700" />
+          <button
+            onClick={() => setIsBulkPickupModalOpen(true)}
+            className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-900/40 cursor-pointer transition-all"
+          >
+            <Truck className="w-4 h-4" />
+            Bulk Mark Pickup Done
+          </button>
+          <button
+            onClick={() => {
+              const allAwaitingIds = new Set(awaitingPickupOrders.map((o) => o.id));
+              setSelectedOrderIds(allAwaitingIds);
+            }}
+            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium cursor-pointer transition-colors"
+          >
+            Select All Awaiting ({awaitingPickupOrders.length})
+          </button>
+          <button
+            onClick={() => setSelectedOrderIds(new Set())}
+            className="px-3 py-1.5 rounded-xl text-slate-400 hover:text-white text-xs cursor-pointer transition-colors"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Admin Bulk Pickup Modal */}
+      {isBulkPickupModalOpen && user && (
+        <BulkPickupModal
+          initialSelectedOrders={orders.filter((o) => selectedOrderIds.has(o.id))}
+          allOrders={orders}
+          items={items}
+          stations={stations}
+          user={user}
+          onClose={() => setIsBulkPickupModalOpen(false)}
+          onSuccess={() => {
+            setSelectedOrderIds(new Set());
+          }}
+        />
+      )}
     </div>
   );
 };
