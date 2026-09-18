@@ -338,9 +338,19 @@ class CRMDatabase {
           mappedCrmStatus = so.crm_status as CRMStatus;
         }
 
+        const isDeliveredOrLater = 
+          mappedCrmStatus === 'In Transit' ||
+          mappedCrmStatus === 'Delivered at CWH' ||
+          mappedCrmStatus === 'Pending Inward at CWH' ||
+          mappedCrmStatus === 'CWH to Create DC' ||
+          mappedCrmStatus === 'Pickup Pending for RC' ||
+          mappedCrmStatus === 'In Transit to RC' ||
+          mappedCrmStatus === 'Delivered to RC' ||
+          mappedCrmStatus === 'Delivered to RC (Discrepancies)';
+
         const effectivePickup: PickupStatus =
           so.pickup_status ||
-          (mappedCrmStatus === 'In Transit'
+          (isDeliveredOrLater
             ? 'Pickup Done'
             : mappedCrmStatus === 'Pending AWB Re-Issue'
             ? 'Pickup Not Done'
@@ -650,9 +660,22 @@ class CRMDatabase {
           if (isNotRet) {
             return { ...so, crm_status: 'CCI to Create DC' };
           }
+          const isDeliveredOrLater = 
+            so.crm_status === 'In Transit' ||
+            so.crm_status === 'Delivered at CWH' ||
+            so.crm_status === 'Pending Inward at CWH' ||
+            so.crm_status === 'CWH to Create DC' ||
+            so.crm_status === 'Pickup Pending for RC' ||
+            so.crm_status === 'In Transit to RC' ||
+            so.crm_status === 'Delivered to RC' ||
+            so.crm_status === 'Delivered to RC (Discrepancies)';
+
           const pickupStatus: PickupStatus = so.pickup_status ||
-            (so.crm_status === 'In Transit' ? 'Pickup Done' :
-             so.crm_status === 'Pending AWB Re-Issue' ? 'Pickup Not Done' : 'Pickup Pending');
+            (isDeliveredOrLater
+              ? 'Pickup Done'
+              : so.crm_status === 'Pending AWB Re-Issue'
+              ? 'Pickup Not Done'
+              : 'Pickup Pending');
           if (!so.crm_status || so.crm_status === 'AWB Pending') {
             return {
               ...so,
@@ -1288,7 +1311,6 @@ class CRMDatabase {
     if (isSupabaseConfigured && supabase) {
       supabase.from('shipping_orders').update({
         crm_status: so.crm_status,
-        pickup_status: so.pickup_status,
         updated_at: so.updated_at,
       }).eq('so_code', so.so_code).then(({ error }) => {
         if (error) console.warn('Live Supabase update for courier delivery acknowledgment failed:', error.message);
@@ -1395,7 +1417,6 @@ class CRMDatabase {
       const client = supabase;
       client.from('shipping_orders').update({
         crm_status: so.crm_status,
-        pickup_status: so.pickup_status,
         cwh_evidence_ref: so.cwh_evidence_ref,
         updated_at: so.updated_at,
       }).eq('so_code', so.so_code).then(({ error }) => {
