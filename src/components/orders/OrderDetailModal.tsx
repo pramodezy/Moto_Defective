@@ -77,7 +77,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
       const finalReason = debitCustomNotes.trim()
         ? `${debitReasonPreset} - ${debitCustomNotes.trim()}`
         : debitReasonPreset;
-      crmDb.moveToDebitPosting(order.id, finalReason, user);
+      crmDb.moveToDebitPosting(order.so_code || order.id, finalReason, user);
       toast.success(`Consignment ${order.so_code} moved to Debit Posting stage!`);
       setIsDebitModalOpen(false);
       onClose();
@@ -92,7 +92,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
     if (!user) return;
     if (!window.confirm(`Are you sure you want to revert ${order.so_code} from Debit Posting back to active pipeline?`)) return;
     try {
-      crmDb.revertFromDebitPosting(order.id, user);
+      crmDb.revertFromDebitPosting(order.so_code || order.id, user);
       toast.success(`Consignment ${order.so_code} reverted from Debit Posting.`);
       onClose();
     } catch (err: any) {

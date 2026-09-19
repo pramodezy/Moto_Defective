@@ -263,6 +263,11 @@ class CRMDatabase {
         modified = true;
       }
 
+      // If order is in Debit Posting stage, do NOT alter its crm_status under any circumstances!
+      if (so.crm_status === 'Debit Posting') {
+        return;
+      }
+
       // 1. If updated as Not Return in Moto CRM, CRM status is strictly 'CCI to Create DC' (Stage 1: CCI ownership to create DC in Motorola CRM)
       const isNotReturn = normalizeMotoStatusKey(so.motorola_status) === 'not return';
       if (isNotReturn && so.crm_status !== 'CCI to Create DC') {
@@ -411,7 +416,9 @@ class CRMDatabase {
       const activeMappedOrders: ShippingOrder[] = activeSoRows.map((so: any) => {
         const isNotRet = normalizeMotoStatusKey(so.motorola_status) === 'not return';
         let mappedCrmStatus: CRMStatus;
-        if (isNotRet) {
+        if (so.crm_status === 'Debit Posting') {
+          mappedCrmStatus = 'Debit Posting';
+        } else if (isNotRet) {
           mappedCrmStatus = 'CCI to Create DC';
         } else if (!so.crm_status || so.crm_status === 'AWB Pending') {
           mappedCrmStatus = deriveCrmStatusFromMotorolaStatus(
@@ -796,6 +803,9 @@ class CRMDatabase {
       this.shippingOrders = rawOrders
         .filter((so: any) => !isCompletedJourneyStatus(so.motorola_status))
         .map((so: any) => {
+          if (so.crm_status === 'Debit Posting') {
+            return so;
+          }
           const isNotRet = normalizeMotoStatusKey(so.motorola_status) === 'not return';
           if (isNotRet) {
             return { ...so, crm_status: 'CCI to Create DC' };
@@ -2075,9 +2085,10 @@ class CRMDatabase {
     const oldStatus = so.crm_status;
     const timestamp = new Date().toISOString();
     so.crm_status = 'Debit Posting';
+    so.cwh_evidence_ref = reason || 'Debit to CCI';
     so.updated_at = timestamp;
 
-    this.auditLogs.unshift({
+    const logEntry: AuditLog = {
       id: `log-${Date.now()}`,
       shipping_order_id: so.id,
       so_code: so.so_code,
@@ -2088,21 +2099,38 @@ class CRMDatabase {
       new_status: 'Debit Posting',
       remarks: `Moved to Debit Posting by CWH. Reason: ${reason || 'Debit required to CCI'}`,
       created_at: timestamp,
-    });
+    };
+    this.auditLogs.unshift(logEntry);
 
     if (isSupabaseConfigured && supabase) {
       supabase
         .from('shipping_orders')
         .update({
           crm_status: 'Debit Posting',
+          cwh_evidence_ref: so.cwh_evidence_ref,
           updated_at: timestamp,
         })
-        .or(`id.eq.${so.id},so_code.eq.${so.so_code}`)
+        .eq('so_code', so.so_code)
         .then(({ error }) => {
           if (error) console.warn('Supabase update for Debit Posting notice:', error.message);
         });
+
+      supabase.from('audit_logs').insert({
+        shipping_order_id: so.id,
+        so_code: so.so_code,
+        user_name: user.full_name || user.username,
+        user_role: user.role,
+        action: 'MOVE_TO_DEBIT_POSTING',
+        old_status: oldStatus,
+        new_status: 'Debit Posting',
+        remarks: `Moved to Debit Posting by CWH. Reason: ${reason || 'Debit required to CCI'}`,
+        created_at: timestamp,
+      }).then(({ error }) => {
+        if (error) console.warn('Supabase audit log insert notice:', error.message);
+      });
     }
 
+    this.saveToStorage();
     this.notify();
     return so;
   }
@@ -2127,18 +2155,19 @@ class CRMDatabase {
     so.crm_status = restoredStatus;
     so.updated_at = timestamp;
 
-    this.auditLogs.unshift({
+    const logEntry: AuditLog = {
       id: `log-${Date.now()}`,
       shipping_order_id: so.id,
       so_code: so.so_code,
       user_name: user.full_name || user.username,
       user_role: user.role,
-      action: 'REVERT_DEBIT_POSTING',
+      action: 'REVERT_FROM_DEBIT_POSTING',
       old_status: oldStatus,
       new_status: restoredStatus,
-      remarks: `Reverted from Debit Posting back to active pipeline (${restoredStatus}) by CWH.`,
+      remarks: `Reverted from Debit Posting to ${restoredStatus} by ${user.role} (${user.full_name || user.username})`,
       created_at: timestamp,
-    });
+    };
+    this.auditLogs.unshift(logEntry);
 
     if (isSupabaseConfigured && supabase) {
       supabase
@@ -2147,12 +2176,27 @@ class CRMDatabase {
           crm_status: restoredStatus,
           updated_at: timestamp,
         })
-        .or(`id.eq.${so.id},so_code.eq.${so.so_code}`)
+        .eq('so_code', so.so_code)
         .then(({ error }) => {
-          if (error) console.warn('Supabase update for Revert Debit Posting notice:', error.message);
+          if (error) console.warn('Supabase update for revert notice:', error.message);
         });
+
+      supabase.from('audit_logs').insert({
+        shipping_order_id: so.id,
+        so_code: so.so_code,
+        user_name: user.full_name || user.username,
+        user_role: user.role,
+        action: 'REVERT_FROM_DEBIT_POSTING',
+        old_status: oldStatus,
+        new_status: restoredStatus,
+        remarks: `Reverted from Debit Posting to ${restoredStatus} by ${user.role} (${user.full_name || user.username})`,
+        created_at: timestamp,
+      }).then(({ error }) => {
+        if (error) console.warn('Supabase audit log insert notice:', error.message);
+      });
     }
 
+    this.saveToStorage();
     this.notify();
     return so;
   }
