@@ -79,6 +79,7 @@ export interface ShippingOrder {
   pickup_status?: PickupStatus;
   pickup_date?: string;
   pickup_remarks?: string;
+  token_issue_date?: string;          // Leg 1 AWB Token Issue Date
   delivery_challan_code?: string; // Leg 1 Delivery Challan Code from Shipping Order
 
   // Leg 2 Outbound Hub Transfer (CWH -> RC)

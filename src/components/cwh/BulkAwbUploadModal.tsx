@@ -30,12 +30,31 @@ interface BulkAwbUploadModalProps {
 interface ParsedAwbRow {
   rowNum: number;
   soCode: string;
+  dcCode?: string;
+  tokenIssueDate?: string;
   courier: string;
   awbNumber: string;
   ewayBillNumber?: string;
   matchedOrder?: ShippingOrder;
   status: 'VALID' | 'NOT_FOUND' | 'MISSING_AWB' | 'DUPLICATE';
   message: string;
+}
+
+function formatParsedExcelDate(val: any): string {
+  if (!val) return '';
+  if (val instanceof Date && !isNaN(val.getTime())) {
+    return val.toISOString().slice(0, 10);
+  }
+  const str = String(val).trim();
+  const num = parseFloat(str);
+  if (!isNaN(num) && num > 25569 && num < 80000) {
+    const utcDays = Math.floor(num - 25569);
+    const dateObj = new Date(utcDays * 86400 * 1000);
+    if (!isNaN(dateObj.getTime())) {
+      return dateObj.toISOString().slice(0, 10);
+    }
+  }
+  return str;
 }
 
 export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
@@ -63,15 +82,20 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
 
   // 1. Download Blank Template
   const handleDownloadBlankTemplate = () => {
+    const today = new Date().toISOString().slice(0, 10);
     const templateData = [
       {
         'Shipping Order Code': 'SORLC26080600166',
+        'DC Code': 'DC-260806-001',
+        'Token Issue Date': today,
         'Courier Partner': 'BlueDart Express',
         'AWB Number': '53677967711',
         'E-Way Bill Number': '',
       },
       {
         'Shipping Order Code': 'SORLC26073000960',
+        'DC Code': 'DC-260730-002',
+        'Token Issue Date': today,
         'Courier Partner': 'Delhivery',
         'AWB Number': '53678202266',
         'E-Way Bill Number': '',
@@ -91,10 +115,13 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
       toast.info('No shipping orders are currently awaiting AWB assignment.');
     }
 
+    const today = new Date().toISOString().slice(0, 10);
     const exportData = pendingAwbOrders.map((so) => {
       const st = stationMap.get(so.station_code);
       return {
         'Shipping Order Code': so.so_code,
+        'DC Code': so.delivery_challan_code || '',
+        'Token Issue Date': so.token_issue_date || today,
         'Origin Station': `${so.station_code} - ${st?.station_name || ''}`,
         'City': st?.city || so.city || '',
         'Total Units': so.total_items || 1,
@@ -105,11 +132,11 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
     });
 
     const ws = XLSX.utils.json_to_sheet(exportData.length > 0 ? exportData : [
-      { 'Shipping Order Code': '', 'Courier Partner': 'BlueDart Express', 'AWB Number': '', 'E-Way Bill Number': '' }
+      { 'Shipping Order Code': '', 'DC Code': '', 'Token Issue Date': today, 'Courier Partner': 'BlueDart Express', 'AWB Number': '', 'E-Way Bill Number': '' }
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Pending_AWB_Consignments');
-    XLSX.writeFile(wb, `Motorola_Pending_AWB_Consignments_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(wb, `Motorola_Pending_AWB_Consignments_${today}.xlsx`);
     toast.success(`Exported ${pendingAwbOrders.length} pending consignments for bulk AWB entry.`);
   };
 
@@ -122,7 +149,7 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         const rawJson: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
@@ -156,6 +183,9 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
           };
 
           const soCode = findVal(['shippingordercode', 'shippingorder', 'socode', 'so_code', 'so']);
+          const dcCode = findVal(['dccode', 'deliverychallancode', 'deliverychallan', 'challancode', 'dc_code', 'dc']);
+          const rawDate = findVal(['tokenissuedate', 'tokenissue', 'issuedate', 'dateissued', 'tokendate', 'issue_date', 'pickupdate']);
+          const tokenIssueDate = formatParsedExcelDate(rawDate) || new Date().toISOString().slice(0, 10);
           const courier = findVal(['courierpartner', 'courier', 'carrier', 'transporter']) || 'BlueDart Express';
           const awbNumber = findVal(['awbnumber', 'awbno', 'awb', 'waybill', 'trackingnumber', 'tracking']);
           const ewayBillNumber = findVal(['ewaybillnumber', 'ewaybill', 'ewayno', 'eway']);
@@ -187,6 +217,8 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
           parsed.push({
             rowNum: index + 2, // 1-indexed header + row
             soCode,
+            dcCode: dcCode || matchedOrder?.delivery_challan_code || '',
+            tokenIssueDate,
             courier,
             awbNumber,
             ewayBillNumber,
@@ -223,6 +255,8 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
         courier: r.courier,
         awbNumber: r.awbNumber,
         ewayBillNumber: r.ewayBillNumber,
+        dcCode: r.dcCode || r.matchedOrder?.delivery_challan_code,
+        tokenIssueDate: r.tokenIssueDate,
       }));
 
       const res = await crmDb.bulkAssignAwbTokens(recordsToUpdate, user);
@@ -389,10 +423,12 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
                     <tr>
                       <th className="py-2.5 px-3">#</th>
                       <th className="py-2.5 px-3">SO Code</th>
+                      <th className="py-2.5 px-3">DC Code</th>
                       <th className="py-2.5 px-3">Origin Station</th>
                       <th className="py-2.5 px-3 text-center">Parts</th>
                       <th className="py-2.5 px-3">Courier</th>
                       <th className="py-2.5 px-3">AWB Number</th>
+                      <th className="py-2.5 px-3">Token Issue Date</th>
                       <th className="py-2.5 px-3">Status</th>
                     </tr>
                   </thead>
@@ -404,6 +440,15 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
                           <td className="py-2.5 px-3 text-slate-400 font-mono">{r.rowNum}</td>
                           <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
                             {r.soCode || <span className="text-rose-600 italic">Empty</span>}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-xs">
+                            {r.dcCode ? (
+                              <span className="font-semibold text-blue-800 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
+                                {r.dcCode}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic">Pending DC</span>
+                            )}
                           </td>
                           <td className="py-2.5 px-3 text-slate-700">
                             {r.matchedOrder ? (
@@ -432,6 +477,9 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
                             ) : (
                               <span className="text-rose-600 italic">Missing AWB</span>
                             )}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-xs text-slate-600">
+                            {r.tokenIssueDate || '-'}
                           </td>
                           <td className="py-2.5 px-3">
                             {r.status === 'VALID' ? (

@@ -190,15 +190,27 @@ export function App() {
     awbNumber: string,
     cancellationReason?: string,
     ewayNumber?: string,
-    ewayUrl?: string
+    ewayUrl?: string,
+    dcCode?: string,
+    tokenIssueDate?: string
   ) => {
     if (!currentUser) return;
     try {
-      crmDb.assignAwbToken(soId, courier, awbNumber, currentUser, cancellationReason);
+      crmDb.assignAwbToken(
+        soId,
+        courier,
+        awbNumber,
+        currentUser,
+        cancellationReason,
+        ewayNumber,
+        ewayUrl,
+        dcCode,
+        tokenIssueDate
+      );
       if (ewayNumber) {
         crmDb.attachEwayBill(soId, ewayNumber, ewayUrl || '', currentUser);
       }
-      toast.success(`AWB ${awbNumber} successfully assigned (${courier})`);
+      toast.success(`AWB ${awbNumber} successfully assigned (${courier})${dcCode ? ` with DC ${dcCode}` : ''}`);
     } catch (err: any) {
       toast.error(err.message || 'AWB assignment failed');
     }

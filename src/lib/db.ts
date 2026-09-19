@@ -2130,12 +2130,17 @@ class CRMDatabase {
     courier: string,
     newAwb: string,
     user: UserProfile,
-    cancellationReason?: string
+    cancellationReason?: string,
+    ewayBillNumber?: string,
+    ewayBillUrl?: string,
+    dcCode?: string,
+    tokenIssueDate?: string
   ) {
     const so = this.shippingOrders.find((o) => o.id === soId || o.so_code === soId);
     if (!so) throw new Error('Shipping Order not found');
 
     const oldAwb = so.active_awb;
+    const timestamp = new Date().toISOString();
 
     // Archive previous AWB if retokening
     if (oldAwb && oldAwb !== newAwb) {
@@ -2147,7 +2152,7 @@ class CRMDatabase {
         is_active: false,
         cancellation_reason: cancellationReason || 'Retokened / Courier Rescheduled',
         created_by: user.id,
-        created_at: new Date().toISOString(),
+        created_at: timestamp,
       });
     }
 
@@ -2159,14 +2164,36 @@ class CRMDatabase {
       courier,
       is_active: true,
       created_by: user.id,
-      created_at: new Date().toISOString(),
+      created_at: timestamp,
     });
 
     so.active_awb = newAwb;
     so.courier = courier;
     so.crm_status = 'Pickup Pending'; // Once AWB is updated by CWH, next status is Pickup Pending
     so.pickup_status = 'Pickup Pending'; // AWB assigned by CWH; awaiting handover from CCI
-    so.updated_at = new Date().toISOString();
+    if (ewayBillNumber && ewayBillNumber.trim()) {
+      so.eway_bill_number = ewayBillNumber.trim();
+      so.eway_bill_required = true;
+    }
+    if (ewayBillUrl && ewayBillUrl.trim()) {
+      so.eway_bill_url = ewayBillUrl.trim();
+    }
+    if (dcCode && dcCode.trim()) {
+      so.delivery_challan_code = dcCode.trim();
+      this.defectiveItems.forEach((it) => {
+        if ((it.shipping_order_code || '').trim().toUpperCase() === so.so_code.trim().toUpperCase()) {
+          it.delivery_challan_code = dcCode.trim();
+          it.updated_at = timestamp;
+        }
+      });
+    }
+    if (tokenIssueDate && tokenIssueDate.trim()) {
+      so.token_issue_date = tokenIssueDate.trim();
+      if (!so.pickup_date) {
+        so.pickup_date = tokenIssueDate.trim();
+      }
+    }
+    so.updated_at = timestamp;
 
     this.auditLogs.unshift({
       id: `log-${Date.now()}`,
@@ -2177,31 +2204,65 @@ class CRMDatabase {
       action: oldAwb ? 'AWB_RETOKENED' : 'AWB_ASSIGNED',
       awb: newAwb,
       remarks: oldAwb
-        ? `AWB retokened from ${oldAwb} to ${newAwb} (${courier}). Reason: ${cancellationReason || 'Courier reassignment'}`
-        : `New AWB ${newAwb} generated for ${courier}`,
-      created_at: new Date().toISOString(),
+        ? `AWB retokened from ${oldAwb} to ${newAwb} (${courier}). Reason: ${cancellationReason || 'Courier reassignment'}${so.delivery_challan_code ? `. DC: ${so.delivery_challan_code}` : ''}`
+        : `New AWB ${newAwb} generated for ${courier}${so.delivery_challan_code ? `. DC: ${so.delivery_challan_code}` : ''}`,
+      created_at: timestamp,
     });
 
     // Live update to Supabase Cloud
     if (isSupabaseConfigured && supabase) {
-      supabase.from('shipping_orders').update({
+      const client = supabase;
+      client.from('shipping_orders').update({
         active_awb: so.active_awb,
         courier: so.courier,
         crm_status: so.crm_status,
+        pickup_status: so.pickup_status,
+        delivery_challan_code: so.delivery_challan_code || null,
+        token_issue_date: so.token_issue_date || null,
+        pickup_date: so.pickup_date || null,
+        eway_bill_number: so.eway_bill_number || '',
+        eway_bill_required: Boolean(so.eway_bill_required),
+        eway_bill_url: so.eway_bill_url || '',
         updated_at: so.updated_at,
       }).eq('so_code', so.so_code).then(({ error }) => {
-        if (error) console.warn('Live Supabase update for assign AWB failed:', error.message);
+        if (error) {
+          if (error.code === '42703' || error.message?.includes('does not exist') || error.code === 'PGRST204') {
+            client.from('shipping_orders').update({
+              active_awb: so.active_awb,
+              courier: so.courier,
+              crm_status: so.crm_status,
+              pickup_status: so.pickup_status,
+              eway_bill_number: so.eway_bill_number || '',
+              eway_bill_required: Boolean(so.eway_bill_required),
+              eway_bill_url: so.eway_bill_url || '',
+              updated_at: so.updated_at,
+            }).eq('so_code', so.so_code).then(() => {});
+          } else {
+            console.warn('Live Supabase update for assign AWB failed:', error.message);
+          }
+        }
       });
+
+      if (so.delivery_challan_code) {
+        client.from('defective_master').update({
+          delivery_challan_code: so.delivery_challan_code,
+          updated_at: timestamp,
+        }).eq('shipping_order_code', so.so_code).then(({ error: dmErr }) => {
+          if (dmErr && dmErr.code !== '42703' && dmErr.code !== 'PGRST204') {
+            console.warn('Live Supabase update for defective items DC failed:', dmErr.message);
+          }
+        });
+      }
 
       // Maintain awb_history in Supabase
       if (oldAwb && oldAwb !== newAwb) {
-        supabase.from('awb_history').update({
+        client.from('awb_history').update({
           is_active: false,
           cancellation_reason: cancellationReason || 'Retokened / Courier Rescheduled',
         }).match({ shipping_order_id: so.id, awb_number: oldAwb }).then(() => {});
       }
 
-      supabase.from('awb_history').insert({
+      client.from('awb_history').insert({
         shipping_order_id: so.id,
         awb_number: newAwb,
         courier: courier,
@@ -2223,6 +2284,8 @@ class CRMDatabase {
       awbNumber: string;
       ewayBillNumber?: string;
       ewayBillUrl?: string;
+      dcCode?: string;
+      tokenIssueDate?: string;
     }>,
     user: UserProfile
   ): Promise<{ updatedCount: number; errors: string[] }> {
@@ -2292,6 +2355,23 @@ class CRMDatabase {
       if (rec.ewayBillUrl && rec.ewayBillUrl.trim()) {
         so.eway_bill_url = rec.ewayBillUrl.trim();
       }
+      if (rec.dcCode && rec.dcCode.trim()) {
+        const cleanDc = rec.dcCode.trim();
+        so.delivery_challan_code = cleanDc;
+        this.defectiveItems.forEach((it) => {
+          if ((it.shipping_order_code || '').trim().toUpperCase() === cleanSoCode) {
+            it.delivery_challan_code = cleanDc;
+            it.updated_at = timestamp;
+          }
+        });
+      }
+      if (rec.tokenIssueDate && rec.tokenIssueDate.trim()) {
+        const cleanIssueDate = rec.tokenIssueDate.trim();
+        so.token_issue_date = cleanIssueDate;
+        if (!so.pickup_date) {
+          so.pickup_date = cleanIssueDate;
+        }
+      }
       so.updated_at = timestamp;
 
       // Add audit log
@@ -2303,7 +2383,7 @@ class CRMDatabase {
         user_role: user.role,
         action: oldAwb ? 'AWB_RETOKENED' : 'AWB_ASSIGNED',
         awb: cleanAwb,
-        remarks: `Bulk AWB Update by CWH: Assigned ${cleanAwb} (${cleanCourier}). Status updated to Pickup Pending.`,
+        remarks: `Bulk AWB Update by CWH: Assigned ${cleanAwb} (${cleanCourier}). Status updated to Pickup Pending.${so.delivery_challan_code ? ` DC: ${so.delivery_challan_code}` : ''}`,
         created_at: timestamp,
       });
 
@@ -2319,6 +2399,10 @@ class CRMDatabase {
           active_awb: so.active_awb,
           courier: so.courier,
           crm_status: so.crm_status,
+          pickup_status: so.pickup_status,
+          delivery_challan_code: so.delivery_challan_code || null,
+          token_issue_date: so.token_issue_date || null,
+          pickup_date: so.pickup_date || null,
           eway_bill_number: so.eway_bill_number || '',
           eway_bill_required: Boolean(so.eway_bill_required),
           eway_bill_url: so.eway_bill_url || '',
@@ -2331,8 +2415,32 @@ class CRMDatabase {
           .eq('so_code', so.so_code);
 
         if (error) {
-          console.error(`Supabase bulk AWB update failed for ${so.so_code}:`, error.message);
-          errors.push(`${so.so_code}: Supabase sync error - ${error.message}`);
+          if (error.code === '42703' || error.message?.includes('does not exist') || error.code === 'PGRST204') {
+            await client.from('shipping_orders').update({
+              active_awb: so.active_awb,
+              courier: so.courier,
+              crm_status: so.crm_status,
+              pickup_status: so.pickup_status,
+              eway_bill_number: so.eway_bill_number || '',
+              eway_bill_required: Boolean(so.eway_bill_required),
+              eway_bill_url: so.eway_bill_url || '',
+              updated_at: so.updated_at,
+            }).eq('so_code', so.so_code);
+          } else {
+            console.error(`Supabase bulk AWB update failed for ${so.so_code}:`, error.message);
+            errors.push(`${so.so_code}: Supabase sync error - ${error.message}`);
+          }
+        }
+
+        if (so.delivery_challan_code) {
+          client.from('defective_master').update({
+            delivery_challan_code: so.delivery_challan_code,
+            updated_at: timestamp,
+          }).eq('shipping_order_code', so.so_code).then(({ error: dmErr }) => {
+            if (dmErr && dmErr.code !== '42703' && dmErr.code !== 'PGRST204') {
+              console.warn('Supabase defective items DC sync notice:', dmErr.message);
+            }
+          });
         }
       });
 

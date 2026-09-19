@@ -22,7 +22,9 @@ interface AwbDispatchModalProps {
     awbNumber: string,
     cancellationReason?: string,
     ewayNumber?: string,
-    ewayUrl?: string
+    ewayUrl?: string,
+    dcCode?: string,
+    tokenIssueDate?: string
   ) => void;
 }
 
@@ -36,6 +38,8 @@ export const AwbDispatchModal: React.FC<AwbDispatchModalProps> = ({
 
   const [courier, setCourier] = useState(order.courier || 'BlueDart Express');
   const [awbNumber, setAwbNumber] = useState('');
+  const [dcCode, setDcCode] = useState(order.delivery_challan_code || '');
+  const [tokenIssueDate, setTokenIssueDate] = useState(order.token_issue_date || new Date().toISOString().slice(0, 10));
   const [cancellationReason, setCancellationReason] = useState('Courier Rescheduled / Operational Reassignment');
   const [ewayNumber, setEwayNumber] = useState(order.eway_bill_number || '');
   const [ewayUrl, setEwayUrl] = useState(order.eway_bill_url || '');
@@ -60,7 +64,9 @@ export const AwbDispatchModal: React.FC<AwbDispatchModalProps> = ({
       awbNumber.trim(),
       isRetokening ? cancellationReason : undefined,
       ewayNumber.trim() || undefined,
-      ewayUrl.trim() || undefined
+      ewayUrl.trim() || undefined,
+      dcCode.trim() || undefined,
+      tokenIssueDate.trim() || undefined
     );
     onClose();
   };
@@ -105,6 +111,33 @@ export const AwbDispatchModal: React.FC<AwbDispatchModalProps> = ({
               </p>
             </div>
           )}
+
+          {/* DC Code & Token Issue Date */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1.5">
+                Delivery Challan (DC Code)
+              </label>
+              <input
+                type="text"
+                value={dcCode}
+                onChange={(e) => setDcCode(e.target.value)}
+                placeholder="e.g. DC1412608060001"
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1.5">
+                Token Issue Date
+              </label>
+              <input
+                type="date"
+                value={tokenIssueDate}
+                onChange={(e) => setTokenIssueDate(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
+              />
+            </div>
+          </div>
 
           {/* Courier Partner */}
           <div>

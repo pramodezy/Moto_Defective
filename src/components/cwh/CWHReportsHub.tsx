@@ -301,6 +301,7 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
           'CRM Status': r.crmStatus,
           'Pickup Status': r.pickupStatus,
           'AWB Number': r.awbNumber || 'Pending AWB',
+          'Token Issue Date': r.so.token_issue_date || (r.so.pickup_date ? r.so.pickup_date.slice(0, 10) : '') || 'N/A',
           'Courier Partner': r.courier,
           'Origin Station Code': r.stationCode,
           'Station Name': r.stationName,
@@ -326,6 +327,7 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
             'CRM Status': so.crm_status,
             'Pickup Status': getUnifiedPickupStatus(so),
             'AWB Number': so.active_awb || so.excel_ref_awb || 'Pending AWB',
+            'Token Issue Date': so.token_issue_date || (so.pickup_date ? so.pickup_date.slice(0, 10) : '') || 'N/A',
             'Courier Partner': so.courier || 'BlueDart Express',
             'Station Code': so.station_code,
             'Station Name': st?.station_name || '',
@@ -676,11 +678,11 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
                     </td>
                     <td className="py-3 px-4 font-mono text-slate-700">
                       {row.dcCode ? (
-                        <span className="px-2 py-0.5 rounded bg-slate-100 border border-slate-200 font-semibold text-[11px]">
+                        <span className="px-2 py-0.5 rounded bg-blue-50 border border-blue-200 font-semibold text-[11px] text-blue-900">
                           {row.dcCode}
                         </span>
                       ) : (
-                        <span className="text-slate-600 italic">Pending DC</span>
+                        <span className="text-slate-400 italic">Pending DC</span>
                       )}
                     </td>
                     <td className="py-3 px-4">
@@ -720,7 +722,14 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
                             <Barcode className="w-3 h-3" />
                             <span>{row.awbNumber}</span>
                           </div>
-                          <div className="text-[10px] text-slate-600 font-sans">{row.courier}</div>
+                          <div className="text-[10px] text-slate-600 font-sans flex items-center gap-1.5 mt-0.5">
+                            <span>{row.courier}</span>
+                            {(row.so.token_issue_date || row.so.pickup_date) && (
+                              <span className="text-slate-400 font-mono text-[9px]">
+                                • {(row.so.token_issue_date || row.so.pickup_date || '').slice(0, 10)}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       ) : (
                         <span className="text-amber-800 text-[11px] font-sans font-medium">Pending CWH AWB</span>
