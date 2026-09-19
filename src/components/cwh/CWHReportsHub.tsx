@@ -122,6 +122,8 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
             so.crm_status !== 'Delivered to RC' &&
             so.crm_status !== 'Delivered to RC (Discrepancies)'
           ) return false;
+        } else if (selectedStatus === 'DEBIT_POSTING') {
+          if (so.crm_status !== 'Debit Posting') return false;
         } else if (so.crm_status !== selectedStatus) {
           return false;
         }
@@ -536,6 +538,7 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
               <option value="DELIVERED_AT_CWH">4. Delivered at CWH Hub</option>
               <option value="CWH_TO_CREATE_DC">5. Passed CCTV / DC to RC</option>
               <option value="OUTBOUND_RC">6. Outbound Leg to RC</option>
+              <option value="DEBIT_POSTING">7. Debit Posting (Debit to CCI)</option>
             </select>
           </div>
 

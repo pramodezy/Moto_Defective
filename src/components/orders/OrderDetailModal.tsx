@@ -11,8 +11,11 @@ import {
   Barcode,
   AlertTriangle,
   Loader2,
-  Package
+  Package,
+  RotateCcw,
+  AlertOctagon
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile, ShippingOrderDetailRecord } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle, getScreeningStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
@@ -62,6 +65,40 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   const [orderItems, setOrderItems] = useState<DefectiveItem[]>(initialMatched);
   const [isLoadingItems, setIsLoadingItems] = useState<boolean>(initialMatched.length === 0);
   const [fileDetails, setFileDetails] = useState<ShippingOrderDetailRecord[]>([]);
+  const [isDebitModalOpen, setIsDebitModalOpen] = useState(false);
+  const [debitReasonPreset, setDebitReasonPreset] = useState('Physical Part Missing in Consignment');
+  const [debitCustomNotes, setDebitCustomNotes] = useState('');
+  const [isProcessingDebit, setIsProcessingDebit] = useState(false);
+
+  const handleConfirmDebitPosting = async () => {
+    if (!user) return;
+    setIsProcessingDebit(true);
+    try {
+      const finalReason = debitCustomNotes.trim()
+        ? `${debitReasonPreset} - ${debitCustomNotes.trim()}`
+        : debitReasonPreset;
+      crmDb.moveToDebitPosting(order.id, finalReason, user);
+      toast.success(`Consignment ${order.so_code} moved to Debit Posting stage!`);
+      setIsDebitModalOpen(false);
+      onClose();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to move to Debit Posting');
+    } finally {
+      setIsProcessingDebit(false);
+    }
+  };
+
+  const handleRevertDebitPosting = async () => {
+    if (!user) return;
+    if (!window.confirm(`Are you sure you want to revert ${order.so_code} from Debit Posting back to active pipeline?`)) return;
+    try {
+      crmDb.revertFromDebitPosting(order.id, user);
+      toast.success(`Consignment ${order.so_code} reverted from Debit Posting.`);
+      onClose();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to revert from Debit Posting');
+    }
+  };
 
   // Fetch verified line details directly from Supabase Cloud shipping_order_details table
   useEffect(() => {
@@ -241,6 +278,29 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               </button>
             )}
 
+            {/* Debit Posting Actions - For CWH and Admin */}
+            {(user?.role === 'CWH' || user?.role === 'ADMIN') && (
+              order.crm_status === 'Debit Posting' ? (
+                <button
+                  onClick={handleRevertDebitPosting}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-colors cursor-pointer"
+                  title="Revert consignment from Debit Posting back to active pipeline"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Revert from Debit
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIsDebitModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-colors cursor-pointer"
+                  title="Flag and move to Debit Posting stage (Debit to CCI)"
+                >
+                  <AlertOctagon className="w-4 h-4" />
+                  Debit to CCI
+                </button>
+              )
+            )}
+
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
@@ -252,8 +312,28 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
 
         {/* Modal Body & Metrics */}
         <div className="p-6 overflow-y-auto space-y-6">
-          {/* Action Guidance Banner */}
-          {order.crm_status === 'Discrepancies' || order.crm_status === 'Delivered to RC (Discrepancies)' || motoInfo.code === 35 || motoInfo.code === 6 ? (
+          {/* Debit Posting Banner */}
+          {order.crm_status === 'Debit Posting' ? (
+            <div className="p-3.5 rounded-xl bg-rose-50 border-2 border-rose-300 flex items-start gap-3 text-xs shadow-xs">
+              <AlertOctagon className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-rose-900 text-sm">Debit Posting Stage (Debit to CCI Station)</span>
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-200 text-rose-800 border border-rose-300">
+                    DEBIT ACTIVE
+                  </span>
+                </div>
+                <p className="text-rose-800 mt-1">
+                  This consignment has been flagged for commercial debit to the originating CCI station (e.g. missing parts, physical damage, CID, or IMEI mismatch). It is held outside standard dispatch pipelines and Motorola dump syncs.
+                </p>
+                {order.cwh_evidence_ref && (
+                  <div className="mt-2 text-[11px] text-rose-900 font-mono bg-rose-100/70 p-2 rounded-lg border border-rose-200">
+                    <strong>Recorded Reason / Reference:</strong> {order.cwh_evidence_ref}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : order.crm_status === 'Discrepancies' || order.crm_status === 'Delivered to RC (Discrepancies)' || motoInfo.code === 35 || motoInfo.code === 6 ? (
             <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-3 text-xs shadow-xs">
               <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
               <div>
@@ -702,6 +782,86 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Debit Posting Reason Confirmation Dialog */}
+      {isDebitModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-rose-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 bg-rose-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <AlertOctagon className="w-5 h-5" />
+                <h3 className="font-bold text-base">Debit to CCI Station</h3>
+              </div>
+              <button
+                onClick={() => setIsDebitModalOpen(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs">
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900">
+                <p className="font-semibold">⚠️ Attention:</p>
+                <p className="mt-0.5">
+                  Moving consignment <strong className="font-mono">{order.so_code}</strong> to <strong>Debit Posting</strong> will freeze its dispatch status across the CRM and protect it from Motorola CRM dump overwrites.
+                </p>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1.5">
+                  Select Debit Primary Reason <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={debitReasonPreset}
+                  onChange={(e) => setDebitReasonPreset(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-slate-50 font-medium text-slate-800 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                >
+                  <option value="Physical Part Missing in Consignment">Physical Part Missing in Consignment</option>
+                  <option value="Physical or Liquid Damage by CCI Station">Physical or Liquid Damage by CCI Station</option>
+                  <option value="Customer Induced Damage (CID) Non-Returnable">Customer Induced Damage (CID) Non-Returnable</option>
+                  <option value="Serial Number / IMEI Mismatch with Motorola CRM">Serial Number / IMEI Mismatch with Motorola CRM</option>
+                  <option value="SLA Non-Dispatch Penalty Debit">SLA Non-Dispatch Penalty Debit</option>
+                  <option value="Other / Custom Reason">Other / Custom Reason</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1.5">
+                  Additional Notes / CCTV Reference / Serial Numbers
+                </label>
+                <textarea
+                  value={debitCustomNotes}
+                  onChange={(e) => setDebitCustomNotes(e.target.value)}
+                  rows={3}
+                  placeholder="Enter specific missing parts, box condition, CCTV incident ref, or explanation..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-normal text-slate-800 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsDebitModalOpen(false)}
+                disabled={isProcessingDebit}
+                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDebitPosting}
+                disabled={isProcessingDebit}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold shadow-xs transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <AlertOctagon className="w-4 h-4" />
+                {isProcessingDebit ? 'Processing...' : 'Confirm Debit Posting'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

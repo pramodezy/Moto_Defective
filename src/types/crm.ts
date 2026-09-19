@@ -25,7 +25,8 @@ export type CRMStatus =
   | 'In Transit to RC'
   | 'CWH Shipped to RC'
   | 'Delivered to RC'
-  | 'Delivered to RC (Discrepancies)';
+  | 'Delivered to RC (Discrepancies)'
+  | 'Debit Posting';
 
 export type PickupStatus = 'Pickup Pending' | 'Pickup Done' | 'Pickup Not Done';
 

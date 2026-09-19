@@ -123,6 +123,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
       return (
         motoInfo.code === 2 &&
         hasAwb &&
+        so.crm_status !== 'Debit Posting' &&
         so.crm_status !== 'Delivered at CWH' &&
         so.crm_status !== 'Pending Inward at CWH' &&
         so.crm_status !== 'CWH to Create DC' &&
@@ -158,6 +159,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
         const isAwaiting =
           motoInfo.code === 2 &&
           hasAwb &&
+          so.crm_status !== 'Debit Posting' &&
           so.crm_status !== 'Delivered at CWH' &&
           so.crm_status !== 'Pending Inward at CWH' &&
           so.crm_status !== 'CWH to Create DC' &&
@@ -392,6 +394,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
             <option value="In Transit to RC">11. In Transit to RC</option>
             <option value="Delivered to RC">12. Delivered to RC</option>
             <option value="Delivered to RC (Discrepancies)">13. Delivered to RC (Discrepancies)</option>
+            <option value="Debit Posting">14. Debit Posting</option>
           </select>
 
           {/* Motorola Parts Status */}
@@ -697,6 +700,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
                         {currentRole === 'ADMIN' &&
                           !motoInfo.isDelivered &&
                           (so.active_awb || so.excel_ref_awb) &&
+                          so.crm_status !== 'Debit Posting' &&
                           so.crm_status !== 'Delivered at CWH' &&
                           so.crm_status !== 'Pending Inward at CWH' &&
                           so.crm_status !== 'CWH to Create DC' &&

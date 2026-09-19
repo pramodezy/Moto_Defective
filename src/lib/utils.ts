@@ -152,6 +152,8 @@ export function getCrmStatusStyle(status: CRMStatus) {
       return 'bg-emerald-50 text-emerald-800 border-emerald-300 font-medium';
     case 'Delivered to RC (Discrepancies)':
       return 'bg-rose-100 text-rose-900 border-rose-400 font-bold shadow-xs';
+    case 'Debit Posting':
+      return 'bg-rose-100 text-rose-900 border-rose-400 font-bold shadow-xs';
     default:
       return 'bg-slate-100 text-slate-700 border-slate-300';
   }

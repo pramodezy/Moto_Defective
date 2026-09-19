@@ -1091,8 +1091,8 @@ class CRMDatabase {
       existingSo.eway_bill_required = ewayRequired;
       existingSo.total_items = items.reduce((sum, item) => sum + (item.deliver_qty || item.quantity || 1), 0);
       existingSo.motorola_status = latestMotoStatus || existingSo.motorola_status;
-      existingSo.crm_status = derivedCrmStatus;
-      if (derivedCrmStatus === 'Delivered to RC' || latestMotoStatus?.toLowerCase().includes('rc received')) {
+      existingSo.crm_status = existingSo.crm_status === 'Debit Posting' ? 'Debit Posting' : derivedCrmStatus;
+      if (existingSo.crm_status === 'Delivered to RC' || latestMotoStatus?.toLowerCase().includes('rc received')) {
         existingSo.pickup_status = 'Pickup Done';
       }
       // Leg 1 AWB: keep existing CWH assignment, do not auto-populate from dump
@@ -2061,6 +2061,100 @@ class CRMDatabase {
 
     this.notify();
     return updatedSo;
+  }
+
+  // --- CWH DEBIT POSTING (DEBIT TO CCI) ---
+  public moveToDebitPosting(
+    soId: string,
+    reason: string,
+    user: UserProfile
+  ): ShippingOrder {
+    const so = this.shippingOrders.find((o) => o.id === soId || o.so_code === soId);
+    if (!so) throw new Error('Shipping Order not found');
+
+    const oldStatus = so.crm_status;
+    const timestamp = new Date().toISOString();
+    so.crm_status = 'Debit Posting';
+    so.updated_at = timestamp;
+
+    this.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      shipping_order_id: so.id,
+      so_code: so.so_code,
+      user_name: user.full_name || user.username,
+      user_role: user.role,
+      action: 'MOVE_TO_DEBIT_POSTING',
+      old_status: oldStatus,
+      new_status: 'Debit Posting',
+      remarks: `Moved to Debit Posting by CWH. Reason: ${reason || 'Debit required to CCI'}`,
+      created_at: timestamp,
+    });
+
+    if (isSupabaseConfigured && supabase) {
+      supabase
+        .from('shipping_orders')
+        .update({
+          crm_status: 'Debit Posting',
+          updated_at: timestamp,
+        })
+        .or(`id.eq.${so.id},so_code.eq.${so.so_code}`)
+        .then(({ error }) => {
+          if (error) console.warn('Supabase update for Debit Posting notice:', error.message);
+        });
+    }
+
+    this.notify();
+    return so;
+  }
+
+  public revertFromDebitPosting(
+    soId: string,
+    user: UserProfile
+  ): ShippingOrder {
+    const so = this.shippingOrders.find((o) => o.id === soId || o.so_code === soId);
+    if (!so) throw new Error('Shipping Order not found');
+
+    const oldStatus = so.crm_status;
+    const timestamp = new Date().toISOString();
+    // Derive natural CRM status based on Motorola status, AWB, etc.
+    const restoredStatus = deriveCrmStatusFromMotorolaStatus(
+      so.motorola_status,
+      so.active_awb || so.excel_ref_awb,
+      undefined,
+      so.pickup_status
+    );
+
+    so.crm_status = restoredStatus;
+    so.updated_at = timestamp;
+
+    this.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      shipping_order_id: so.id,
+      so_code: so.so_code,
+      user_name: user.full_name || user.username,
+      user_role: user.role,
+      action: 'REVERT_DEBIT_POSTING',
+      old_status: oldStatus,
+      new_status: restoredStatus,
+      remarks: `Reverted from Debit Posting back to active pipeline (${restoredStatus}) by CWH.`,
+      created_at: timestamp,
+    });
+
+    if (isSupabaseConfigured && supabase) {
+      supabase
+        .from('shipping_orders')
+        .update({
+          crm_status: restoredStatus,
+          updated_at: timestamp,
+        })
+        .or(`id.eq.${so.id},so_code.eq.${so.so_code}`)
+        .then(({ error }) => {
+          if (error) console.warn('Supabase update for Revert Debit Posting notice:', error.message);
+        });
+    }
+
+    this.notify();
+    return so;
   }
 
   // --- BULK RC DISPATCH / DOCKET UPDATE ---

@@ -80,7 +80,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   const [selectedPriority, setSelectedPriority] = useState<string>('ALL');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [activeSubTab, setActiveSubTab] = useState<
-    'needs_awb' | 'pickup_pending' | 'in_transit' | 'awb_reissue' | 'at_cwh' | 'discrepancies' | 'outbound_rc'
+    'needs_awb' | 'pickup_pending' | 'in_transit' | 'awb_reissue' | 'at_cwh' | 'discrepancies' | 'outbound_rc' | 'debit_posting'
   >('needs_awb');
   const [isBulkAwbModalOpen, setIsBulkAwbModalOpen] = useState(false);
   const [isBulkRcDispatchOpen, setIsBulkRcDispatchOpen] = useState(false);
@@ -231,9 +231,11 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   }, [orders, selectedStation, selectedRegion, stationMap]);
 
   // Categorize orders strictly according to the canonical operational stages:
+  // Categorize orders strictly according to the canonical operational stages:
   // 1. Needs Initial AWB Issue: Active 'CCI send to CWH' awaiting token (excludes re-issues & delivered historical records)
   const needsAwbOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
+      if (o.crm_status === 'Debit Posting') return false;
       const moto = (o.motorola_status || '').toLowerCase();
       const motoInfo = getMotorolaStatusInfo(o.motorola_status);
       if (motoInfo.code >= 3 || motoInfo.isDelivered || moto.includes('cwh received') || moto.includes('send to rc') || moto.includes('rc received')) return false;
@@ -257,6 +259,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   // 2. Pending AWB Re-Issue: Exception state where CCI reported Pickup Not Done; CWH must cancel & re-issue
   const awbReissueOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
+      if (o.crm_status === 'Debit Posting') return false;
       return o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done';
     });
   }, [stationScopedOrders]);
@@ -264,6 +267,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   // 3. Pickup Pending: AWB assigned, awaiting courier physical pickup from CCI service center
   const pickupPendingOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
+      if (o.crm_status === 'Debit Posting') return false;
       const moto = (o.motorola_status || '').toLowerCase();
       const motoInfo = getMotorolaStatusInfo(o.motorola_status);
       // Strictly exclude downstream warehouse / RC stages
@@ -305,6 +309,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   // 4. In Transit (Leg 1 Inbound): CCI confirmed "Pickup Done" (or courier in-scan); parcel en route to CWH
   const inTransitOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
+      if (o.crm_status === 'Debit Posting') return false;
       const moto = (o.motorola_status || '').toLowerCase();
       const motoInfo = getMotorolaStatusInfo(o.motorola_status);
       // Strictly exclude any downstream warehouse / RC stages
@@ -336,6 +341,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   // 5. At CWH -> CCTV Unboxing & Inward: Physical arrival at CWH bay, staging for warehouse entry
   const atCwhOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
+      if (o.crm_status === 'Debit Posting') return false;
       const moto = (o.motorola_status || '').toLowerCase();
       const motoInfo = getMotorolaStatusInfo(o.motorola_status);
       // Exclude RC stages
@@ -366,6 +372,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   // 6. Flagged Discrepancies: Screening failed at CWH or discrepancy flagged at RC
   const discrepancyOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
+      if (o.crm_status === 'Debit Posting') return false;
       const moto = (o.motorola_status || '').toLowerCase();
       const motoInfo = getMotorolaStatusInfo(o.motorola_status);
       return (
@@ -382,6 +389,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   // 7. Outbound Leg to RC (Leg 2): CWH dispatched DC; en route to RC (Status 4: ASP Send to RC)
   const outboundRcOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
+      if (o.crm_status === 'Debit Posting') return false;
       const moto = (o.motorola_status || '').toLowerCase();
       const motoInfo = getMotorolaStatusInfo(o.motorola_status);
       if (
@@ -409,6 +417,11 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     });
   }, [stationScopedOrders]);
 
+  // 8. Debit Posting: Consignments flagged for debit to CCI station (missing parts, physical damage, CID, IMEI mismatch, etc.)
+  const debitPostingOrders = useMemo(() => {
+    return stationScopedOrders.filter((o) => o.crm_status === 'Debit Posting');
+  }, [stationScopedOrders]);
+
   const currentDisplayOrders = useMemo(() => {
     switch (activeSubTab) {
       case 'needs_awb':
@@ -425,10 +438,12 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         return discrepancyOrders;
       case 'outbound_rc':
         return outboundRcOrders;
+      case 'debit_posting':
+        return debitPostingOrders;
       default:
         return needsAwbOrders;
     }
-  }, [activeSubTab, needsAwbOrders, pickupPendingOrders, inTransitOrders, awbReissueOrders, atCwhOrders, discrepancyOrders, outboundRcOrders]);
+  }, [activeSubTab, needsAwbOrders, pickupPendingOrders, inTransitOrders, awbReissueOrders, atCwhOrders, discrepancyOrders, outboundRcOrders, debitPostingOrders]);
 
   // Dynamic order ageing map (calculated from SO Close Time in defective data items, fallback to max_sr_age)
   const orderAgeMap = useMemo(() => {
@@ -602,6 +617,16 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       activeClasses: 'border-blue-500 bg-blue-50/70 shadow-sm ring-1 ring-blue-500',
       activePill: 'bg-blue-600 text-white',
     },
+    {
+      id: 'debit_posting',
+      label: 'Debit Posting',
+      sublabel: 'Debit to CCI',
+      count: debitPostingOrders.length,
+      icon: AlertOctagon,
+      activeClasses: 'border-rose-600 bg-rose-50/80 shadow-sm ring-1 ring-rose-600',
+      activePill: 'bg-rose-700 text-white',
+      isException: debitPostingOrders.length > 0,
+    },
   ];
 
   const queueGuidance = {
@@ -633,12 +658,16 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       desc: 'Dispatched from CWH to destination Repair Center.',
       color: 'text-blue-800 bg-blue-50 border-blue-200',
     },
+    debit_posting: {
+      desc: 'Consignments held for commercial debit to CCI station due to missing parts, physical damage, CID, or IMEI mismatch.',
+      color: 'text-rose-900 bg-rose-50 border-rose-300 font-semibold',
+    },
   }[activeSubTab];
 
   return (
     <div className="space-y-3">
-      {/* 1. Interactive KPI Metric Pipeline Cards (7 Active Direct Stages) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-2">
+      {/* 1. Interactive KPI Metric Pipeline Cards (8 Active Direct Stages) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2">
         {kpiTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeSubTab === tab.id;
@@ -1092,6 +1121,30 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                             <Barcode className="w-3 h-3" />
                             Issue AWB
                           </button>
+                        ) : so.crm_status === 'Debit Posting' || activeSubTab === 'debit_posting' ? (
+                          /* Debit Posting */
+                          <>
+                            <button
+                              onClick={() => onSelectOrder(so)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-colors cursor-pointer"
+                              title="Review Debit details or revert back to active pipeline"
+                            >
+                              <AlertOctagon className="w-3.5 h-3.5" />
+                              Manage Debit
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`Revert ${so.so_code} from Debit Posting back to active pipeline?`)) {
+                                  crmDb.revertFromDebitPosting(so.id, user);
+                                  toast.success(`Consignment ${so.so_code} reverted from Debit Posting.`);
+                                }
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-medium transition-colors cursor-pointer"
+                              title="Revert consignment to active pipeline immediately"
+                            >
+                              Revert
+                            </button>
+                          </>
                         ) : (so.crm_status === 'CWH to Create DC' && (motoInfo.code === 3 || (so.motorola_status || '').toLowerCase().includes('cwh received'))) ? (
                           /* 3. At CWH & Motorola Status is CWH Received: Create DC to RC */
                           <>

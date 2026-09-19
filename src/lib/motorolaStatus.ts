@@ -172,6 +172,11 @@ export function deriveCrmStatusFromMotorolaStatus(
   pickupStatus?: string | null,
   screeningStatus?: string | null
 ): CRMStatus {
+  // Unconditionally preserve Debit Posting if flagged by CWH
+  if (existingCrmStatus === 'Debit Posting') {
+    return 'Debit Posting';
+  }
+
   const norm = normalizeMotoStatusKey(motoStatus);
 
   // 12. RC Received ASP: Delivered to RC
@@ -265,6 +270,7 @@ export function isAwbIssueRequired(order: ShippingOrder): boolean {
     info.code === 4 || 
     info.code === 5 || 
     info.code === 6 ||
+    order.crm_status === 'Debit Posting' ||
     order.crm_status === 'Delivered to RC' ||
     order.crm_status === 'Delivered to RC (Discrepancies)' ||
     order.crm_status === 'In Transit to RC' ||
@@ -317,6 +323,17 @@ export function getUnifiedStageDetails(order: {
   const normMoto = normalizeMotoStatusKey(order.motorola_status);
   const motoInfo = getMotorolaStatusInfo(order.motorola_status);
   const crm = (order.crm_status || '').trim();
+
+  // Debit Posting: Direct Debit to CCI (Overriding stage)
+  if (crm === 'Debit Posting') {
+    return {
+      key: 'debit_posting',
+      stageName: 'Debit Posting',
+      badgeClass: 'bg-rose-100 text-rose-900 border-rose-400 font-bold shadow-xs',
+      meaning: 'Consignment flagged by CWH for debit posting against CCI station.',
+      stageNumber: 14,
+    };
+  }
 
   // Stage 10: Delivered to RC (Discrepancies)
   if (
