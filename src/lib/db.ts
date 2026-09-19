@@ -181,6 +181,13 @@ class CRMDatabase {
                   courier: updated.courier || current.courier,
                   motorola_status: updated.motorola_status || current.motorola_status,
                   cwh_evidence_ref: updated.cwh_evidence_ref !== undefined ? updated.cwh_evidence_ref : current.cwh_evidence_ref,
+                  asp_rc_shipping_order_code: updated.asp_rc_shipping_order_code !== undefined ? updated.asp_rc_shipping_order_code : current.asp_rc_shipping_order_code,
+                  asp_rc_ship_date: updated.asp_rc_ship_date !== undefined ? updated.asp_rc_ship_date : current.asp_rc_ship_date,
+                  asp_outbound_awb: updated.asp_outbound_awb !== undefined ? updated.asp_outbound_awb : current.asp_outbound_awb,
+                  asp_rc_pickup_date: updated.asp_rc_pickup_date !== undefined ? updated.asp_rc_pickup_date : current.asp_rc_pickup_date,
+                  asp_rc_delivered_date: updated.asp_rc_delivered_date !== undefined ? updated.asp_rc_delivered_date : current.asp_rc_delivered_date,
+                  so_grn_time: updated.so_grn_time !== undefined ? updated.so_grn_time : current.so_grn_time,
+                  rc_receive_remark: updated.rc_receive_remark !== undefined ? updated.rc_receive_remark : current.rc_receive_remark,
                   updated_at: updated.updated_at || new Date().toISOString(),
                 };
                 this.saveToStorage();
@@ -457,6 +464,13 @@ class CRMDatabase {
           max_sr_age: parseInt(so.max_sr_age || 0, 10),
           priority_tier: parseInt(so.priority_tier || 3, 10) as any,
           total_items: parseInt(so.total_items || 1, 10),
+          asp_rc_shipping_order_code: so.asp_rc_shipping_order_code || undefined,
+          asp_rc_ship_date: so.asp_rc_ship_date || undefined,
+          asp_outbound_awb: so.asp_outbound_awb || undefined,
+          asp_rc_pickup_date: so.asp_rc_pickup_date || undefined,
+          asp_rc_delivered_date: so.asp_rc_delivered_date || undefined,
+          so_grn_time: so.so_grn_time || undefined,
+          rc_receive_remark: so.rc_receive_remark || undefined,
           created_at: so.created_at,
           updated_at: so.updated_at,
         };
@@ -557,6 +571,13 @@ class CRMDatabase {
         delivery_challan_code: it.delivery_challan_code || undefined,
         deliver_qty: it.deliver_qty ? parseInt(it.deliver_qty, 10) : undefined,
         value: it.value !== undefined && it.value !== null ? parseFloat(it.value) : undefined,
+        asp_rc_shipping_order_code: it.asp_rc_shipping_order_code || undefined,
+        asp_rc_ship_date: it.asp_rc_ship_date || undefined,
+        asp_outbound_awb: it.asp_outbound_awb || undefined,
+        asp_rc_pickup_date: it.asp_rc_pickup_date || undefined,
+        asp_rc_delivered_date: it.asp_rc_delivered_date || undefined,
+        so_grn_time: it.so_grn_time || undefined,
+        rc_receive_remark: it.rc_receive_remark || undefined,
         last_synced_at: it.last_synced_at || it.created_at,
         created_at: it.created_at,
         updated_at: it.updated_at,
@@ -1887,33 +1908,45 @@ class CRMDatabase {
     },
     user: UserProfile
   ): ShippingOrder {
-    const so = this.shippingOrders.find((o) => o.id === soId || o.so_code === soId);
-    if (!so) throw new Error('Shipping Order not found');
+    const idx = this.shippingOrders.findIndex((o) => o.id === soId || o.so_code === soId);
+    if (idx === -1) throw new Error('Shipping Order not found');
+    const so = this.shippingOrders[idx];
 
     const oldStatus = so.crm_status;
-    if (data.aspRcShippingOrderCode) so.asp_rc_shipping_order_code = data.aspRcShippingOrderCode.trim();
-    if (data.aspOutboundAwb) so.asp_outbound_awb = data.aspOutboundAwb.trim();
-    if (data.courier) so.courier = data.courier.trim();
-    if (data.pickupDate) so.asp_rc_pickup_date = data.pickupDate.trim();
+    let newStatus = so.crm_status;
 
     // If docket and pickup date exist, mark as In Transit to RC
     if (data.aspOutboundAwb && data.pickupDate) {
-      so.crm_status = 'In Transit to RC';
+      newStatus = 'In Transit to RC';
     } else if (so.crm_status === 'CWH to Create DC') {
-      so.crm_status = 'Pickup Pending for RC';
+      newStatus = 'Pickup Pending for RC';
     }
 
-    so.updated_at = new Date().toISOString();
+    const updatedSo: ShippingOrder = {
+      ...so,
+      crm_status: newStatus,
+      asp_rc_shipping_order_code: data.aspRcShippingOrderCode !== undefined ? data.aspRcShippingOrderCode.trim() : so.asp_rc_shipping_order_code,
+      asp_outbound_awb: data.aspOutboundAwb !== undefined ? data.aspOutboundAwb.trim() : so.asp_outbound_awb,
+      courier: data.courier !== undefined ? data.courier.trim() : so.courier,
+      asp_rc_pickup_date: data.pickupDate !== undefined ? data.pickupDate.trim() : so.asp_rc_pickup_date,
+      updated_at: new Date().toISOString(),
+    };
 
-    // Propagate to constituent items
-    this.defectiveItems
-      .filter((i) => (i.shipping_order_code || '').trim() === so.so_code.trim())
-      .forEach((item) => {
-        if (data.aspRcShippingOrderCode) item.asp_rc_shipping_order_code = data.aspRcShippingOrderCode.trim();
-        if (data.aspOutboundAwb) item.asp_outbound_awb = data.aspOutboundAwb.trim();
-        if (data.pickupDate) item.asp_rc_pickup_date = data.pickupDate.trim();
-        item.updated_at = new Date().toISOString();
-      });
+    this.shippingOrders[idx] = updatedSo;
+
+    // Propagate to constituent items immutably
+    this.defectiveItems = this.defectiveItems.map((item) => {
+      if ((item.shipping_order_code || '').trim() === so.so_code.trim()) {
+        return {
+          ...item,
+          asp_rc_shipping_order_code: data.aspRcShippingOrderCode !== undefined ? data.aspRcShippingOrderCode.trim() : item.asp_rc_shipping_order_code,
+          asp_outbound_awb: data.aspOutboundAwb !== undefined ? data.aspOutboundAwb.trim() : item.asp_outbound_awb,
+          asp_rc_pickup_date: data.pickupDate !== undefined ? data.pickupDate.trim() : item.asp_rc_pickup_date,
+          updated_at: new Date().toISOString(),
+        };
+      }
+      return item;
+    });
 
     this.auditLogs.unshift({
       id: `log-${Date.now()}`,
@@ -1923,26 +1956,98 @@ class CRMDatabase {
       user_role: user.role,
       action: 'CWH_UPDATE_RC_DOCKET',
       old_status: oldStatus,
-      new_status: so.crm_status,
-      awb: data.aspOutboundAwb,
-      remarks: `CWH updated RC dispatch docket: AWB=${data.aspOutboundAwb || 'N/A'}, Courier=${data.courier || so.courier}, Pickup Date=${data.pickupDate || 'Pending'}.${data.remarks ? ` Notes: ${data.remarks}` : ''}`,
+      new_status: updatedSo.crm_status,
+      awb: updatedSo.asp_outbound_awb,
+      remarks: `CWH updated RC dispatch docket: AWB=${updatedSo.asp_outbound_awb || 'N/A'}, Courier=${updatedSo.courier}, Pickup Date=${updatedSo.asp_rc_pickup_date || 'Pending'}.${data.remarks ? ` Notes: ${data.remarks}` : ''}`,
       created_at: new Date().toISOString(),
     });
 
     if (isSupabaseConfigured && supabase) {
       const client = supabase;
       client.from('shipping_orders').update({
-        crm_status: so.crm_status,
-        asp_rc_shipping_order_code: so.asp_rc_shipping_order_code,
-        courier: so.courier,
-        updated_at: so.updated_at,
+        crm_status: updatedSo.crm_status,
+        asp_rc_shipping_order_code: updatedSo.asp_rc_shipping_order_code,
+        asp_outbound_awb: updatedSo.asp_outbound_awb,
+        asp_rc_pickup_date: updatedSo.asp_rc_pickup_date,
+        courier: updatedSo.courier,
+        updated_at: updatedSo.updated_at,
       }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(({ error }) => {
         if (error) console.warn('Supabase update for RC docket failed:', error.message);
+      });
+
+      client.from('defective_master').update({
+        asp_rc_shipping_order_code: updatedSo.asp_rc_shipping_order_code,
+        asp_outbound_awb: updatedSo.asp_outbound_awb,
+        asp_rc_pickup_date: updatedSo.asp_rc_pickup_date,
+        updated_at: updatedSo.updated_at,
+      }).eq('shipping_order_code', so.so_code).then(({ error }) => {
+        if (error) console.warn('Supabase defective items update for RC docket failed:', error.message);
       });
     }
 
     this.notify();
-    return so;
+    return updatedSo;
+  }
+
+  // --- BULK RC DISPATCH / DOCKET UPDATE ---
+  public batchUpdateRcDocketDetails(
+    rows: {
+      soCode: string;
+      aspRcShippingOrderCode?: string;
+      courier: string;
+      awbNumber: string;
+      pickupDate?: string;
+      remarks?: string;
+    }[],
+    user: UserProfile
+  ): {
+    total: number;
+    updated: number;
+    skipped: number;
+    errors: string[];
+  } {
+    let updated = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    rows.forEach((r, idx) => {
+      try {
+        const cleanCode = (r.soCode || '').trim().toUpperCase();
+        if (!cleanCode) {
+          skipped++;
+          return;
+        }
+
+        const so = this.shippingOrders.find(
+          (o) => o.so_code.trim().toUpperCase() === cleanCode ||
+                 (o.asp_rc_shipping_order_code && o.asp_rc_shipping_order_code.trim().toUpperCase() === cleanCode)
+        );
+
+        if (!so) {
+          skipped++;
+          errors.push(`Row ${idx + 1}: Order ${r.soCode} not found in active pipeline`);
+          return;
+        }
+
+        this.updateRcDocketDetails(
+          so.id,
+          {
+            aspRcShippingOrderCode: r.aspRcShippingOrderCode || so.asp_rc_shipping_order_code,
+            aspOutboundAwb: r.awbNumber,
+            courier: r.courier,
+            pickupDate: r.pickupDate,
+            remarks: r.remarks,
+          },
+          user
+        );
+        updated++;
+      } catch (err: any) {
+        skipped++;
+        errors.push(`Row ${idx + 1}: ${err.message || 'Update failed'}`);
+      }
+    });
+
+    return { total: rows.length, updated, skipped, errors };
   }
 
   // --- AWB TOKEN ASSIGNMENT & RETOKENING ---

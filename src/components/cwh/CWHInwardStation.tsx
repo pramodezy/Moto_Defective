@@ -36,6 +36,7 @@ import {
   getUnifiedPickupStatus
 } from '../../lib/motorolaStatus';
 import { BulkAwbUploadModal } from './BulkAwbUploadModal';
+import { BulkRcDispatchModal } from './BulkRcDispatchModal';
 import { CourierReceiptModal } from './CourierReceiptModal';
 import { crmDb } from '../../lib/db';
 import { toast } from 'sonner';
@@ -82,6 +83,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     'needs_awb' | 'pickup_pending' | 'in_transit' | 'awb_reissue' | 'at_cwh' | 'discrepancies' | 'outbound_rc'
   >('needs_awb');
   const [isBulkAwbModalOpen, setIsBulkAwbModalOpen] = useState(false);
+  const [isBulkRcDispatchOpen, setIsBulkRcDispatchOpen] = useState(false);
   const [receivingOrder, setReceivingOrder] = useState<ShippingOrder | null>(null);
 
   // Create DC to RC Modal State
@@ -94,7 +96,6 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
 
   // RC Outbound Docket modal state (CWH -> RC dispatch tracking)
   const [rcDocketModalOrder, setRcDocketModalOrder] = useState<ShippingOrder | null>(null);
-  const [rcDocketSoCode, setRcDocketSoCode] = useState('');
   const [rcDocketAwb, setRcDocketAwb] = useState('');
   const [rcDocketCourier, setRcDocketCourier] = useState('Bluedart Surface');
   const [rcDocketPickupDate, setRcDocketPickupDate] = useState('');
@@ -102,7 +103,6 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
 
   const handleOpenRcDocketModal = (so: ShippingOrder) => {
     setRcDocketModalOrder(so);
-    setRcDocketSoCode(so.asp_rc_shipping_order_code || '');
     setRcDocketAwb(so.asp_outbound_awb || '');
     setRcDocketCourier(so.courier || 'Bluedart Surface');
     setRcDocketPickupDate(so.asp_rc_pickup_date ? so.asp_rc_pickup_date.slice(0, 16) : new Date().toISOString().slice(0, 16));
@@ -116,7 +116,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       crmDb.updateRcDocketDetails(
         rcDocketModalOrder.id,
         {
-          aspRcShippingOrderCode: rcDocketSoCode,
+          aspRcShippingOrderCode: rcDocketModalOrder.asp_rc_shipping_order_code,
           aspOutboundAwb: rcDocketAwb,
           courier: rcDocketCourier,
           pickupDate: rcDocketPickupDate,
@@ -764,15 +764,26 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
             </button>
           )}
 
-          {/* Upload Bulk AWB Sheet Button */}
-          <button
-            type="button"
-            onClick={() => setIsBulkAwbModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer whitespace-nowrap ml-auto"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            Upload Bulk AWB Sheet
-          </button>
+          {/* Upload Bulk AWB or Bulk RC Dispatch Button */}
+          {activeSubTab === 'outbound_rc' ? (
+            <button
+              type="button"
+              onClick={() => setIsBulkRcDispatchOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-all cursor-pointer whitespace-nowrap ml-auto"
+            >
+              <Truck className="w-3.5 h-3.5" />
+              Bulk Upload RC Dispatch
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsBulkAwbModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer whitespace-nowrap ml-auto"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Upload Bulk AWB Sheet
+            </button>
+          )}
         </div>
       </div>
 
@@ -1424,6 +1435,15 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         user={user}
       />
 
+      {/* Bulk RC Dispatch Upload Modal */}
+      <BulkRcDispatchModal
+        isOpen={isBulkRcDispatchOpen}
+        onClose={() => setIsBulkRcDispatchOpen(false)}
+        orders={orders}
+        stations={stations}
+        user={user}
+      />
+
       {/* Courier Dock Receipt Acknowledgment Modal */}
       {receivingOrder && (
         <CourierReceiptModal
@@ -1461,18 +1481,30 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                 Tracking will remain active in this card until receipt is confirmed in Motorola CRM (<strong>RC Received ASP</strong>).
               </div>
 
-              {/* ASP-RC Shipping Order Code */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  ASP-RC Shipping Order Code (Moto CRM)
-                </label>
-                <input
-                  type="text"
-                  value={rcDocketSoCode}
-                  onChange={(e) => setRcDocketSoCode(e.target.value)}
-                  placeholder="e.g. SORLC26080501009"
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
-                />
+              {/* Auto-Fetched ASP-RC Shipping Order Code */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-700">
+                    ASP-RC Shipping Order Code
+                  </span>
+                  <span className="text-[10px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                    Auto-Fetched from Dump
+                  </span>
+                </div>
+                <div className="mt-1.5 font-mono font-bold text-sm">
+                  {rcDocketModalOrder.asp_rc_shipping_order_code ? (
+                    <span className="text-indigo-900 bg-indigo-50/60 px-2.5 py-1 rounded-lg border border-indigo-100 inline-block">
+                      {rcDocketModalOrder.asp_rc_shipping_order_code}
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 font-normal italic text-xs">
+                      Awaiting Moto CRM SO Generation in Defective Dump
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1.5">
+                  Generated by Motorola CRM once consignment status updates to <strong>ASP Send to RC</strong>.
+                </p>
               </div>
 
               {/* Courier Partner & Outbound AWB / Docket */}
