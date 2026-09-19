@@ -507,6 +507,12 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                   </div>
                   <div className="text-[11px] text-slate-600 grid grid-cols-2 gap-2 pt-1 border-t border-slate-200">
                     <div>
+                      <span className="text-slate-400 block text-[10px]">Logistics Partner</span>
+                      <span className="font-medium text-slate-800">
+                        {order.asp_outbound_awb ? (order.courier || '-') : '-'}
+                      </span>
+                    </div>
+                    <div>
                       <span className="text-slate-400 block text-[10px]">Outbound Docket / AWB</span>
                       <span className="font-mono text-blue-800 font-semibold">
                         {order.asp_outbound_awb || 'Awaiting Docket'}
