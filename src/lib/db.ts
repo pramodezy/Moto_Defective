@@ -1296,7 +1296,7 @@ class CRMDatabase {
 
       (async () => {
         try {
-          await client.from('shipping_orders').upsert(
+          const { error: soUpsertErr } = await client.from('shipping_orders').upsert(
             ordersToPush.map((so) => ({
               so_code: so.so_code,
               station_code: so.station_code,
@@ -1312,11 +1312,41 @@ class CRMDatabase {
               total_declared_value: so.total_declared_value,
               max_sr_age: so.max_sr_age,
               priority_tier: so.priority_tier,
+              asp_rc_shipping_order_code: so.asp_rc_shipping_order_code || null,
+              asp_rc_ship_date: so.asp_rc_ship_date || null,
+              asp_outbound_awb: so.asp_outbound_awb || null,
+              asp_rc_pickup_date: so.asp_rc_pickup_date || null,
+              asp_rc_delivered_date: so.asp_rc_delivered_date || null,
+              so_grn_time: so.so_grn_time || null,
+              rc_receive_remark: so.rc_receive_remark || null,
             })),
             { onConflict: 'so_code' }
           );
 
-          await client.from('defective_master').upsert(
+          if (soUpsertErr && (soUpsertErr.code === '42703' || soUpsertErr.message?.includes('does not exist'))) {
+            // Fallback if SQL migration not yet executed on Supabase
+            await client.from('shipping_orders').upsert(
+              ordersToPush.map((so) => ({
+                so_code: so.so_code,
+                station_code: so.station_code,
+                region: so.region,
+                state: so.state,
+                city: so.city,
+                motorola_status: so.motorola_status,
+                crm_status: so.crm_status,
+                excel_ref_awb: so.excel_ref_awb,
+                active_awb: so.active_awb,
+                courier: so.courier,
+                eway_bill_required: so.eway_bill_required,
+                total_declared_value: so.total_declared_value,
+                max_sr_age: so.max_sr_age,
+                priority_tier: so.priority_tier,
+              })),
+              { onConflict: 'so_code' }
+            );
+          }
+
+          const { error: dmUpsertErr } = await client.from('defective_master').upsert(
             itemsToPush.map((it) => ({
               composite_key: it.composite_key,
               sr_number: it.sr_number,
@@ -1338,9 +1368,45 @@ class CRMDatabase {
               screening_status: it.screening_status,
               item_remarks: it.item_remarks,
               estimated_value: it.estimated_value,
+              asp_rc_shipping_order_code: it.asp_rc_shipping_order_code || null,
+              asp_rc_ship_date: it.asp_rc_ship_date || null,
+              asp_outbound_awb: it.asp_outbound_awb || null,
+              asp_rc_pickup_date: it.asp_rc_pickup_date || null,
+              asp_rc_delivered_date: it.asp_rc_delivered_date || null,
+              so_grn_time: it.so_grn_time || null,
+              rc_receive_remark: it.rc_receive_remark || null,
             })),
             { onConflict: 'composite_key' }
           );
+
+          if (dmUpsertErr && (dmUpsertErr.code === '42703' || dmUpsertErr.message?.includes('does not exist'))) {
+            // Fallback if SQL migration not yet executed on Supabase
+            await client.from('defective_master').upsert(
+              itemsToPush.map((it) => ({
+                composite_key: it.composite_key,
+                sr_number: it.sr_number,
+                sr_part_number: it.sr_part_number,
+                new_part_number: it.new_part_number || '',
+                part_category: it.part_category,
+                part_description: it.part_description,
+                quantity: it.quantity,
+                station_code: it.station_code,
+                region: it.region,
+                state: it.state,
+                city: it.city,
+                shipping_order_code: it.shipping_order_code,
+                sr_close_timestamp: it.sr_close_timestamp,
+                sr_model_name: it.sr_model_name,
+                sr_fault_description: it.sr_fault_description,
+                motorola_parts_status: it.motorola_parts_status,
+                excel_awb: it.excel_awb,
+                screening_status: it.screening_status,
+                item_remarks: it.item_remarks,
+                estimated_value: it.estimated_value,
+              })),
+              { onConflict: 'composite_key' }
+            );
+          }
         } catch (e: any) {
           console.warn('Supabase live push error:', e);
         }
@@ -1972,7 +2038,16 @@ class CRMDatabase {
         courier: updatedSo.courier,
         updated_at: updatedSo.updated_at,
       }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(({ error }) => {
-        if (error) console.warn('Supabase update for RC docket failed:', error.message);
+        if (error) {
+          console.warn('Supabase update for RC docket notice:', error.message);
+          if (error.code === '42703' || error.message?.includes('does not exist')) {
+            client.from('shipping_orders').update({
+              crm_status: updatedSo.crm_status,
+              courier: updatedSo.courier,
+              updated_at: updatedSo.updated_at,
+            }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(() => {});
+          }
+        }
       });
 
       client.from('defective_master').update({
@@ -1981,7 +2056,7 @@ class CRMDatabase {
         asp_rc_pickup_date: updatedSo.asp_rc_pickup_date,
         updated_at: updatedSo.updated_at,
       }).eq('shipping_order_code', so.so_code).then(({ error }) => {
-        if (error) console.warn('Supabase defective items update for RC docket failed:', error.message);
+        if (error && error.code !== '42703') console.warn('Supabase defective items update notice:', error.message);
       });
     }
 

@@ -156,12 +156,19 @@ export async function pushUploadedDataToSupabase(
             total_declared_value: so.total_declared_value || 0,
             max_sr_age: so.max_sr_age || 0,
             priority_tier: so.priority_tier || 3,
+            asp_rc_shipping_order_code: so.asp_rc_shipping_order_code || null,
+            asp_rc_ship_date: so.asp_rc_ship_date || null,
+            asp_outbound_awb: so.asp_outbound_awb || null,
+            asp_rc_pickup_date: so.asp_rc_pickup_date || null,
+            asp_rc_delivered_date: so.asp_rc_delivered_date || null,
+            so_grn_time: so.so_grn_time || null,
+            rc_receive_remark: so.rc_receive_remark || null,
           })),
           { onConflict: 'so_code' }
         );
         if (soErr) {
-          // Graceful fallback if delivery_challan_code column not yet migrated in Supabase
-          if (soErr.message?.includes('delivery_challan_code') || soErr.code === 'PGRST204') {
+          // Graceful fallback if columns not yet migrated in Supabase
+          if (soErr.code === '42703' || soErr.message?.includes('does not exist') || soErr.message?.includes('delivery_challan_code') || soErr.code === 'PGRST204') {
             await supabase.from('shipping_orders').upsert(
               batch.map((so) => ({
                 so_code: so.so_code,
@@ -216,12 +223,21 @@ export async function pushUploadedDataToSupabase(
             delivery_challan_code: it.delivery_challan_code || null,
             deliver_qty: it.deliver_qty !== undefined && it.deliver_qty !== null ? it.deliver_qty : (it.quantity || 1),
             value: it.value !== undefined && it.value !== null ? it.value : (it.estimated_value || 8000),
+            asp_rc_shipping_order_code: it.asp_rc_shipping_order_code || null,
+            asp_rc_ship_date: it.asp_rc_ship_date || null,
+            asp_outbound_awb: it.asp_outbound_awb || null,
+            asp_rc_pickup_date: it.asp_rc_pickup_date || null,
+            asp_rc_delivered_date: it.asp_rc_delivered_date || null,
+            so_grn_time: it.so_grn_time || null,
+            rc_receive_remark: it.rc_receive_remark || null,
           })),
           { onConflict: 'composite_key' }
         );
         if (itmErr) {
-          // Graceful fallback if delivery_challan_code/deliver_qty/value columns not yet migrated in Supabase
+          // Graceful fallback if columns not yet migrated in Supabase
           if (
+            itmErr.code === '42703' ||
+            itmErr.message?.includes('does not exist') ||
             itmErr.message?.includes('delivery_challan_code') ||
             itmErr.message?.includes('deliver_qty') ||
             itmErr.code === 'PGRST204'
