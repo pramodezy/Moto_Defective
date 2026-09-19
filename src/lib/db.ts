@@ -1095,16 +1095,15 @@ class CRMDatabase {
       if (derivedCrmStatus === 'Delivered to RC' || latestMotoStatus?.toLowerCase().includes('rc received')) {
         existingSo.pickup_status = 'Pickup Done';
       }
-      if (latestExcelAwb) existingSo.excel_ref_awb = latestExcelAwb;
+      // Leg 1 AWB: keep existing CWH assignment, do not auto-populate from dump
       existingSo.region = region;
       existingSo.state = state;
       existingSo.city = city;
 
-      // Update Leg 2 Outbound details
+      // Update Leg 2 Outbound details from Motorola CRM
       existingSo.asp_rc_shipping_order_code = latestAspRcSo || existingSo.asp_rc_shipping_order_code;
       existingSo.asp_rc_ship_date = latestAspRcShipDate || existingSo.asp_rc_ship_date;
-      existingSo.asp_outbound_awb = latestAspOutboundAwb || existingSo.asp_outbound_awb;
-      existingSo.asp_rc_pickup_date = latestAspRcPickupDate || existingSo.asp_rc_pickup_date;
+      // Leg 2 AWB: preserve existing CWH assignment, never auto-populate from dump
       existingSo.asp_rc_delivered_date = latestAspRcDeliveredDate || existingSo.asp_rc_delivered_date;
       existingSo.so_grn_time = latestSoGrnTime || existingSo.so_grn_time;
       existingSo.rc_receive_remark = latestRcRemark || existingSo.rc_receive_remark;
@@ -1121,12 +1120,12 @@ class CRMDatabase {
         city,
         motorola_status: latestMotoStatus,
         crm_status: derivedCrmStatus,
-        excel_ref_awb: latestExcelAwb,
-        active_awb: latestExcelAwb,
+        excel_ref_awb: undefined,
+        active_awb: undefined, // Blank until manually assigned by CWH
         courier: 'BlueDart Express',
         pickup_status: isDelivered 
           ? 'Pickup Done' 
-          : (derivedCrmStatus === 'CCI to Create DC' ? undefined : (latestExcelAwb ? 'Pickup Pending' : undefined)),
+          : undefined,
         delivery_challan_code: latestDcCode,
         eway_bill_required: ewayRequired,
         total_declared_value: totalVal,
@@ -1135,8 +1134,8 @@ class CRMDatabase {
         total_items: items.reduce((sum, item) => sum + (item.deliver_qty || item.quantity || 1), 0),
         asp_rc_shipping_order_code: latestAspRcSo,
         asp_rc_ship_date: latestAspRcShipDate,
-        asp_outbound_awb: latestAspOutboundAwb,
-        asp_rc_pickup_date: latestAspRcPickupDate,
+        asp_outbound_awb: undefined, // Blank until manually assigned by CWH
+        asp_rc_pickup_date: undefined,
         asp_rc_delivered_date: latestAspRcDeliveredDate,
         so_grn_time: latestSoGrnTime,
         rc_receive_remark: latestRcRemark,

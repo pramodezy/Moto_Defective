@@ -76,7 +76,8 @@ export async function parseDefectiveReportFile(file: File): Promise<ParseResult>
     const partDesc = getColVal(r, ['srpartdescription', 'partdescription', 'description']);
     const qtyStr = getColVal(r, ['srpartquantity', 'quantity', 'qty']);
     const qty = parseInt(qtyStr.replace(/\t/g, ''), 10) || 1;
-    const excelAwb = getColVal(r, ['inboundawb', 'cciawb', 'excelawb', 'leg1awb', 'awb']);
+    // Both Leg 1 and Leg 2 AWBs must remain blank until manually assigned by CWH through bulk upload or single SO update
+    const excelAwb = undefined;
     const modelName = getColVal(r, ['srmodelname', 'modelname', 'model']);
     const faultDesc = getColVal(r, ['srfaultdescription', 'faultdescription', 'fault']);
     const srCloseDate = getColVal(r, [
@@ -120,7 +121,8 @@ export async function parseDefectiveReportFile(file: File): Promise<ParseResult>
     // Leg 2 Outbound Hub Transfer (CWH -> RC) columns
     const aspRcSo = getColVal(r, ['asprcshippingordercode', 'asprcshippingorder', 'asprcsocode', 'asprcso']);
     const aspRcShipDate = getColVal(r, ['asprcshipdatetime', 'asprcshipdate']);
-    const aspOutboundAwb = getColVal(r, ['aspoutboundsoawb', 'outboundsoawb', 'outboundawb', 'asprcawb']).replace(/\t/g, '').trim();
+    // Leg 2 Outbound AWB must remain blank until manually assigned by CWH through bulk upload or single SO update
+    const aspOutboundAwb = undefined;
     const aspRcPickupDate = getColVal(r, ['asprclogisticspickupdatetime', 'asprclogisticspickupdate', 'asprcpickupdate']);
     const aspRcDeliveredDate = getColVal(r, ['asprclogisticsdelivereddatetime', 'asprclogisticsdelivereddate', 'asprcdelivereddate']);
     const soGrnTime = getColVal(r, ['sogrntime', 'grntime', 'sogrn']);
