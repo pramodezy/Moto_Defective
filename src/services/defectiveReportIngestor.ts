@@ -76,7 +76,7 @@ export async function parseDefectiveReportFile(file: File): Promise<ParseResult>
     const partDesc = getColVal(r, ['srpartdescription', 'partdescription', 'description']);
     const qtyStr = getColVal(r, ['srpartquantity', 'quantity', 'qty']);
     const qty = parseInt(qtyStr.replace(/\t/g, ''), 10) || 1;
-    const excelAwb = getColVal(r, ['aspoutboundsoawb', 'outboundawb', 'awb', 'excelawb']);
+    const excelAwb = getColVal(r, ['inboundawb', 'cciawb', 'excelawb', 'leg1awb', 'awb']);
     const modelName = getColVal(r, ['srmodelname', 'modelname', 'model']);
     const faultDesc = getColVal(r, ['srfaultdescription', 'faultdescription', 'fault']);
     const srCloseDate = getColVal(r, [
@@ -120,8 +120,10 @@ export async function parseDefectiveReportFile(file: File): Promise<ParseResult>
     // Leg 2 Outbound Hub Transfer (CWH -> RC) columns
     const aspRcSo = getColVal(r, ['asprcshippingordercode', 'asprcshippingorder', 'asprcsocode', 'asprcso']);
     const aspRcShipDate = getColVal(r, ['asprcshipdatetime', 'asprcshipdate']);
+    const aspOutboundAwb = getColVal(r, ['aspoutboundsoawb', 'outboundsoawb', 'outboundawb', 'asprcawb']).replace(/\t/g, '').trim();
     const aspRcPickupDate = getColVal(r, ['asprclogisticspickupdatetime', 'asprclogisticspickupdate', 'asprcpickupdate']);
     const aspRcDeliveredDate = getColVal(r, ['asprclogisticsdelivereddatetime', 'asprclogisticsdelivereddate', 'asprcdelivereddate']);
+    const soGrnTime = getColVal(r, ['sogrntime', 'grntime', 'sogrn']);
     const rcRemark = getColVal(r, ['rcreceiveremark', 'rcremark', 'rccomments', 'rcremark2']);
 
     const finalStation = stationCode || '068';
@@ -144,12 +146,14 @@ export async function parseDefectiveReportFile(file: File): Promise<ParseResult>
       sr_model_name: modelName,
       sr_fault_description: faultDesc,
       motorola_parts_status: partsStatus || 'Not Return',
-      excel_awb: excelAwb,
+      excel_awb: excelAwb || undefined,
       estimated_value: estimatedVal,
       asp_rc_shipping_order_code: aspRcSo || undefined,
       asp_rc_ship_date: aspRcShipDate || undefined,
+      asp_outbound_awb: aspOutboundAwb || undefined,
       asp_rc_pickup_date: aspRcPickupDate || undefined,
       asp_rc_delivered_date: aspRcDeliveredDate || undefined,
+      so_grn_time: soGrnTime || undefined,
       rc_receive_remark: rcRemark || undefined,
     });
   }

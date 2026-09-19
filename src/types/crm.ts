@@ -84,8 +84,10 @@ export interface ShippingOrder {
   // Leg 2 Outbound Hub Transfer (CWH -> RC)
   asp_rc_shipping_order_code?: string;
   asp_rc_ship_date?: string;
-  asp_rc_pickup_date?: string;
-  asp_rc_delivered_date?: string;
+  asp_outbound_awb?: string;          // "ASP Outbound SO(AWB)" (Leg 2 Docket from CWH to RC)
+  asp_rc_pickup_date?: string;        // "ASP-RC Logistics Pickup Date/Time"
+  asp_rc_delivered_date?: string;     // "ASP-RC Logistics Delivered Date/Time"
+  so_grn_time?: string;               // "SO GRN Time" (When RC received part in Moto CRM)
   rc_receive_remark?: string;
 
   created_at: string;
@@ -124,8 +126,10 @@ export interface DefectiveItem {
   // Leg 2 Outbound Hub Transfer (CWH -> RC)
   asp_rc_shipping_order_code?: string;
   asp_rc_ship_date?: string;
-  asp_rc_pickup_date?: string;
-  asp_rc_delivered_date?: string;
+  asp_outbound_awb?: string;          // "ASP Outbound SO(AWB)" (Leg 2 Docket from CWH to RC)
+  asp_rc_pickup_date?: string;        // "ASP-RC Logistics Pickup Date/Time"
+  asp_rc_delivered_date?: string;     // "ASP-RC Logistics Delivered Date/Time"
+  so_grn_time?: string;               // "SO GRN Time" (When RC received part in Moto CRM)
   rc_receive_remark?: string;
 
   last_synced_at: string;

@@ -38,6 +38,7 @@ import {
 import { BulkAwbUploadModal } from './BulkAwbUploadModal';
 import { CourierReceiptModal } from './CourierReceiptModal';
 import { crmDb } from '../../lib/db';
+import { toast } from 'sonner';
 
 interface CWHInwardStationProps {
   orders: ShippingOrder[];
@@ -90,6 +91,45 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   const [rcDestination, setRcDestination] = useState('Lenovo/Motorola Central RC (Mumbai)');
   const [dcDocket, setDcDocket] = useState('');
   const [dcRemarks, setDcRemarks] = useState('');
+
+  // RC Outbound Docket modal state (CWH -> RC dispatch tracking)
+  const [rcDocketModalOrder, setRcDocketModalOrder] = useState<ShippingOrder | null>(null);
+  const [rcDocketSoCode, setRcDocketSoCode] = useState('');
+  const [rcDocketAwb, setRcDocketAwb] = useState('');
+  const [rcDocketCourier, setRcDocketCourier] = useState('Bluedart Surface');
+  const [rcDocketPickupDate, setRcDocketPickupDate] = useState('');
+  const [rcDocketRemarks, setRcDocketRemarks] = useState('');
+
+  const handleOpenRcDocketModal = (so: ShippingOrder) => {
+    setRcDocketModalOrder(so);
+    setRcDocketSoCode(so.asp_rc_shipping_order_code || '');
+    setRcDocketAwb(so.asp_outbound_awb || '');
+    setRcDocketCourier(so.courier || 'Bluedart Surface');
+    setRcDocketPickupDate(so.asp_rc_pickup_date ? so.asp_rc_pickup_date.slice(0, 16) : new Date().toISOString().slice(0, 16));
+    setRcDocketRemarks('');
+  };
+
+  const handleConfirmRcDocket = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rcDocketModalOrder) return;
+    try {
+      crmDb.updateRcDocketDetails(
+        rcDocketModalOrder.id,
+        {
+          aspRcShippingOrderCode: rcDocketSoCode,
+          aspOutboundAwb: rcDocketAwb,
+          courier: rcDocketCourier,
+          pickupDate: rcDocketPickupDate,
+          remarks: rcDocketRemarks,
+        },
+        user
+      );
+      toast.success(`RC Outbound docket updated for ${rcDocketModalOrder.so_code}!`);
+      setRcDocketModalOrder(null);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update RC docket');
+    }
+  };
 
   const handleOpenDcModal = (so: ShippingOrder) => {
     setDcModalOrder(so);
@@ -354,7 +394,11 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       ) {
         return false;
       }
-      // Strictly include ASP Send to RC (Code 4)
+      // Option A: Strictly exclude completed RC Received ASP (leaves active card as per default rule)
+      if (motoInfo.code === 5 || moto.includes('rc received')) {
+        return false;
+      }
+      // Strictly include ASP Send to RC (Code 4) or active outbound stages
       return (
         motoInfo.code === 4 ||
         moto.includes('send to rc') ||
@@ -956,20 +1000,57 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                       })()}
                     </td>
 
-                    {/* Column 4: Courier & AWB */}
+                    {/* Column 4: Courier & AWB / Outbound Docket */}
                     <td className="py-3 px-3.5 whitespace-nowrap">
-                      <div className="text-slate-800 font-medium">
-                        {(so.active_awb || so.excel_ref_awb) ? (so.courier || '-') : '-'}
-                      </div>
-                      <div className="font-mono text-sky-800 text-[11px] mt-0.5 font-medium">
-                        {so.active_awb || so.excel_ref_awb || (
-                          so.crm_status === 'CWH to Create DC'
-                            ? <span className="text-purple-800 font-sans font-medium">CWH Inward Done</span>
-                            : motoInfo.isDelivered 
-                              ? <span className="text-emerald-800 font-sans font-medium">Delivered</span> 
-                              : <span className="text-amber-800 font-sans font-medium">Pending CWH AWB</span>
-                        )}
-                      </div>
+                      {activeSubTab === 'outbound_rc' ? (
+                        <div>
+                          <div className="text-slate-800 font-semibold flex items-center gap-1.5">
+                            <Truck className="w-3 h-3 text-blue-600" />
+                            <span>{so.courier || 'BlueDart Express'}</span>
+                          </div>
+                          <div className="font-mono text-[11px] mt-0.5">
+                            {so.asp_outbound_awb ? (
+                              <span className="font-bold text-blue-900 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                                AWB: {so.asp_outbound_awb}
+                              </span>
+                            ) : (
+                              <span className="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-sans text-[10px] font-medium">
+                                Awaiting RC Docket
+                              </span>
+                            )}
+                          </div>
+                          {so.asp_rc_pickup_date && (
+                            <div className="text-[10px] text-slate-500 font-sans mt-0.5">
+                              Pickup: {formatDate(so.asp_rc_pickup_date)}
+                            </div>
+                          )}
+                          {so.asp_rc_delivered_date && (
+                            <div className="text-[10px] text-emerald-700 font-medium font-sans mt-0.5">
+                              Delivered at RC: {formatDate(so.asp_rc_delivered_date)}
+                            </div>
+                          )}
+                          {so.so_grn_time && (
+                            <div className="text-[10px] text-purple-700 font-semibold font-sans mt-0.5">
+                              RC GRN: {formatDate(so.so_grn_time)}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="text-slate-800 font-medium">
+                            {(so.active_awb || so.excel_ref_awb) ? (so.courier || '-') : '-'}
+                          </div>
+                          <div className="font-mono text-sky-800 text-[11px] mt-0.5 font-medium">
+                            {so.active_awb || so.excel_ref_awb || (
+                              so.crm_status === 'CWH to Create DC'
+                                ? <span className="text-purple-800 font-sans font-medium">CWH Inward Done</span>
+                                : motoInfo.isDelivered 
+                                  ? <span className="text-emerald-800 font-sans font-medium">Delivered</span> 
+                                  : <span className="text-amber-800 font-sans font-medium">Pending CWH AWB</span>
+                            )}
+                          </div>
+                        </>
+                      )}
                     </td>
 
                     {/* Column 5: Items Count */}
@@ -1109,8 +1190,26 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                               Details
                             </button>
                           </>
+                        ) : (activeSubTab === 'outbound_rc' || (so.motorola_status || '').toLowerCase().includes('send to rc')) ? (
+                          /* 7. Outbound RC: Active Tracking up to RC Received ASP */
+                          <>
+                            <button
+                              onClick={() => handleOpenRcDocketModal(so)}
+                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-700 hover:bg-blue-800 text-white shadow-xs transition-colors cursor-pointer"
+                              title="Update Outbound Docket & Logistics details for RC dispatch"
+                            >
+                              <Truck className="w-3 h-3" />
+                              Update Docket
+                            </button>
+                            <button
+                              onClick={() => onSelectOrder(so)}
+                              className="px-2.5 py-1.5 rounded-lg text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
+                            >
+                              Details
+                            </button>
+                          </>
                         ) : (
-                          /* 7. Outbound RC / History */
+                          /* 8. Fallback History */
                           <button
                             onClick={() => onSelectOrder(so)}
                             className="px-3 py-1.5 rounded-lg text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
@@ -1332,6 +1431,133 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
           onClose={() => setReceivingOrder(null)}
           onConfirm={handleConfirmDelivery}
         />
+      )}
+
+      {/* CWH Outbound Docket to RC Modal */}
+      {rcDocketModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold flex items-center gap-2">
+                  <Truck className="w-4 h-4 text-blue-400" />
+                  Update RC Outbound Docket &amp; Logistics
+                </h3>
+                <p className="text-xs text-slate-300 font-mono mt-0.5">
+                  Consignment: {rcDocketModalOrder.so_code}
+                </p>
+              </div>
+              <button
+                onClick={() => setRcDocketModalOrder(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmRcDocket} className="p-5 space-y-4">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 leading-relaxed">
+                Record or update courier dispatch details for consignment moving from CWH to Repair Center (RC).
+                Tracking will remain active in this card until receipt is confirmed in Motorola CRM (<strong>RC Received ASP</strong>).
+              </div>
+
+              {/* ASP-RC Shipping Order Code */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  ASP-RC Shipping Order Code (Moto CRM)
+                </label>
+                <input
+                  type="text"
+                  value={rcDocketSoCode}
+                  onChange={(e) => setRcDocketSoCode(e.target.value)}
+                  placeholder="e.g. SORLC26080501009"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
+                />
+              </div>
+
+              {/* Courier Partner & Outbound AWB / Docket */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Logistics Partner <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={rcDocketCourier}
+                    onChange={(e) => setRcDocketCourier(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
+                  >
+                    <option value="Bluedart Surface">Bluedart Surface</option>
+                    <option value="BlueDart Express">BlueDart Express</option>
+                    <option value="Safexpress Logistics">Safexpress Logistics</option>
+                    <option value="Delhivery Freight">Delhivery Freight</option>
+                    <option value="DTDC Express">DTDC Express</option>
+                    <option value="Gati KWE">Gati KWE</option>
+                    <option value="By Hand / Direct Van">By Hand / Direct Van</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    ASP Outbound SO (AWB) / Docket <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={rcDocketAwb}
+                    onChange={(e) => setRcDocketAwb(e.target.value)}
+                    placeholder="e.g. 53676493043"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* Pickup Date & Time */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Courier Pickup / Handover Date &amp; Time
+                </label>
+                <input
+                  type="datetime-local"
+                  value={rcDocketPickupDate}
+                  onChange={(e) => setRcDocketPickupDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
+                />
+              </div>
+
+              {/* Remarks */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Dispatch Remarks / Carton Details
+                </label>
+                <textarea
+                  rows={2}
+                  value={rcDocketRemarks}
+                  onChange={(e) => setRcDocketRemarks(e.target.value)}
+                  placeholder="e.g. Dispatched in 2 master cartons sealed under CWH dock CCTV."
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setRcDocketModalOrder(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl text-xs font-semibold bg-blue-700 hover:bg-blue-800 text-white shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Truck className="w-3.5 h-3.5" />
+                  Save Docket Details
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

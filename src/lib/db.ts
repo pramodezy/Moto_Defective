@@ -1048,8 +1048,10 @@ class CRMDatabase {
     const latestScreeningStatus = items.find((it) => it.screening_status && it.screening_status !== 'Pending')?.screening_status;
     const latestAspRcSo = items.find((it) => it.asp_rc_shipping_order_code)?.asp_rc_shipping_order_code;
     const latestAspRcShipDate = items.find((it) => it.asp_rc_ship_date)?.asp_rc_ship_date;
+    const latestAspOutboundAwb = items.find((it) => it.asp_outbound_awb)?.asp_outbound_awb;
     const latestAspRcPickupDate = items.find((it) => it.asp_rc_pickup_date)?.asp_rc_pickup_date;
     const latestAspRcDeliveredDate = items.find((it) => it.asp_rc_delivered_date)?.asp_rc_delivered_date;
+    const latestSoGrnTime = items.find((it) => it.so_grn_time)?.so_grn_time;
     const latestRcRemark = items.find((it) => it.rc_receive_remark)?.rc_receive_remark;
 
     const derivedCrmStatus = deriveCrmStatusFromMotorolaStatus(
@@ -1080,8 +1082,10 @@ class CRMDatabase {
       // Update Leg 2 Outbound details
       existingSo.asp_rc_shipping_order_code = latestAspRcSo || existingSo.asp_rc_shipping_order_code;
       existingSo.asp_rc_ship_date = latestAspRcShipDate || existingSo.asp_rc_ship_date;
+      existingSo.asp_outbound_awb = latestAspOutboundAwb || existingSo.asp_outbound_awb;
       existingSo.asp_rc_pickup_date = latestAspRcPickupDate || existingSo.asp_rc_pickup_date;
       existingSo.asp_rc_delivered_date = latestAspRcDeliveredDate || existingSo.asp_rc_delivered_date;
+      existingSo.so_grn_time = latestSoGrnTime || existingSo.so_grn_time;
       existingSo.rc_receive_remark = latestRcRemark || existingSo.rc_receive_remark;
 
       existingSo.updated_at = new Date().toISOString();
@@ -1110,8 +1114,10 @@ class CRMDatabase {
         total_items: items.reduce((sum, item) => sum + (item.deliver_qty || item.quantity || 1), 0),
         asp_rc_shipping_order_code: latestAspRcSo,
         asp_rc_ship_date: latestAspRcShipDate,
+        asp_outbound_awb: latestAspOutboundAwb,
         asp_rc_pickup_date: latestAspRcPickupDate,
         asp_rc_delivered_date: latestAspRcDeliveredDate,
+        so_grn_time: latestSoGrnTime,
         rc_receive_remark: latestRcRemark,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -1191,8 +1197,10 @@ class CRMDatabase {
           // Leg 2 fields
           existing.asp_rc_shipping_order_code = incoming.asp_rc_shipping_order_code || existing.asp_rc_shipping_order_code;
           existing.asp_rc_ship_date = incoming.asp_rc_ship_date || existing.asp_rc_ship_date;
+          existing.asp_outbound_awb = incoming.asp_outbound_awb || existing.asp_outbound_awb;
           existing.asp_rc_pickup_date = incoming.asp_rc_pickup_date || existing.asp_rc_pickup_date;
           existing.asp_rc_delivered_date = incoming.asp_rc_delivered_date || existing.asp_rc_delivered_date;
+          existing.so_grn_time = incoming.so_grn_time || existing.so_grn_time;
           existing.rc_receive_remark = incoming.rc_receive_remark || existing.rc_receive_remark;
 
           existing.last_synced_at = new Date().toISOString();
@@ -1230,8 +1238,10 @@ class CRMDatabase {
               : (incoming.estimated_value || 8000),
             asp_rc_shipping_order_code: incoming.asp_rc_shipping_order_code,
             asp_rc_ship_date: incoming.asp_rc_ship_date,
+            asp_outbound_awb: incoming.asp_outbound_awb,
             asp_rc_pickup_date: incoming.asp_rc_pickup_date,
             asp_rc_delivered_date: incoming.asp_rc_delivered_date,
+            so_grn_time: incoming.so_grn_time,
             rc_receive_remark: incoming.rc_receive_remark,
             last_synced_at: new Date().toISOString(),
             created_at: new Date().toISOString(),
@@ -1858,6 +1868,76 @@ class CRMDatabase {
         updated_at: so.updated_at,
       }).eq('shipping_order_code', so.so_code).then(({ error }) => {
         if (error) console.warn('Supabase defective items update failed:', error.message);
+      });
+    }
+
+    this.notify();
+    return so;
+  }
+
+  // --- CWH UPDATE RC DOCKET DETAILS ---
+  public updateRcDocketDetails(
+    soId: string,
+    data: {
+      aspRcShippingOrderCode?: string;
+      aspOutboundAwb?: string;
+      courier?: string;
+      pickupDate?: string;
+      remarks?: string;
+    },
+    user: UserProfile
+  ): ShippingOrder {
+    const so = this.shippingOrders.find((o) => o.id === soId || o.so_code === soId);
+    if (!so) throw new Error('Shipping Order not found');
+
+    const oldStatus = so.crm_status;
+    if (data.aspRcShippingOrderCode) so.asp_rc_shipping_order_code = data.aspRcShippingOrderCode.trim();
+    if (data.aspOutboundAwb) so.asp_outbound_awb = data.aspOutboundAwb.trim();
+    if (data.courier) so.courier = data.courier.trim();
+    if (data.pickupDate) so.asp_rc_pickup_date = data.pickupDate.trim();
+
+    // If docket and pickup date exist, mark as In Transit to RC
+    if (data.aspOutboundAwb && data.pickupDate) {
+      so.crm_status = 'In Transit to RC';
+    } else if (so.crm_status === 'CWH to Create DC') {
+      so.crm_status = 'Pickup Pending for RC';
+    }
+
+    so.updated_at = new Date().toISOString();
+
+    // Propagate to constituent items
+    this.defectiveItems
+      .filter((i) => (i.shipping_order_code || '').trim() === so.so_code.trim())
+      .forEach((item) => {
+        if (data.aspRcShippingOrderCode) item.asp_rc_shipping_order_code = data.aspRcShippingOrderCode.trim();
+        if (data.aspOutboundAwb) item.asp_outbound_awb = data.aspOutboundAwb.trim();
+        if (data.pickupDate) item.asp_rc_pickup_date = data.pickupDate.trim();
+        item.updated_at = new Date().toISOString();
+      });
+
+    this.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      shipping_order_id: so.id,
+      so_code: so.so_code,
+      user_name: user.full_name,
+      user_role: user.role,
+      action: 'CWH_UPDATE_RC_DOCKET',
+      old_status: oldStatus,
+      new_status: so.crm_status,
+      awb: data.aspOutboundAwb,
+      remarks: `CWH updated RC dispatch docket: AWB=${data.aspOutboundAwb || 'N/A'}, Courier=${data.courier || so.courier}, Pickup Date=${data.pickupDate || 'Pending'}.${data.remarks ? ` Notes: ${data.remarks}` : ''}`,
+      created_at: new Date().toISOString(),
+    });
+
+    if (isSupabaseConfigured && supabase) {
+      const client = supabase;
+      client.from('shipping_orders').update({
+        crm_status: so.crm_status,
+        asp_rc_shipping_order_code: so.asp_rc_shipping_order_code,
+        courier: so.courier,
+        updated_at: so.updated_at,
+      }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(({ error }) => {
+        if (error) console.warn('Supabase update for RC docket failed:', error.message);
       });
     }
 

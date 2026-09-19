@@ -505,17 +505,29 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                       {order.asp_rc_shipping_order_code || 'Pending DC'}
                     </span>
                   </div>
-                  <div className="text-[11px] text-slate-600 grid grid-cols-2 gap-1 pt-1 border-t border-slate-200">
+                  <div className="text-[11px] text-slate-600 grid grid-cols-2 gap-2 pt-1 border-t border-slate-200">
                     <div>
-                      <span className="text-slate-400 block text-[10px]">Outbound Ship Date</span>
+                      <span className="text-slate-400 block text-[10px]">Outbound Docket / AWB</span>
+                      <span className="font-mono text-blue-800 font-semibold">
+                        {order.asp_outbound_awb || 'Awaiting Docket'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">Logistics Pickup Date</span>
                       <span className="font-mono text-slate-700">
-                        {order.asp_rc_ship_date ? formatDate(order.asp_rc_ship_date) : 'Awaiting CWH Dispatch'}
+                        {order.asp_rc_pickup_date ? formatDate(order.asp_rc_pickup_date) : (order.asp_rc_ship_date ? formatDate(order.asp_rc_ship_date) : 'Pending Pickup')}
                       </span>
                     </div>
                     <div>
                       <span className="text-slate-400 block text-[10px]">RC Delivery Date</span>
                       <span className="font-mono text-emerald-700 font-medium">
-                        {order.asp_rc_delivered_date ? formatDate(order.asp_rc_delivered_date) : (order.asp_rc_ship_date ? 'In Progress' : '-')}
+                        {order.asp_rc_delivered_date ? formatDate(order.asp_rc_delivered_date) : (order.asp_outbound_awb ? 'In Transit' : '-')}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">RC GRN Inward Time</span>
+                      <span className="font-mono text-purple-700 font-semibold">
+                        {order.so_grn_time ? formatDate(order.so_grn_time) : 'Awaiting RC GRN'}
                       </span>
                     </div>
                     <div className="col-span-2">
