@@ -141,6 +141,38 @@ export const BulkRcDispatchModal: React.FC<BulkRcDispatchModalProps> = ({
     toast.success(`Exported ${targetOrders.length} consignments for bulk RC dispatch.`);
   };
 
+function formatParsedExcelDate(val: any): string {
+  if (val === undefined || val === null || val === '') return '';
+  if (val instanceof Date && !isNaN(val.getTime())) {
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const d = String(val.getDate()).padStart(2, '0');
+    const hh = String(val.getHours()).padStart(2, '0');
+    const mm = String(val.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${d} ${hh}:${mm}`;
+  }
+  const str = String(val).trim();
+  const num = Number(str);
+  // Excel serial date range: e.g. 25569 (1970) to 75000 (2105)
+  if (!isNaN(num) && num > 25569 && num < 75000) {
+    const utcDays = Math.floor(num - 25569);
+    const utcVal = utcDays * 86400;
+    const dateObj = new Date(utcVal * 1000);
+    const frac = num - Math.floor(num);
+    const totalSeconds = Math.round(frac * 86400);
+    dateObj.setSeconds(dateObj.getSeconds() + totalSeconds);
+    if (!isNaN(dateObj.getTime())) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      const hh = String(dateObj.getHours()).padStart(2, '0');
+      const mm = String(dateObj.getMinutes()).padStart(2, '0');
+      return `${y}-${m}-${d} ${hh}:${mm}`;
+    }
+  }
+  return str;
+}
+
   // 3. Process File Upload
   const handleFileUpload = (file: File) => {
     if (!file) return;
@@ -150,7 +182,7 @@ export const BulkRcDispatchModal: React.FC<BulkRcDispatchModalProps> = ({
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         const rawJson: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
@@ -177,18 +209,19 @@ export const BulkRcDispatchModal: React.FC<BulkRcDispatchModalProps> = ({
             for (const key of keys) {
               const cleanKey = key.trim().toLowerCase().replace(/[\s_\-/()]+/g, '');
               if (patterns.some((p) => cleanKey.includes(p))) {
-                return String(row[key] || '').trim();
+                return row[key];
               }
             }
             return '';
           };
 
-          const soCode = findVal(['shippingordercode', 'shippingorder', 'socode', 'so_code', 'so']);
-          const aspRcSoCode = findVal(['asprcshippingordercode', 'asprcso', 'rcsocode', 'rcso', 'asprc']);
-          const courier = findVal(['courierpartner', 'courier', 'carrier', 'transporter']) || 'Bluedart Surface';
-          const awbNumber = findVal(['aspoutboundsoawb', 'aspoutboundawb', 'outboundawb', 'awbnumber', 'awbno', 'awb', 'docket', 'waybill', 'tracking']);
-          const pickupDate = findVal(['pickupdate', 'pickuptime', 'logisticsdate', 'dispatchdate', 'pickupdate/time']);
-          const remarks = findVal(['remarks', 'remark', 'notes', 'comments']);
+          const soCode = String(findVal(['shippingordercode', 'shippingorder', 'socode', 'so_code', 'so']) || '').trim();
+          const aspRcSoCode = String(findVal(['asprcshippingordercode', 'asprcso', 'rcsocode', 'rcso', 'asprc']) || '').trim();
+          const courier = String(findVal(['courierpartner', 'courier', 'carrier', 'transporter']) || 'Bluedart Surface').trim();
+          const awbNumber = String(findVal(['aspoutboundsoawb', 'aspoutboundawb', 'outboundawb', 'awbnumber', 'awbno', 'awb', 'docket', 'waybill', 'tracking']) || '').replace(/\t/g, '').trim();
+          const rawPickupDate = findVal(['pickupdate', 'pickuptime', 'logisticsdate', 'dispatchdate', 'pickupdate/time']);
+          const pickupDate = formatParsedExcelDate(rawPickupDate);
+          const remarks = String(findVal(['remarks', 'remark', 'notes', 'comments']) || '').trim();
 
           if (!soCode && !aspRcSoCode && !awbNumber) return; // Skip blank rows
 
@@ -254,14 +287,23 @@ export const BulkRcDispatchModal: React.FC<BulkRcDispatchModalProps> = ({
 
     setIsSubmitting(true);
     try {
-      const recordsToUpdate = validRows.map((r) => ({
-        soCode: r.soCode || r.aspRcSoCode || '',
-        aspRcShippingOrderCode: r.aspRcSoCode || r.matchedOrder?.asp_rc_shipping_order_code,
-        courier: r.courier,
-        awbNumber: r.awbNumber,
-        pickupDate: r.pickupDate || new Date().toISOString(),
-        remarks: r.remarks,
-      }));
+      const recordsToUpdate = validRows.map((r) => {
+        let finalPickupIso = new Date().toISOString();
+        if (r.pickupDate) {
+          const parsed = new Date(r.pickupDate);
+          if (!isNaN(parsed.getTime())) {
+            finalPickupIso = parsed.toISOString();
+          }
+        }
+        return {
+          soCode: r.soCode || r.aspRcSoCode || '',
+          aspRcShippingOrderCode: r.aspRcSoCode || r.matchedOrder?.asp_rc_shipping_order_code,
+          courier: r.courier,
+          awbNumber: r.awbNumber,
+          pickupDate: finalPickupIso,
+          remarks: r.remarks,
+        };
+      });
 
       const res = crmDb.batchUpdateRcDocketDetails(recordsToUpdate, user);
 
