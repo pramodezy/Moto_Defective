@@ -90,8 +90,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="font-extrabold text-white text-lg tracking-tight font-['Outfit']">
                   motorola <span className="text-sky-300 font-light font-sans text-sm tracking-normal">RETURNS CRM</span>
                 </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/15 text-white font-mono border border-white/20">
-                  v2.5
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/15 text-white font-mono border border-white/20" title="Motorola CRM Build v2.5.2">
+                  v2.5.2
                 </span>
               </div>
               <p className="text-xs text-blue-100/80 hidden sm:block">Reverse Supply Chain & Logistics Inward Engine</p>

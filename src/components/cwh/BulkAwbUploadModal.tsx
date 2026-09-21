@@ -192,9 +192,17 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
           // Normalize column headers
           const keys = Object.keys(row);
           const findVal = (patterns: string[]) => {
+            // Priority 1: Exact match on normalized header
             for (const key of keys) {
               const cleanKey = key.trim().toLowerCase().replace(/[\s_-]+/g, '');
-              if (patterns.some((p) => cleanKey.includes(p))) {
+              if (patterns.includes(cleanKey)) {
+                return String(row[key] || '').trim();
+              }
+            }
+            // Priority 2: Partial match only for tokens of length >= 3
+            for (const key of keys) {
+              const cleanKey = key.trim().toLowerCase().replace(/[\s_-]+/g, '');
+              if (patterns.some((p) => p.length >= 3 && cleanKey.includes(p))) {
                 return String(row[key] || '').trim();
               }
             }

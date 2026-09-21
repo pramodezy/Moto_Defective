@@ -2643,14 +2643,20 @@ class CRMDatabase {
         }
 
         if (so.delivery_challan_code) {
-          client.from('defective_master').update({
-            delivery_challan_code: so.delivery_challan_code,
-            updated_at: timestamp,
-          }).eq('shipping_order_code', so.so_code).then(({ error: dmErr }) => {
+          try {
+            const { error: dmErr } = await client
+              .from('defective_master')
+              .update({
+                delivery_challan_code: so.delivery_challan_code,
+                updated_at: timestamp,
+              })
+              .eq('shipping_order_code', so.so_code);
             if (dmErr && dmErr.code !== '42703' && dmErr.code !== 'PGRST204') {
               console.warn('Supabase defective items DC sync notice:', dmErr.message);
             }
-          });
+          } catch (dmException: any) {
+            console.warn('Supabase defective items DC sync exception:', dmException?.message);
+          }
         }
       });
 

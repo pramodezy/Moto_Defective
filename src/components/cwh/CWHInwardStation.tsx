@@ -1483,6 +1483,10 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       <BulkAwbUploadModal
         isOpen={isBulkAwbModalOpen}
         onClose={() => setIsBulkAwbModalOpen(false)}
+        onSuccess={(count) => {
+          setActiveSubTab('pickup_pending');
+          toast.success(`Updated ${count} orders with AWB tokens. Switched to "Pickup Pending" subtab.`);
+        }}
         orders={orders}
         stations={stations}
         user={user}
