@@ -52,6 +52,42 @@ try {
   });
 } catch (_) {}
 
+export function formatSafeIsoTimestamp(val?: string | Date | null): string | null {
+  if (!val) return null;
+  if (val instanceof Date) {
+    return isNaN(val.getTime()) ? null : val.toISOString();
+  }
+  const str = String(val).trim();
+  if (!str) return null;
+
+  const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (dmyMatch) {
+    const d = dmyMatch[1].padStart(2, '0');
+    const m = dmyMatch[2].padStart(2, '0');
+    const y = dmyMatch[3];
+    const hh = dmyMatch[4] ? dmyMatch[4].padStart(2, '0') : '00';
+    const mm = dmyMatch[5] || '00';
+    const ss = dmyMatch[6] || '00';
+    return new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}.000Z`).toISOString();
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    const d = new Date(str.includes('T') ? str : (str.includes(' ') ? str.replace(' ', 'T') : `${str}T00:00:00.000Z`));
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+
+  const generalParsed = new Date(str);
+  if (!isNaN(generalParsed.getTime())) {
+    return generalParsed.toISOString();
+  }
+
+  return null;
+}
+
+export function isValidUuid(str?: string | null): boolean {
+  return Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+}
+
 class CRMDatabase {
   private stations: CCIMaster[] = [];
   private shippingOrders: ShippingOrder[] = [];
@@ -188,6 +224,8 @@ class CRMDatabase {
                   asp_rc_delivered_date: updated.asp_rc_delivered_date !== undefined ? updated.asp_rc_delivered_date : current.asp_rc_delivered_date,
                   so_grn_time: updated.so_grn_time !== undefined ? updated.so_grn_time : current.so_grn_time,
                   rc_receive_remark: updated.rc_receive_remark !== undefined ? updated.rc_receive_remark : current.rc_receive_remark,
+                  delivery_challan_code: updated.delivery_challan_code !== undefined ? updated.delivery_challan_code : current.delivery_challan_code,
+                  token_issue_date: updated.token_issue_date !== undefined ? updated.token_issue_date : current.token_issue_date,
                   updated_at: updated.updated_at || new Date().toISOString(),
                 };
                 this.saveToStorage();
@@ -1955,7 +1993,7 @@ class CRMDatabase {
         asp_rc_shipping_order_code: so.asp_rc_shipping_order_code,
         courier: so.courier,
         updated_at: so.updated_at,
-      }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(({ error }) => {
+      }).eq('so_code', so.so_code).then(({ error }) => {
         if (error) console.warn('Supabase update for dispatch to RC failed:', error.message);
       });
 
@@ -2039,33 +2077,34 @@ class CRMDatabase {
 
     if (isSupabaseConfigured && supabase) {
       const client = supabase;
+      const formattedPickupDate = formatSafeIsoTimestamp(updatedSo.asp_rc_pickup_date);
       client.from('shipping_orders').update({
         crm_status: updatedSo.crm_status,
-        asp_rc_shipping_order_code: updatedSo.asp_rc_shipping_order_code,
-        asp_outbound_awb: updatedSo.asp_outbound_awb,
-        asp_rc_pickup_date: updatedSo.asp_rc_pickup_date,
+        asp_rc_shipping_order_code: updatedSo.asp_rc_shipping_order_code || null,
+        asp_outbound_awb: updatedSo.asp_outbound_awb || null,
+        asp_rc_pickup_date: formattedPickupDate,
         courier: updatedSo.courier,
         updated_at: updatedSo.updated_at,
-      }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(({ error }) => {
+      }).eq('so_code', so.so_code).then(({ error }) => {
         if (error) {
           console.warn('Supabase update for RC docket notice:', error.message);
-          if (error.code === '42703' || error.message?.includes('does not exist')) {
+          if (error.code === '42703' || error.message?.includes('does not exist') || error.code === 'PGRST204') {
             client.from('shipping_orders').update({
               crm_status: updatedSo.crm_status,
               courier: updatedSo.courier,
               updated_at: updatedSo.updated_at,
-            }).or(`id.eq.${so.id},so_code.eq.${so.so_code}`).then(() => {});
+            }).eq('so_code', so.so_code).then(() => {});
           }
         }
       });
 
       client.from('defective_master').update({
-        asp_rc_shipping_order_code: updatedSo.asp_rc_shipping_order_code,
-        asp_outbound_awb: updatedSo.asp_outbound_awb,
-        asp_rc_pickup_date: updatedSo.asp_rc_pickup_date,
+        asp_rc_shipping_order_code: updatedSo.asp_rc_shipping_order_code || null,
+        asp_outbound_awb: updatedSo.asp_outbound_awb || null,
+        asp_rc_pickup_date: formattedPickupDate,
         updated_at: updatedSo.updated_at,
       }).eq('shipping_order_code', so.so_code).then(({ error }) => {
-        if (error && error.code !== '42703') console.warn('Supabase defective items update notice:', error.message);
+        if (error && error.code !== '42703' && error.code !== 'PGRST204') console.warn('Supabase defective items update notice:', error.message);
       });
     }
 
@@ -2202,7 +2241,7 @@ class CRMDatabase {
   }
 
   // --- BULK RC DISPATCH / DOCKET UPDATE ---
-  public batchUpdateRcDocketDetails(
+  public async batchUpdateRcDocketDetails(
     rows: {
       soCode: string;
       aspRcShippingOrderCode?: string;
@@ -2212,15 +2251,16 @@ class CRMDatabase {
       remarks?: string;
     }[],
     user: UserProfile
-  ): {
+  ): Promise<{
     total: number;
     updated: number;
     skipped: number;
     errors: string[];
-  } {
+  }> {
     let updated = 0;
     let skipped = 0;
     const errors: string[] = [];
+    const updatedOrders: ShippingOrder[] = [];
 
     rows.forEach((r, idx) => {
       try {
@@ -2241,7 +2281,7 @@ class CRMDatabase {
           return;
         }
 
-        this.updateRcDocketDetails(
+        const updatedOrder = this.updateRcDocketDetails(
           so.id,
           {
             aspRcShippingOrderCode: r.aspRcShippingOrderCode || so.asp_rc_shipping_order_code,
@@ -2252,12 +2292,42 @@ class CRMDatabase {
           },
           user
         );
+        updatedOrders.push(updatedOrder);
         updated++;
       } catch (err: any) {
         skipped++;
         errors.push(`Row ${idx + 1}: ${err.message || 'Update failed'}`);
       }
     });
+
+    if (isSupabaseConfigured && supabase && updatedOrders.length > 0) {
+      const client = supabase;
+      const syncPromises = updatedOrders.map(async (so) => {
+        const formattedPickupDate = formatSafeIsoTimestamp(so.asp_rc_pickup_date);
+        const { error } = await client.from('shipping_orders').update({
+          crm_status: so.crm_status,
+          asp_rc_shipping_order_code: so.asp_rc_shipping_order_code || null,
+          asp_outbound_awb: so.asp_outbound_awb || null,
+          asp_rc_pickup_date: formattedPickupDate,
+          courier: so.courier,
+          updated_at: so.updated_at,
+        }).eq('so_code', so.so_code);
+
+        if (error) {
+          if (error.code === '42703' || error.message?.includes('does not exist') || error.code === 'PGRST204') {
+            await client.from('shipping_orders').update({
+              crm_status: so.crm_status,
+              courier: so.courier,
+              updated_at: so.updated_at,
+            }).eq('so_code', so.so_code);
+          } else {
+            console.error(`Supabase bulk RC dispatch update failed for ${so.so_code}:`, error.message);
+            errors.push(`${so.so_code}: Supabase sync error - ${error.message}`);
+          }
+        }
+      });
+      await Promise.all(syncPromises);
+    }
 
     return { total: rows.length, updated, skipped, errors };
   }
@@ -2350,14 +2420,13 @@ class CRMDatabase {
     // Live update to Supabase Cloud
     if (isSupabaseConfigured && supabase) {
       const client = supabase;
+      const formattedTokenDate = formatSafeIsoTimestamp(so.token_issue_date);
       client.from('shipping_orders').update({
         active_awb: so.active_awb,
         courier: so.courier,
         crm_status: so.crm_status,
-        pickup_status: so.pickup_status,
         delivery_challan_code: so.delivery_challan_code || null,
-        token_issue_date: so.token_issue_date || null,
-        pickup_date: so.pickup_date || null,
+        token_issue_date: formattedTokenDate,
         eway_bill_number: so.eway_bill_number || '',
         eway_bill_required: Boolean(so.eway_bill_required),
         eway_bill_url: so.eway_bill_url || '',
@@ -2369,7 +2438,6 @@ class CRMDatabase {
               active_awb: so.active_awb,
               courier: so.courier,
               crm_status: so.crm_status,
-              pickup_status: so.pickup_status,
               eway_bill_number: so.eway_bill_number || '',
               eway_bill_required: Boolean(so.eway_bill_required),
               eway_bill_url: so.eway_bill_url || '',
@@ -2392,22 +2460,24 @@ class CRMDatabase {
         });
       }
 
-      // Maintain awb_history in Supabase
-      if (oldAwb && oldAwb !== newAwb) {
-        client.from('awb_history').update({
-          is_active: false,
-          cancellation_reason: cancellationReason || 'Retokened / Courier Rescheduled',
-        }).match({ shipping_order_id: so.id, awb_number: oldAwb }).then(() => {});
-      }
+      // Maintain awb_history in Supabase (only if valid UUID)
+      if (isValidUuid(so.id)) {
+        if (oldAwb && oldAwb !== newAwb) {
+          client.from('awb_history').update({
+            is_active: false,
+            cancellation_reason: cancellationReason || 'Retokened / Courier Rescheduled',
+          }).match({ shipping_order_id: so.id, awb_number: oldAwb }).then(() => {});
+        }
 
-      client.from('awb_history').insert({
-        shipping_order_id: so.id,
-        awb_number: newAwb,
-        courier: courier,
-        is_active: true,
-      }).then(({ error }) => {
-        if (error) console.warn('Live Supabase insert to awb_history failed:', error.message);
-      });
+        client.from('awb_history').insert({
+          shipping_order_id: so.id,
+          awb_number: newAwb,
+          courier: courier,
+          is_active: true,
+        }).then(({ error }) => {
+          if (error) console.warn('Live Supabase insert to awb_history failed:', error.message);
+        });
+      }
     }
 
     this.notify();
@@ -2533,14 +2603,13 @@ class CRMDatabase {
     if (isSupabaseConfigured && supabase && updatedSos.length > 0) {
       const client = supabase;
       const updatePromises = updatedSos.map(async (so) => {
+        const formattedTokenDate = formatSafeIsoTimestamp(so.token_issue_date);
         const updatePayload: Record<string, any> = {
           active_awb: so.active_awb,
           courier: so.courier,
           crm_status: so.crm_status,
-          pickup_status: so.pickup_status,
           delivery_challan_code: so.delivery_challan_code || null,
-          token_issue_date: so.token_issue_date || null,
-          pickup_date: so.pickup_date || null,
+          token_issue_date: formattedTokenDate,
           eway_bill_number: so.eway_bill_number || '',
           eway_bill_required: Boolean(so.eway_bill_required),
           eway_bill_url: so.eway_bill_url || '',
@@ -2554,16 +2623,19 @@ class CRMDatabase {
 
         if (error) {
           if (error.code === '42703' || error.message?.includes('does not exist') || error.code === 'PGRST204') {
-            await client.from('shipping_orders').update({
+            const fallbackRes = await client.from('shipping_orders').update({
               active_awb: so.active_awb,
               courier: so.courier,
               crm_status: so.crm_status,
-              pickup_status: so.pickup_status,
               eway_bill_number: so.eway_bill_number || '',
               eway_bill_required: Boolean(so.eway_bill_required),
               eway_bill_url: so.eway_bill_url || '',
               updated_at: so.updated_at,
             }).eq('so_code', so.so_code);
+            if (fallbackRes.error) {
+              console.error(`Supabase bulk AWB fallback update failed for ${so.so_code}:`, fallbackRes.error.message);
+              errors.push(`${so.so_code}: Supabase sync error - ${fallbackRes.error.message}`);
+            }
           } else {
             console.error(`Supabase bulk AWB update failed for ${so.so_code}:`, error.message);
             errors.push(`${so.so_code}: Supabase sync error - ${error.message}`);
@@ -2584,18 +2656,23 @@ class CRMDatabase {
 
       await Promise.all(updatePromises);
 
-      // Batch insert into awb_history
-      const awbHistoryRows = updatedSos.map((so) => ({
-        shipping_order_id: so.id,
-        awb_number: so.active_awb,
-        courier: so.courier,
-        is_active: true,
-      }));
-      client.from('awb_history').insert(awbHistoryRows).then(({ error }) => {
-        if (error) console.warn('Supabase bulk awb_history insert notice:', error.message);
-      });
+      // Batch insert into awb_history for valid UUID shipping_order_ids
+      const awbHistoryRows = updatedSos
+        .filter((so) => isValidUuid(so.id))
+        .map((so) => ({
+          shipping_order_id: so.id,
+          awb_number: so.active_awb,
+          courier: so.courier,
+          is_active: true,
+        }));
+      if (awbHistoryRows.length > 0) {
+        client.from('awb_history').insert(awbHistoryRows).then(({ error }) => {
+          if (error) console.warn('Supabase bulk awb_history insert notice:', error.message);
+        });
+      }
     }
 
+    this.saveToStorage();
     this.notify();
     return { updatedCount, errors };
   }
@@ -2971,7 +3048,7 @@ class CRMDatabase {
       (async () => {
         try {
           await client.from('defective_master').delete().eq('shipping_order_code', target.so_code);
-          await client.from('shipping_orders').delete().or(`id.eq.${target.id},so_code.eq.${target.so_code}`);
+          await client.from('shipping_orders').delete().eq('so_code', target.so_code);
         } catch (e: any) {
           console.warn('Supabase order delete error:', e);
         }
@@ -3012,7 +3089,7 @@ class CRMDatabase {
       const client = supabase;
       (async () => {
         try {
-          await client.from('defective_master').delete().or(`id.eq.${target.id},composite_key.eq.${target.composite_key}`);
+          await client.from('defective_master').delete().eq('composite_key', target.composite_key);
         } catch (e: any) {
           console.warn('Supabase item delete error:', e);
         }

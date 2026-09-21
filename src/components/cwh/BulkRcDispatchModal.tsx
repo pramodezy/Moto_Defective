@@ -305,7 +305,7 @@ function formatParsedExcelDate(val: any): string {
         };
       });
 
-      const res = crmDb.batchUpdateRcDocketDetails(recordsToUpdate, user);
+      const res = await crmDb.batchUpdateRcDocketDetails(recordsToUpdate, user);
 
       if (res.updated > 0) {
         if (res.errors.length > 0) {
