@@ -689,6 +689,42 @@ class CRMDatabase {
         }
       });
 
+      // Clean up any empty SO-PENDING ghost orders that have 0 remaining items
+      const emptyPendingSos = this.shippingOrders.filter((so) => {
+        if (!so.so_code.startsWith('SO-PENDING-')) return false;
+        const matching = this.defectiveItems.filter(
+          (it) => (it.shipping_order_code || '').trim().toLowerCase() === so.so_code.trim().toLowerCase()
+        );
+        return matching.length === 0;
+      });
+      if (emptyPendingSos.length > 0) {
+        const codesToDelete = emptyPendingSos.map((s) => s.so_code);
+        this.shippingOrders = this.shippingOrders.filter((so) => !codesToDelete.includes(so.so_code));
+        if (isSupabaseConfigured && supabase) {
+          supabase.from('shipping_orders').delete().in('so_code', codesToDelete).then(() => {});
+        }
+      }
+
+      // Deduplicate: If an item exists with an official SO, purge any stale SO-PENDING item for the same SR + part
+      const cleanStr = (s?: string) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      const officialSrParts = new Set<string>();
+      this.defectiveItems.forEach((it) => {
+        if (it.shipping_order_code && !it.shipping_order_code.startsWith('SO-PENDING-')) {
+          officialSrParts.add(`${cleanStr(it.sr_number)}_${cleanStr(it.sr_part_number)}`);
+        }
+      });
+      const stalePendingItems = this.defectiveItems.filter((it) => {
+        if (!it.shipping_order_code || !it.shipping_order_code.startsWith('SO-PENDING-')) return false;
+        return officialSrParts.has(`${cleanStr(it.sr_number)}_${cleanStr(it.sr_part_number)}`);
+      });
+      if (stalePendingItems.length > 0) {
+        const staleKeys = stalePendingItems.map((it) => it.composite_key);
+        this.defectiveItems = this.defectiveItems.filter((it) => !staleKeys.includes(it.composite_key));
+        if (isSupabaseConfigured && supabase) {
+          supabase.from('defective_master').delete().in('composite_key', staleKeys).then(() => {});
+        }
+      }
+
       this.reapplyStationLocationMappings();
       this.saveToStorage();
       this.notify();
@@ -1061,15 +1097,42 @@ class CRMDatabase {
     );
   }
 
-  public getAwbHistory(soId?: string): AWBHistory[] {
-    if (!soId) return [...this.awbHistory];
-    return this.awbHistory.filter((h) => h.shipping_order_id === soId);
+  public getAwbHistory(soIdOrCode?: string): AWBHistory[] {
+    if (!soIdOrCode) return [...this.awbHistory];
+    const target = this.shippingOrders.find(
+      (so) => so.id === soIdOrCode || (so.so_code || '').trim().toUpperCase() === soIdOrCode.trim().toUpperCase()
+    );
+    const validIds = new Set([soIdOrCode]);
+    if (target) {
+      validIds.add(target.id);
+      validIds.add(target.so_code);
+    }
+    return this.awbHistory.filter((h) => validIds.has(h.shipping_order_id));
   }
 
   // --- RECALCULATE SHIPPING ORDER METRICS (Trigger B Simulation) ---
-  private recalculateShippingOrder(soCode: string) {
-    const items = this.defectiveItems.filter((i) => i.shipping_order_code === soCode);
-    const existingSo = this.shippingOrders.find((so) => so.so_code === soCode);
+  private recalculateShippingOrder(soCode: string, deletedSoCodes?: string[]) {
+    const items = this.defectiveItems.filter(
+      (i) => (i.shipping_order_code || '').trim().toLowerCase() === soCode.trim().toLowerCase()
+    );
+    const existingSo = this.shippingOrders.find(
+      (so) => (so.so_code || '').trim().toLowerCase() === soCode.trim().toLowerCase()
+    );
+
+    // Prune retired SO-PENDING orders with 0 items
+    if (items.length === 0) {
+      if (existingSo && soCode.startsWith('SO-PENDING-')) {
+        this.shippingOrders = this.shippingOrders.filter(
+          (so) => (so.so_code || '').trim().toLowerCase() !== soCode.trim().toLowerCase()
+        );
+        deletedSoCodes?.push(soCode);
+        if (isSupabaseConfigured && supabase) {
+          supabase.from('shipping_orders').delete().eq('so_code', soCode).then(() => {});
+        }
+      }
+      return;
+    }
+
     if (!existingSo && items.length === 0) return;
 
     let maxAge = 0;
@@ -1204,13 +1267,18 @@ class CRMDatabase {
     let inserted = 0;
     let updated = 0;
     let skipped = 0;
+    let promotedCount = 0;
     const errors: string[] = [];
     const affectedSoCodes = new Set<string>();
+    const deletedPendingKeys: string[] = [];
+    const deletedSoCodes: string[] = [];
 
     const itemMap = new Map<string, DefectiveItem>();
     this.defectiveItems.forEach((item) => {
       itemMap.set(item.composite_key, item);
     });
+
+    const clean = (s?: string) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 
     incomingItems.forEach((incoming, idx) => {
       try {
@@ -1223,12 +1291,24 @@ class CRMDatabase {
         const compositeKey = incoming.composite_key || 
           `${incoming.sr_number}_${incoming.sr_part_number}_${incoming.shipping_order_code}`;
 
+        let previousPendingItem: DefectiveItem | undefined = undefined;
+
         // Auto-promotion: If incoming row has an issued SO code, check if this SR + part was previously unreturned (SO-PENDING-*)
         if (!incoming.shipping_order_code.startsWith('SO-PENDING-')) {
-          const pendingPrefix = `${incoming.sr_number}_${incoming.sr_part_number}_SO-PENDING-`;
+          const cleanSr = clean(incoming.sr_number);
+          const cleanSrPart = clean(incoming.sr_part_number);
+          const cleanNewPart = clean(incoming.new_part_number);
+
           for (const [key, item] of itemMap.entries()) {
-            if (key.startsWith(pendingPrefix)) {
+            if (
+              (item.shipping_order_code || '').startsWith('SO-PENDING-') &&
+              clean(item.sr_number) === cleanSr &&
+              (clean(item.sr_part_number) === cleanSrPart || (cleanNewPart && clean(item.new_part_number) === cleanNewPart))
+            ) {
+              previousPendingItem = item;
               const oldSo = item.shipping_order_code;
+              deletedPendingKeys.push(key);
+              promotedCount++;
               itemMap.delete(key);
               this.defectiveItems = this.defectiveItems.filter((it) => it.composite_key !== key);
               affectedSoCodes.add(oldSo);
@@ -1299,8 +1379,8 @@ class CRMDatabase {
             sr_fault_description: incoming.sr_fault_description,
             motorola_parts_status: incoming.motorola_parts_status || 'CCI Send To CWH',
             excel_awb: incoming.excel_awb || '',
-            screening_status: incoming.screening_status || 'Pending',
-            item_remarks: incoming.item_remarks || '',
+            screening_status: incoming.screening_status || (previousPendingItem?.screening_status !== 'Pending' ? previousPendingItem?.screening_status : undefined) || 'Pending',
+            item_remarks: incoming.item_remarks || previousPendingItem?.item_remarks || '',
             estimated_value: (catalogPrice !== undefined && catalogPrice > 0)
               ? catalogPrice
               : (incoming.estimated_value || 8000),
@@ -1332,7 +1412,7 @@ class CRMDatabase {
 
     // Trigger B: Recalculate each affected parent shipping order
     affectedSoCodes.forEach((soCode) => {
-      this.recalculateShippingOrder(soCode);
+      this.recalculateShippingOrder(soCode, deletedSoCodes);
     });
 
     // Live push to Supabase Cloud (push ALL processed items & orders so cloud has complete archive)
@@ -1343,6 +1423,19 @@ class CRMDatabase {
 
       (async () => {
         try {
+          if (deletedPendingKeys.length > 0) {
+            for (let i = 0; i < deletedPendingKeys.length; i += 100) {
+              const chunk = deletedPendingKeys.slice(i, i + 100);
+              await client.from('defective_master').delete().in('composite_key', chunk);
+            }
+          }
+          if (deletedSoCodes.length > 0) {
+            for (let i = 0; i < deletedSoCodes.length; i += 100) {
+              const chunk = deletedSoCodes.slice(i, i + 100);
+              await client.from('shipping_orders').delete().in('so_code', chunk);
+            }
+          }
+
           const { error: soUpsertErr } = await client.from('shipping_orders').upsert(
             ordersToPush.map((so) => ({
               so_code: so.so_code,
@@ -1481,6 +1574,9 @@ class CRMDatabase {
       shippingOrdersUpdated: affectedSoCodes.size,
       errors,
       timestamp: new Date().toISOString(),
+      promotedCount,
+      deletedCompositeKeys: deletedPendingKeys,
+      deletedSoCodes,
     };
   }
 

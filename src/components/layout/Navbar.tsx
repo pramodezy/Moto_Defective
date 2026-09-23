@@ -13,7 +13,8 @@ import {
   Sparkles,
   Search,
   LogOut,
-  Archive
+  Archive,
+  Barcode
 } from 'lucide-react';
 import { UserRole, CCIMaster, UserProfile } from '../../types/crm';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -279,6 +280,30 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <History className="w-3.5 h-3.5" />
                 System Audit Trail
               </button>
+
+              <button
+                onClick={() => onTabChange('awb_history')}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
+                  activeTab === 'awb_history'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <Barcode className="w-3.5 h-3.5" />
+                AWB History
+              </button>
+
+              <button
+                onClick={() => onTabChange('cwh_reports')}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
+                  activeTab === 'cwh_reports'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                Reports &amp; MIS
+              </button>
             </>
           )}
 
@@ -330,6 +355,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <History className="w-3.5 h-3.5" />
                 Unboxing & Dispatch Logs
+              </button>
+
+              <button
+                onClick={() => onTabChange('awb_history')}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
+                  activeTab === 'awb_history'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <Barcode className="w-3.5 h-3.5" />
+                AWB History
               </button>
 
               <button

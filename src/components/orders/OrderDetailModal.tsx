@@ -13,10 +13,11 @@ import {
   Loader2,
   Package,
   RotateCcw,
-  AlertOctagon
+  AlertOctagon,
+  History
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile, ShippingOrderDetailRecord } from '../../types/crm';
+import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile, ShippingOrderDetailRecord, AWBHistory } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle, getScreeningStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
 import { printConsignmentManifest } from '../../services/manifestGenerator';
@@ -65,10 +66,34 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   const [orderItems, setOrderItems] = useState<DefectiveItem[]>(initialMatched);
   const [isLoadingItems, setIsLoadingItems] = useState<boolean>(initialMatched.length === 0);
   const [fileDetails, setFileDetails] = useState<ShippingOrderDetailRecord[]>([]);
+  const [activeSubTab, setActiveSubTab] = useState<'parts' | 'awb_history'>('parts');
   const [isDebitModalOpen, setIsDebitModalOpen] = useState(false);
   const [debitReasonPreset, setDebitReasonPreset] = useState('Physical Part Missing in Consignment');
   const [debitCustomNotes, setDebitCustomNotes] = useState('');
   const [isProcessingDebit, setIsProcessingDebit] = useState(false);
+
+  // Compute AWB history records for this order (hidden from CCI)
+  const effectiveAwbHistory = useMemo(() => {
+    const raw = crmDb.getAwbHistory(order.id || order.so_code);
+    if (raw && raw.length > 0) {
+      return [...raw].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }
+    const currentAwb = order.active_awb || order.excel_ref_awb;
+    if (currentAwb) {
+      return [{
+        id: `synth-${order.id}`,
+        shipping_order_id: order.id,
+        awb_number: currentAwb,
+        courier: order.courier || 'BlueDart Express',
+        is_active: true,
+        created_at: order.token_issue_date || order.pickup_date || order.created_at || new Date().toISOString(),
+        pickup_date: order.pickup_date,
+        created_by: 'Logistics Operations',
+        cancellation_reason: '',
+      }] as AWBHistory[];
+    }
+    return [];
+  }, [order.id, order.so_code, order.active_awb, order.excel_ref_awb, order.courier, order.token_issue_date, order.pickup_date, order.created_at]);
 
   const handleConfirmDebitPosting = async () => {
     if (!user) return;
@@ -641,18 +666,59 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Constituent Line Items Table */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                <Layers className="w-4 h-4 text-sky-700" />
-                Constituent Defective Line Items ({totalItemCount})
-              </h3>
-              <span className="text-xs text-slate-500">
-                Composite Key: <code className="text-[#001489]">SR#_DefectivePart#_IssuedPart#</code>
-              </span>
+          {/* Sub-Tabs: Constituent Parts vs AWB History (strictly hidden from CCI) */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 mb-3 pb-2 gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('parts')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  activeSubTab === 'parts' || user?.role === 'CCI'
+                    ? 'bg-blue-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Constituent Parts ({totalItemCount})</span>
+              </button>
+
+              {/* AWB History tab - strictly hidden from CCI */}
+              {user?.role !== 'CCI' && (
+                <button
+                  type="button"
+                  onClick={() => setActiveSubTab('awb_history')}
+                  className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    activeSubTab === 'awb_history'
+                      ? 'bg-blue-900 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <History className="w-3.5 h-3.5" />
+                  <span>AWB History &amp; Retokens</span>
+                  <span className={`px-2 py-0.2 rounded-full text-[10px] font-mono font-bold ${
+                    effectiveAwbHistory.length > 1
+                      ? 'bg-amber-400 text-amber-950'
+                      : 'bg-blue-800 text-blue-100'
+                  }`}>
+                    {effectiveAwbHistory.length} {effectiveAwbHistory.length === 1 ? 'AWB' : 'AWBs'}
+                  </span>
+                </button>
+              )}
             </div>
 
+            {(activeSubTab === 'parts' || user?.role === 'CCI') ? (
+              <span className="text-xs text-slate-500 font-mono hidden sm:inline">
+                Composite Key: <code className="text-[#001489]">SR#_DefectivePart#_IssuedPart#</code>
+              </span>
+            ) : (
+              <span className="text-[11px] font-medium text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full hidden sm:inline">
+                🔒 CWH &amp; Admin Internal Audit (Hidden from CCI)
+              </span>
+            )}
+          </div>
+
+          {/* TAB CONTENT 1: Constituent Parts (Visible to ALL, including CCI) */}
+          {(activeSubTab === 'parts' || user?.role === 'CCI') && (
             <div className="rounded-xl border border-slate-200 overflow-hidden bg-white shadow-xs">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
@@ -766,7 +832,149 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 </table>
               </div>
             </div>
-          </div>
+          )}
+
+          {/* TAB CONTENT 2: AWB History & Retoken Ledger (Hidden strictly from CCI) */}
+          {activeSubTab === 'awb_history' && user?.role !== 'CCI' && (
+            <div className="space-y-4">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 rounded-xl bg-blue-50/60 border border-blue-200">
+                  <span className="text-[11px] font-medium text-blue-800 block">Total AWBs Issued</span>
+                  <div className="text-xl font-bold font-mono text-blue-900 mt-0.5">
+                    {effectiveAwbHistory.length}
+                  </div>
+                  <span className="text-[10px] text-blue-600">
+                    {effectiveAwbHistory.length > 1 ? `${effectiveAwbHistory.length - 1} Retokens recorded` : 'Single token issued'}
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[11px] font-medium text-slate-600 block">Active Tracking Docket</span>
+                  <div className="text-sm font-bold font-mono text-slate-900 mt-1 truncate">
+                    {order.active_awb || order.excel_ref_awb || 'Pending AWB'}
+                  </div>
+                  <span className="text-[10px] text-slate-500">
+                    {order.courier || 'BlueDart Express'}
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[11px] font-medium text-slate-600 block">Token Issue Date</span>
+                  <div className="text-xs font-bold font-mono text-slate-800 mt-1">
+                    {order.token_issue_date || (order.pickup_date ? order.pickup_date.slice(0, 10) : '-') || '-'}
+                  </div>
+                  <span className="text-[10px] text-slate-500">
+                    Handover: {order.pickup_date ? order.pickup_date.slice(0, 10) : 'Pending'}
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[11px] font-medium text-slate-600 block">Access Permission</span>
+                  <div className="text-xs font-bold text-emerald-700 mt-1 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>CWH / Admin Only</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500">
+                    Hidden from Service Centers
+                  </span>
+                </div>
+              </div>
+
+              {/* AWB Retokening Timeline & Audit Table */}
+              <div className="rounded-xl border border-slate-200 overflow-hidden bg-white shadow-xs">
+                <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Barcode className="w-4 h-4 text-blue-800" />
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      AWB Generation &amp; Retoken History Audit Ledger
+                    </h4>
+                  </div>
+                  {onOpenAwbModal && user?.role === 'CWH' && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenAwbModal(order)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-blue-800 hover:bg-blue-900 text-white transition-colors cursor-pointer shadow-xs"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Retoken / Generate New AWB</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100/90 text-slate-600 border-b border-slate-200 font-mono text-[11px] uppercase tracking-wider">
+                      <tr>
+                        <th className="py-2.5 px-3">#</th>
+                        <th className="py-2.5 px-3">AWB Docket Number</th>
+                        <th className="py-2.5 px-3">Status</th>
+                        <th className="py-2.5 px-3">Courier</th>
+                        <th className="py-2.5 px-3">Token Issue Date</th>
+                        <th className="py-2.5 px-3">Pickup Date</th>
+                        <th className="py-2.5 px-3">Cancellation / Retoken Reason</th>
+                        <th className="py-2.5 px-3">Created By</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-slate-700">
+                      {effectiveAwbHistory.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="py-8 text-center text-slate-500">
+                            <div className="flex flex-col items-center justify-center gap-1.5">
+                              <Barcode className="w-5 h-5 text-slate-400" />
+                              <span className="text-xs font-semibold text-slate-700">No AWB has been issued yet</span>
+                              <p className="text-[11px] text-slate-500">
+                                When CWH generates a courier tracking token for this order, its issuance and any subsequent re-tokenings will be logged here.
+                              </p>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        effectiveAwbHistory.map((awb, index) => (
+                          <tr key={awb.id || awb.awb_number || index} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="py-2.5 px-3 font-mono text-slate-500">
+                              {index + 1}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono font-bold">
+                              <div className="flex items-center gap-1.5 text-blue-900">
+                                <Barcode className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                                <span>{awb.awb_number}</span>
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border inline-flex items-center gap-1 ${
+                                awb.is_active
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                  : 'bg-rose-50 text-rose-800 border-rose-300'
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${awb.is_active ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                                {awb.is_active ? 'Active Docket' : 'Cancelled / Retokened'}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 font-medium text-slate-800">
+                              {awb.courier || order.courier || 'BlueDart Express'}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-slate-700">
+                              {awb.created_at ? awb.created_at.slice(0, 19).replace('T', ' ') : '-'}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-slate-700">
+                              {awb.pickup_date ? awb.pickup_date.slice(0, 10) : (order.pickup_date ? order.pickup_date.slice(0, 10) : '-')}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-600 max-w-xs truncate" title={awb.cancellation_reason || '-'}>
+                              {awb.cancellation_reason || (awb.is_active ? '-' : 'Retokened for new pickup cycle')}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-slate-600 text-[11px]">
+                              {awb.created_by || 'CWH Operations'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Modal Footer */}

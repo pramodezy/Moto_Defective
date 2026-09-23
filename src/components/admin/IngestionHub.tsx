@@ -125,10 +125,13 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
           ordersToPush,
           itemsToPush,
           crmDb.getStations(),
-          (msg) => setSyncProgress(msg)
+          (msg) => setSyncProgress(msg),
+          result.deletedCompositeKeys || [],
+          result.deletedSoCodes || []
         );
         if (pushRes.success) {
-          cloudFeedback = ` | Direct Cloud Push: ${pushRes.ordersCount} SOs, ${pushRes.itemsCount} Items Ingested to Supabase!`;
+          const promoMsg = result.promotedCount ? ` Auto-promoted ${result.promotedCount} parts from pending to official SOs.` : '';
+          cloudFeedback = ` | Direct Cloud Push: ${pushRes.ordersCount} SOs, ${pushRes.itemsCount} Items Ingested to Supabase!${promoMsg}`;
           await crmDb.syncAllFromSupabase();
           refreshSupabase();
         } else {
@@ -138,9 +141,10 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
 
       setReportResult(result);
       if (cloudFeedback) {
+        const promoMsg = result.promotedCount ? ` Auto-promoted ${result.promotedCount} parts to official SOs.` : '';
         setSyncResult({
           success: true,
-          message: `Defective Report Processed: ${result.inserted} new, ${result.updated} updated.` + cloudFeedback,
+          message: `Defective Report Processed: ${result.inserted} new, ${result.updated} updated.${promoMsg}` + cloudFeedback,
         });
       }
       confetti({ particleCount: 60, spread: 60, origin: { y: 0.7 } });

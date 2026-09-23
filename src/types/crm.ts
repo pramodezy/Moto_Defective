@@ -176,6 +176,9 @@ export interface IngestionResult {
   shippingOrdersUpdated: number;
   errors: string[];
   timestamp: string;
+  promotedCount?: number;
+  deletedCompositeKeys?: string[];
+  deletedSoCodes?: string[];
 }
 
 export interface ShippingOrderDetailRecord {

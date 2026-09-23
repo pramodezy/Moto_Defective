@@ -11,11 +11,14 @@ import {
   Barcode,
   IndianRupee,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  History,
+  AlertTriangle
 } from 'lucide-react';
-import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile } from '../../types/crm';
+import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile, AWBHistory } from '../../types/crm';
 import { formatINR, getAgeingBucket, parseDateSafe } from '../../lib/utils';
 import { getUnifiedPickupStatus } from '../../lib/motorolaStatus';
+import { crmDb } from '../../lib/db';
 import { toast } from 'sonner';
 
 interface CWHReportsHubProps {
@@ -23,6 +26,7 @@ interface CWHReportsHubProps {
   items: DefectiveItem[];
   stations: CCIMaster[];
   user: UserProfile;
+  initialReportType?: 'line_item' | 'so_summary' | 'awb_history';
 }
 
 export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
@@ -30,8 +34,16 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
   items,
   stations,
   user,
+  initialReportType,
 }) => {
-  const [reportType, setReportType] = useState<'line_item' | 'so_summary'>('line_item');
+  const [reportType, setReportType] = useState<'line_item' | 'so_summary' | 'awb_history'>(initialReportType || 'line_item');
+
+  React.useEffect(() => {
+    if (initialReportType) {
+      setReportType(initialReportType);
+      setPreviewPage(1);
+    }
+  }, [initialReportType]);
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
   const [selectedRegion, setSelectedRegion] = useState<string>('ALL');
   const [selectedStation, setSelectedStation] = useState<string>('ALL');
@@ -270,6 +282,115 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
     return list;
   }, [filteredOrders, itemsBySo, stationMap, orderAgeMap]);
 
+  // Map AWB History by SO
+  const awbHistoryBySo = useMemo(() => {
+    const allHistory = crmDb.getAwbHistory();
+    const map = new Map<string, AWBHistory[]>();
+    allHistory.forEach((h) => {
+      const so = orders.find((o) => o.id === h.shipping_order_id || o.so_code === h.shipping_order_id);
+      const key = (so ? so.so_code : h.shipping_order_id).trim().toUpperCase();
+      const arr = map.get(key) || [];
+      arr.push(h);
+      map.set(key, arr);
+    });
+    return map;
+  }, [orders]);
+
+  // AWB History Audit records
+  const awbHistoryRows = useMemo(() => {
+    const list: {
+      so: ShippingOrder;
+      soCode: string;
+      dcCode: string;
+      stationCode: string;
+      stationName: string;
+      region: string;
+      city: string;
+      state: string;
+      totalItems: number;
+      totalDeclaredValue: number;
+      awbCount: number;
+      awbNumber: string;
+      courier: string;
+      isActive: boolean;
+      statusLabel: string;
+      issueDate: string;
+      pickupDate: string;
+      cancellationReason: string;
+      createdBy: string;
+      motoStatus: string;
+      crmStatus: string;
+      ageDays: number;
+      ageBucket: string;
+    }[] = [];
+
+    filteredOrders.forEach((so) => {
+      const st = stationMap.get(so.station_code);
+      const hist = awbHistoryBySo.get(so.so_code.trim().toUpperCase()) || [];
+      const age = orderAgeMap.get(so.so_code.toUpperCase()) ?? Number(so.max_sr_age || 0);
+      const ageBucket = getAgeingBucket(age);
+      const totalCount = Math.max(hist.length, (so.active_awb || so.excel_ref_awb) ? 1 : 0);
+
+      if (hist.length > 0) {
+        hist.forEach((h) => {
+          list.push({
+            so,
+            soCode: so.so_code,
+            dcCode: so.delivery_challan_code || 'N/A',
+            stationCode: so.station_code,
+            stationName: st?.station_name || `Service Center ${so.station_code}`,
+            region: st?.region || so.region || 'West',
+            city: st?.city || so.city || '',
+            state: st?.state || so.state || '',
+            totalItems: so.total_items || 1,
+            totalDeclaredValue: so.total_declared_value || 0,
+            awbCount: totalCount,
+            awbNumber: h.awb_number,
+            courier: h.courier || so.courier || 'BlueDart Express',
+            isActive: h.is_active,
+            statusLabel: h.is_active ? 'Active Docket' : 'Cancelled / Retokened',
+            issueDate: h.created_at ? h.created_at.slice(0, 19).replace('T', ' ') : (so.token_issue_date || '-'),
+            pickupDate: h.pickup_date ? h.pickup_date.slice(0, 10) : (so.pickup_date ? so.pickup_date.slice(0, 10) : '-'),
+            cancellationReason: h.cancellation_reason || (h.is_active ? '-' : 'Retokened / Courier Rescheduled'),
+            createdBy: h.created_by || 'CWH Operations',
+            motoStatus: so.motorola_status || 'CCI Send To CWH',
+            crmStatus: so.crm_status,
+            ageDays: age,
+            ageBucket,
+          });
+        });
+      } else if (so.active_awb || so.excel_ref_awb) {
+        list.push({
+          so,
+          soCode: so.so_code,
+          dcCode: so.delivery_challan_code || 'N/A',
+          stationCode: so.station_code,
+          stationName: st?.station_name || `Service Center ${so.station_code}`,
+          region: st?.region || so.region || 'West',
+          city: st?.city || so.city || '',
+          state: st?.state || so.state || '',
+          totalItems: so.total_items || 1,
+          totalDeclaredValue: so.total_declared_value || 0,
+          awbCount: 1,
+          awbNumber: so.active_awb || so.excel_ref_awb || '',
+          courier: so.courier || 'BlueDart Express',
+          isActive: true,
+          statusLabel: 'Active Docket',
+          issueDate: so.token_issue_date || (so.created_at ? so.created_at.slice(0, 10) : '-'),
+          pickupDate: so.pickup_date ? so.pickup_date.slice(0, 10) : '-',
+          cancellationReason: '-',
+          createdBy: 'CWH Operations',
+          motoStatus: so.motorola_status || 'CCI Send To CWH',
+          crmStatus: so.crm_status,
+          ageDays: age,
+          ageBucket,
+        });
+      }
+    });
+
+    return list;
+  }, [filteredOrders, stationMap, awbHistoryBySo, orderAgeMap]);
+
   // Overall metric totals
   const totalDeclaredValue = useMemo(() => {
     return filteredOrders.reduce((acc, so) => acc + (so.total_declared_value || 0), 0);
@@ -278,6 +399,13 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
   const totalUnits = useMemo(() => {
     return lineItemRows.reduce((acc, r) => acc + (r.deliverQty || 1), 0);
   }, [lineItemRows]);
+
+  const totalAwbsTracked = useMemo(() => {
+    return filteredOrders.reduce((acc, so) => {
+      const hist = awbHistoryBySo.get(so.so_code.trim().toUpperCase()) || [];
+      return acc + Math.max(hist.length, (so.active_awb || so.excel_ref_awb) ? 1 : 0);
+    }, 0);
+  }, [filteredOrders, awbHistoryBySo]);
 
   // Export to Excel
   const handleExportToExcel = () => {
@@ -315,10 +443,13 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
           'SO Close / Issue Date': r.closeTime,
           'e-Way Bill Number': r.ewayBillNumber || 'Not Required / Pending',
         }));
-      } else {
+      } else if (reportType === 'so_summary') {
         exportData = filteredOrders.map((so, idx) => {
           const st = stationMap.get(so.station_code);
           const age = orderAgeMap.get(so.so_code.toUpperCase()) ?? Number(so.max_sr_age || 0);
+          const hist = awbHistoryBySo.get(so.so_code.trim().toUpperCase()) || [];
+          const count = Math.max(hist.length, (so.active_awb || so.excel_ref_awb) ? 1 : 0);
+
           return {
             'Sr. No': idx + 1,
             'Shipping Order Code': so.so_code,
@@ -328,7 +459,8 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
             'Moto CRM Status': so.motorola_status || 'CCI Send To CWH',
             'CRM Status': so.crm_status,
             'Pickup Status': getUnifiedPickupStatus(so),
-            'AWB Number': so.active_awb || so.excel_ref_awb || 'Pending AWB',
+            'AWB Count (Issued)': count,
+            'Active AWB Number': so.active_awb || so.excel_ref_awb || 'Pending AWB',
             'Token Issue Date': so.token_issue_date || (so.pickup_date ? so.pickup_date.slice(0, 10) : '') || 'N/A',
             'Courier Partner': so.courier || 'BlueDart Express',
             'Station Code': so.station_code,
@@ -342,6 +474,30 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
             'Created Date': so.created_at ? so.created_at.slice(0, 10) : '',
           };
         });
+      } else {
+        exportData = awbHistoryRows.map((r, idx) => ({
+          'Sr. No': idx + 1,
+          'Shipping Order Code': r.soCode,
+          'Delivery Challan Code': r.dcCode,
+          'AWB Number': r.awbNumber,
+          'AWB Status': r.statusLabel,
+          'Total AWBs Issued for Order': r.awbCount,
+          'Token Issue Date / Time': r.issueDate,
+          'Pickup Handover Date': r.pickupDate,
+          'Cancellation / Retoken Reason': r.cancellationReason,
+          'Courier Partner': r.courier,
+          'Origin Station Code': r.stationCode,
+          'Station Name': r.stationName,
+          'Region': r.region,
+          'City': r.city,
+          'State': r.state,
+          'Total Consignment Value (INR)': r.totalDeclaredValue,
+          'Total Units': r.totalItems,
+          'Ageing (Days)': r.ageDays,
+          'Moto CRM Status': r.motoStatus,
+          'CRM Pipeline Status': r.crmStatus,
+          'Issuer / Source': r.createdBy,
+        }));
       }
 
       const ws = XLSX.utils.json_to_sheet(exportData);
@@ -353,7 +509,7 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
       ws['!cols'] = colWidths;
 
       const wb = XLSX.utils.book_new();
-      const sheetName = reportType === 'line_item' ? 'Defective_Line_Items' : 'SO_Summary';
+      const sheetName = reportType === 'line_item' ? 'Defective_Line_Items' : reportType === 'so_summary' ? 'SO_Summary' : 'AWB_History_Audit';
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
       const timestamp = new Date().toISOString().slice(0, 10);
@@ -368,11 +524,28 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
   };
 
   // Preview Pagination
-  const totalPreviewPages = Math.ceil(lineItemRows.length / pageSize) || 1;
-  const paginatedRows = useMemo(() => {
+  const currentTotalRows = reportType === 'line_item'
+    ? lineItemRows.length
+    : reportType === 'so_summary'
+    ? filteredOrders.length
+    : awbHistoryRows.length;
+
+  const totalPreviewPages = Math.ceil(currentTotalRows / pageSize) || 1;
+
+  const paginatedLineItems = useMemo(() => {
     const start = (previewPage - 1) * pageSize;
     return lineItemRows.slice(start, start + pageSize);
   }, [lineItemRows, previewPage, pageSize]);
+
+  const paginatedOrders = useMemo(() => {
+    const start = (previewPage - 1) * pageSize;
+    return filteredOrders.slice(start, start + pageSize);
+  }, [filteredOrders, previewPage, pageSize]);
+
+  const paginatedAwbRows = useMemo(() => {
+    const start = (previewPage - 1) * pageSize;
+    return awbHistoryRows.slice(start, start + pageSize);
+  }, [awbHistoryRows, previewPage, pageSize]);
 
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
@@ -482,7 +655,7 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setReportType('so_summary')}
+                onClick={() => { setReportType('so_summary'); setPreviewPage(1); }}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                   reportType === 'so_summary'
                     ? 'bg-blue-700 text-white shadow-xs'
@@ -490,6 +663,17 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
                 }`}
               >
                 Consignment Summary (SO-Wise)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setReportType('awb_history'); setPreviewPage(1); }}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  reportType === 'awb_history'
+                    ? 'bg-blue-700 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                AWB &amp; Retoken History (Audit Ledger)
               </button>
             </div>
           </div>
@@ -612,7 +796,7 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
           <div>
             <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
               <Layers className="w-4 h-4 text-blue-800" />
-              Live Report Preview ({reportType === 'line_item' ? `${lineItemRows.length} Defective Line Items` : `${filteredOrders.length} Shipping Orders`})
+              Live Report Preview ({reportType === 'line_item' ? `${lineItemRows.length} Defective Line Items` : reportType === 'so_summary' ? `${filteredOrders.length} Shipping Orders` : `${awbHistoryRows.length} AWB Audit Records`})
             </h3>
             <p className="text-xs text-slate-600">
               Showing page {previewPage} of {totalPreviewPages}. The exported file will contain all matching rows.
@@ -646,120 +830,338 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-700">
-            <thead className="bg-slate-100/80 text-[11px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200">
-              <tr>
-                <th className="py-3 px-4">#</th>
-                <th className="py-3 px-4">SO Code</th>
-                <th className="py-3 px-4">DC Code</th>
-                <th className="py-3 px-4">Defective Part No</th>
-                <th className="py-3 px-4">Qty</th>
-                <th className="py-3 px-4 text-right">Value</th>
-                <th className="py-3 px-4">Moto Status</th>
-                <th className="py-3 px-4">CRM Status</th>
-                <th className="py-3 px-4">Pickup Status</th>
-                <th className="py-3 px-4">Courier & AWB</th>
-                <th className="py-3 px-4">Origin Station</th>
-                <th className="py-3 px-4 text-center">Ageing</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {paginatedRows.length === 0 ? (
+          {reportType === 'line_item' ? (
+            <table className="w-full text-left text-xs text-slate-700">
+              <thead className="bg-slate-100/80 text-[11px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200">
                 <tr>
-                  <td colSpan={12} className="py-12 text-center text-slate-600">
-                    <p className="text-sm font-medium">No records match the selected filters.</p>
-                  </td>
+                  <th className="py-3 px-4">#</th>
+                  <th className="py-3 px-4">SO Code</th>
+                  <th className="py-3 px-4">DC Code</th>
+                  <th className="py-3 px-4">Defective Part No</th>
+                  <th className="py-3 px-4">Qty</th>
+                  <th className="py-3 px-4 text-right">Value</th>
+                  <th className="py-3 px-4">Moto Status</th>
+                  <th className="py-3 px-4">CRM Status</th>
+                  <th className="py-3 px-4">Pickup Status</th>
+                  <th className="py-3 px-4">Courier &amp; AWB</th>
+                  <th className="py-3 px-4">Origin Station</th>
+                  <th className="py-3 px-4 text-center">Ageing</th>
                 </tr>
-              ) : (
-                paginatedRows.map((row, index) => (
-                  <tr key={`${row.soCode}-${row.partNumber}-${index}`} className="hover:bg-blue-50/40 transition-colors">
-                    <td className="py-3 px-4 font-mono text-slate-600">
-                      {(previewPage - 1) * pageSize + index + 1}
-                    </td>
-                    <td className="py-3 px-4 font-mono font-bold text-blue-900">
-                      {row.soCode}
-                    </td>
-                    <td className="py-3 px-4 font-mono text-slate-700">
-                      {row.dcCode ? (
-                        <span className="px-2 py-0.5 rounded bg-blue-50 border border-blue-200 font-semibold text-[11px] text-blue-900">
-                          {row.dcCode}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 italic">Pending DC</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="font-mono font-semibold text-slate-900">{row.partNumber}</div>
-                      <div className="text-[10px] text-slate-600 truncate max-w-xs">{row.description}</div>
-                    </td>
-                    <td className="py-3 px-4 font-mono font-semibold">
-                      {row.deliverQty}
-                    </td>
-                    <td className="py-3 px-4 font-mono text-right font-bold text-slate-900">
-                      {formatINR(row.lineValue)}
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-sky-50 text-sky-800 border border-sky-200">
-                        {row.motoStatus}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                        {row.crmStatus}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700">
-                        {row.pickupStatus === 'Pickup Done' ? (
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                        ) : (
-                          <Clock className="w-3 h-3 text-amber-500" />
-                        )}
-                        {row.pickupStatus}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-xs">
-                      {row.awbNumber ? (
-                        <div>
-                          <div className="text-blue-800 font-bold flex items-center gap-1">
-                            <Barcode className="w-3 h-3" />
-                            <span>{row.awbNumber}</span>
-                          </div>
-                          <div className="text-[10px] text-slate-600 font-sans flex items-center gap-1.5 mt-0.5">
-                            <span>{row.courier}</span>
-                            {(row.so.token_issue_date || row.so.pickup_date) && (
-                              <span className="text-slate-400 font-mono text-[9px]">
-                                • {(row.so.token_issue_date || row.so.pickup_date || '').slice(0, 10)}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-amber-800 text-[11px] font-sans font-medium">Pending CWH AWB</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-xs">
-                      <div className="font-semibold text-slate-800">Station {row.stationCode}</div>
-                      <div className="text-[10px] text-slate-600">{row.city} ({row.region})</div>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold font-mono ${
-                        row.ageBucket === 'super_critical'
-                          ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                          : row.ageBucket === 'critical'
-                          ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                          : row.ageBucket === 'high'
-                          ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                          : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                      }`}>
-                        {row.ageDays}d
-                      </span>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {paginatedLineItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={12} className="py-12 text-center text-slate-600">
+                      <p className="text-sm font-medium">No records match the selected filters.</p>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  paginatedLineItems.map((row, index) => (
+                    <tr key={`${row.soCode}-${row.partNumber}-${index}`} className="hover:bg-blue-50/40 transition-colors">
+                      <td className="py-3 px-4 font-mono text-slate-600">
+                        {(previewPage - 1) * pageSize + index + 1}
+                      </td>
+                      <td className="py-3 px-4 font-mono font-bold text-blue-900">
+                        {row.soCode}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-slate-700">
+                        {row.dcCode ? (
+                          <span className="px-2 py-0.5 rounded bg-blue-50 border border-blue-200 font-semibold text-[11px] text-blue-900">
+                            {row.dcCode}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">Pending DC</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="font-mono font-semibold text-slate-900">{row.partNumber}</div>
+                        <div className="text-[10px] text-slate-600 truncate max-w-xs">{row.description}</div>
+                      </td>
+                      <td className="py-3 px-4 font-mono font-semibold">
+                        {row.deliverQty}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-right font-bold text-slate-900">
+                        {formatINR(row.lineValue)}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-sky-50 text-sky-800 border border-sky-200">
+                          {row.motoStatus}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {row.crmStatus}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700">
+                          {row.pickupStatus === 'Pickup Done' ? (
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          ) : (
+                            <Clock className="w-3 h-3 text-amber-500" />
+                          )}
+                          {row.pickupStatus}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-xs">
+                        {row.awbNumber ? (
+                          <div>
+                            <div className="text-blue-800 font-bold flex items-center gap-1">
+                              <Barcode className="w-3 h-3" />
+                              <span>{row.awbNumber}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-600 font-sans flex items-center gap-1.5 mt-0.5">
+                              <span>{row.courier}</span>
+                              {(row.so.token_issue_date || row.so.pickup_date) && (
+                                <span className="text-slate-400 font-mono text-[9px]">
+                                  • {(row.so.token_issue_date || row.so.pickup_date || '').slice(0, 10)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-amber-800 text-[11px] font-sans font-medium">Pending CWH AWB</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-xs">
+                        <div className="font-semibold text-slate-800">Station {row.stationCode}</div>
+                        <div className="text-[10px] text-slate-600">{row.city} ({row.region})</div>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold font-mono ${
+                          row.ageBucket === 'super_critical'
+                            ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                            : row.ageBucket === 'critical'
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                            : row.ageBucket === 'high'
+                            ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                            : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        }`}>
+                          {row.ageDays}d
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          ) : reportType === 'so_summary' ? (
+            <table className="w-full text-left text-xs text-slate-700">
+              <thead className="bg-slate-100/80 text-[11px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-4">#</th>
+                  <th className="py-3 px-4">SO Code</th>
+                  <th className="py-3 px-4">DC Code</th>
+                  <th className="py-3 px-4">Origin Station</th>
+                  <th className="py-3 px-4 text-center">Units</th>
+                  <th className="py-3 px-4 text-right">Declared Value</th>
+                  <th className="py-3 px-4 text-center">AWB Count</th>
+                  <th className="py-3 px-4">Active AWB &amp; Courier</th>
+                  <th className="py-3 px-4">Pickup Status</th>
+                  <th className="py-3 px-4">Moto Status</th>
+                  <th className="py-3 px-4">CRM Status</th>
+                  <th className="py-3 px-4 text-center">Ageing</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {paginatedOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={12} className="py-12 text-center text-slate-600">
+                      <p className="text-sm font-medium">No records match the selected filters.</p>
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedOrders.map((so, index) => {
+                    const st = stationMap.get(so.station_code);
+                    const age = orderAgeMap.get(so.so_code.toUpperCase()) ?? Number(so.max_sr_age || 0);
+                    const ageBucket = getAgeingBucket(age);
+                    const hist = awbHistoryBySo.get(so.so_code.trim().toUpperCase()) || [];
+                    const awbCount = Math.max(hist.length, (so.active_awb || so.excel_ref_awb) ? 1 : 0);
+                    const pickupStatus = getUnifiedPickupStatus(so);
+
+                    return (
+                      <tr key={so.id || so.so_code} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="py-3 px-4 font-mono text-slate-600">
+                          {(previewPage - 1) * pageSize + index + 1}
+                        </td>
+                        <td className="py-3 px-4 font-mono font-bold text-blue-900">
+                          {so.so_code}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-slate-700">
+                          {so.delivery_challan_code ? (
+                            <span className="px-2 py-0.5 rounded bg-blue-50 border border-blue-200 font-semibold text-[11px] text-blue-900">
+                              {so.delivery_challan_code}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 italic">Pending DC</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-xs">
+                          <div className="font-semibold text-slate-800">Station {so.station_code}</div>
+                          <div className="text-[10px] text-slate-600">{st?.city || so.city} ({st?.region || so.region || 'West'})</div>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-center font-semibold">
+                          {so.total_items || 1}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-right font-bold text-slate-900">
+                          {formatINR(so.total_declared_value || 0)}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span className={`px-2 py-0.5 rounded-full font-mono text-[11px] font-bold ${
+                            awbCount > 1
+                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                              : awbCount === 1
+                              ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {awbCount} {awbCount === 1 ? 'AWB' : 'AWBs'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-xs">
+                          {(so.active_awb || so.excel_ref_awb) ? (
+                            <div>
+                              <div className="text-blue-800 font-bold flex items-center gap-1">
+                                <Barcode className="w-3 h-3" />
+                                <span>{so.active_awb || so.excel_ref_awb}</span>
+                              </div>
+                              <div className="text-[10px] text-slate-600 font-sans flex items-center gap-1.5 mt-0.5">
+                                <span>{so.courier || 'BlueDart Express'}</span>
+                                {(so.token_issue_date || so.pickup_date) && (
+                                  <span className="text-slate-400 font-mono text-[9px]">
+                                    • {(so.token_issue_date || so.pickup_date || '').slice(0, 10)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-amber-800 text-[11px] font-sans font-medium">Pending CWH AWB</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700">
+                            {pickupStatus === 'Pickup Done' ? (
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            ) : (
+                              <Clock className="w-3 h-3 text-amber-500" />
+                            )}
+                            {pickupStatus}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-sky-50 text-sky-800 border border-sky-200">
+                            {so.motorola_status || 'CCI Send To CWH'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            {so.crm_status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold font-mono ${
+                            ageBucket === 'super_critical'
+                              ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                              : ageBucket === 'critical'
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                              : ageBucket === 'high'
+                              ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                              : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          }`}>
+                            {age}d
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full text-left text-xs text-slate-700">
+              <thead className="bg-slate-100/80 text-[11px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-4">#</th>
+                  <th className="py-3 px-4">Shipping Order</th>
+                  <th className="py-3 px-4">AWB Docket</th>
+                  <th className="py-3 px-4">AWB Status</th>
+                  <th className="py-3 px-4 text-center">Total AWBs Issued</th>
+                  <th className="py-3 px-4">Token Issue Date</th>
+                  <th className="py-3 px-4">Pickup Date</th>
+                  <th className="py-3 px-4">Courier Partner</th>
+                  <th className="py-3 px-4">Origin Station</th>
+                  <th className="py-3 px-4 text-right">Consignment Value</th>
+                  <th className="py-3 px-4">Retoken / Cancellation Reason</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {paginatedAwbRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="py-12 text-center text-slate-600">
+                      <p className="text-sm font-medium">No AWB history records found matching current filters.</p>
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedAwbRows.map((row, index) => (
+                    <tr key={`${row.soCode}-${row.awbNumber}-${index}`} className="hover:bg-blue-50/40 transition-colors">
+                      <td className="py-3 px-4 font-mono text-slate-600">
+                        {(previewPage - 1) * pageSize + index + 1}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="font-mono font-bold text-blue-900">{row.soCode}</div>
+                        {row.dcCode && row.dcCode !== 'N/A' && (
+                          <div className="text-[10px] text-slate-500 font-mono">DC: {row.dcCode}</div>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 font-mono">
+                        <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                          <Barcode className="w-3.5 h-3.5 text-blue-700" />
+                          <span>{row.awbNumber || 'Pending AWB'}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border inline-flex items-center gap-1 ${
+                          row.isActive
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                            : 'bg-rose-50 text-rose-800 border-rose-300'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${row.isActive ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                          {row.statusLabel}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className={`px-2 py-0.5 rounded-full font-mono text-[11px] font-bold ${
+                          row.awbCount > 1
+                            ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                            : 'bg-blue-50 text-blue-800 border border-blue-200'
+                        }`}>
+                          {row.awbCount} {row.awbCount === 1 ? 'AWB' : 'AWBs Issued'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-slate-700 text-xs">
+                        {row.issueDate}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-slate-700 text-xs">
+                        {row.pickupDate}
+                      </td>
+                      <td className="py-3 px-4 text-xs font-semibold text-slate-800">
+                        {row.courier}
+                      </td>
+                      <td className="py-3 px-4 text-xs">
+                        <div className="font-semibold text-slate-800">Station {row.stationCode}</div>
+                        <div className="text-[10px] text-slate-600">{row.city} ({row.region})</div>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-right font-bold text-slate-900">
+                        {formatINR(row.totalDeclaredValue)}
+                      </td>
+                      <td className="py-3 px-4 text-xs text-slate-600 max-w-xs truncate" title={row.cancellationReason}>
+                        {row.cancellationReason}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>

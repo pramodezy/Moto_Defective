@@ -364,6 +364,23 @@ export function App() {
             {activeTab === 'audit' && (
               <AuditLogsViewer logs={logs} />
             )}
+            {activeTab === 'awb_history' && currentUser && (
+              <CWHReportsHub
+                orders={orders}
+                items={items}
+                stations={stations}
+                user={currentUser}
+                initialReportType="awb_history"
+              />
+            )}
+            {activeTab === 'cwh_reports' && currentUser && (
+              <CWHReportsHub
+                orders={orders}
+                items={items}
+                stations={stations}
+                user={currentUser}
+              />
+            )}
           </>
         )}
 
@@ -405,6 +422,15 @@ export function App() {
             )}
             {activeTab === 'audit' && (
               <AuditLogsViewer logs={logs} />
+            )}
+            {activeTab === 'awb_history' && currentUser && (
+              <CWHReportsHub
+                orders={orders}
+                items={items}
+                stations={stations}
+                user={currentUser}
+                initialReportType="awb_history"
+              />
             )}
             {activeTab === 'cwh_reports' && currentUser && (
               <CWHReportsHub

@@ -52,7 +52,9 @@ export async function pushUploadedDataToSupabase(
   orders: ShippingOrder[],
   items: DefectiveItem[],
   stations: CCIMaster[],
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
+  deletedCompositeKeys: string[] = [],
+  deletedSoCodes: string[] = []
 ): Promise<{ success: boolean; message: string; ordersCount: number; itemsCount: number }> {
   if (!isSupabaseConfigured || !supabase) {
     throw new Error('Supabase cloud connection is not configured in .env');
@@ -68,6 +70,21 @@ export async function pushUploadedDataToSupabase(
   }
 
   try {
+    // Step 0: Delete superseded pending composite keys and retired SO codes to prevent cloud resurrection
+    if (deletedCompositeKeys.length > 0) {
+      onProgress?.(`Cleaning up ${deletedCompositeKeys.length} superseded pending records from Supabase...`);
+      for (let i = 0; i < deletedCompositeKeys.length; i += 100) {
+        const batch = deletedCompositeKeys.slice(i, i + 100);
+        await supabase.from('defective_master').delete().in('composite_key', batch);
+      }
+    }
+    if (deletedSoCodes.length > 0) {
+      for (let i = 0; i < deletedSoCodes.length; i += 100) {
+        const batch = deletedSoCodes.slice(i, i + 100);
+        await supabase.from('shipping_orders').delete().in('so_code', batch);
+      }
+    }
+
     // Step 1: Ensure all station codes exist in cci_master before inserting orders/items
     const stationCodeSet = new Set<string>();
     orders.forEach((o) => { if (o.station_code) stationCodeSet.add(o.station_code); });
