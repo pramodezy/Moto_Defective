@@ -18,7 +18,7 @@ import {
   INITIAL_AUDIT_LOGS 
 } from '../data/seedData';
 import { supabase, isSupabaseConfigured } from './supabase';
-import { deriveCrmStatusFromMotorolaStatus, isCompletedJourneyStatus, normalizeMotoStatusKey } from './motorolaStatus';
+import { deriveCrmStatusFromMotorolaStatus, isCompletedJourneyStatus, normalizeMotoStatusKey, getMotorolaStatusInfo } from './motorolaStatus';
 import { parseDateSafe } from './utils';
 import { ShippingOrderItemRow } from '../services/shippingOrderIngestor';
 import { 
@@ -1111,8 +1111,13 @@ class CRMDatabase {
   }
 
   // --- RECALCULATE SHIPPING ORDER METRICS (Trigger B Simulation) ---
-  private recalculateShippingOrder(soCode: string, deletedSoCodes?: string[]) {
-    const items = this.defectiveItems.filter(
+  private recalculateShippingOrder(
+    soCode: string, 
+    deletedSoCodes?: string[],
+    sourceItems?: DefectiveItem[]
+  ) {
+    const allCandidateItems = sourceItems || this.defectiveItems;
+    const items = allCandidateItems.filter(
       (i) => (i.shipping_order_code || '').trim().toLowerCase() === soCode.trim().toLowerCase()
     );
     const existingSo = this.shippingOrders.find(
@@ -1137,7 +1142,6 @@ class CRMDatabase {
 
     let maxAge = 0;
     let totalVal = 0;
-    let latestMotoStatus = 'CCI Send To CWH';
     let latestExcelAwb = '';
 
     const now = new Date().getTime();
@@ -1156,13 +1160,43 @@ class CRMDatabase {
           if (ageDays > maxAge) maxAge = ageDays;
         }
       }
-      if (item.motorola_parts_status) {
-        latestMotoStatus = item.motorola_parts_status;
-      }
       if (item.excel_awb) {
         latestExcelAwb = item.excel_awb;
       }
     });
+
+    // Determine overall Motorola status across all constituent items:
+    // 1. If any item has discrepancy at RC or CWH, flag discrepancy
+    // 2. If all items are completed (RC Received ASP), mark order completed
+    // 3. Otherwise, set status to highest active stage (ASP Send to RC > CWH Received > CCI Send to CWH > Not Return)
+    let latestMotoStatus = 'CCI Send To CWH';
+    const anyDiscrepancy = items.find((it) => {
+      const k = normalizeMotoStatusKey(it.motorola_parts_status);
+      return k === 'rc received asp(negative)' || k === 'cwh received - discrepancies';
+    });
+    const allCompleted = items.length > 0 && items.every((it) => isCompletedJourneyStatus(it.motorola_parts_status));
+
+    if (anyDiscrepancy) {
+      latestMotoStatus = anyDiscrepancy.motorola_parts_status || 'RC Received ASP(Negative)';
+    } else if (allCompleted) {
+      latestMotoStatus = 'RC Received ASP';
+    } else {
+      const activeItems = items.filter((it) => !isCompletedJourneyStatus(it.motorola_parts_status));
+      if (activeItems.length > 0) {
+        let highestRank = 0;
+        let chosenStatus = activeItems[0].motorola_parts_status || 'CCI Send To CWH';
+        for (const it of activeItems) {
+          const info = getMotorolaStatusInfo(it.motorola_parts_status);
+          if (info.code > highestRank) {
+            highestRank = info.code;
+            chosenStatus = it.motorola_parts_status;
+          }
+        }
+        latestMotoStatus = chosenStatus;
+      } else {
+        latestMotoStatus = 'RC Received ASP';
+      }
+    }
 
     // Priority Tier: 1: >25D (Super Critical), 2: 16-25D (Critical), 3: 8-15D (High), 4: 0-7D (Low)
     const tier = maxAge > 25 ? 1 : maxAge >= 16 ? 2 : maxAge >= 8 ? 3 : 4;
@@ -1203,7 +1237,7 @@ class CRMDatabase {
       existingSo.total_items = items.reduce((sum, item) => sum + (item.deliver_qty || item.quantity || 1), 0);
       existingSo.motorola_status = latestMotoStatus || existingSo.motorola_status;
       existingSo.crm_status = existingSo.crm_status === 'Debit Posting' ? 'Debit Posting' : derivedCrmStatus;
-      if (existingSo.crm_status === 'Delivered to RC' || latestMotoStatus?.toLowerCase().includes('rc received')) {
+      if (existingSo.crm_status === 'Delivered to RC' || isCompletedJourneyStatus(latestMotoStatus)) {
         existingSo.pickup_status = 'Pickup Done';
       }
       // Leg 1 AWB: keep existing CWH assignment, do not auto-populate from dump
@@ -1220,6 +1254,13 @@ class CRMDatabase {
       existingSo.rc_receive_remark = latestRcRemark || existingSo.rc_receive_remark;
 
       existingSo.updated_at = new Date().toISOString();
+
+      // If completed and active session does NOT have completed orders loaded, prune from active this.shippingOrders
+      if (!this.isCompletedSessionLoaded && isCompletedJourneyStatus(latestMotoStatus)) {
+        this.shippingOrders = this.shippingOrders.filter(
+          (so) => (so.so_code || '').trim().toLowerCase() !== soCode.trim().toLowerCase()
+        );
+      }
     } else {
       const isDelivered = latestMotoStatus.toLowerCase().includes('received') || derivedCrmStatus === 'Delivered to RC';
       const newSo: ShippingOrder = {
@@ -1353,10 +1394,6 @@ class CRMDatabase {
 
           existing.last_synced_at = new Date().toISOString();
           existing.updated_at = new Date().toISOString();
-          
-          if (!this.isCompletedSessionLoaded && isCompletedJourneyStatus(existing.motorola_parts_status)) {
-            this.defectiveItems = this.defectiveItems.filter((it) => it.composite_key !== compositeKey);
-          }
           updated++;
         } else {
           // New Line Item
@@ -1397,9 +1434,7 @@ class CRMDatabase {
           };
 
           itemMap.set(compositeKey, newItem);
-          if (this.isCompletedSessionLoaded || !isCompletedJourneyStatus(newItem.motorola_parts_status)) {
-            this.defectiveItems.unshift(newItem);
-          }
+          this.defectiveItems.unshift(newItem);
           inserted++;
         }
 
@@ -1410,16 +1445,36 @@ class CRMDatabase {
       }
     });
 
-    // Trigger B: Recalculate each affected parent shipping order
+    const allProcessedItems = Array.from(itemMap.values());
+    const touchedOrders: ShippingOrder[] = [];
+
+    // Trigger B: Recalculate each affected parent shipping order with complete item context
     affectedSoCodes.forEach((soCode) => {
-      this.recalculateShippingOrder(soCode, deletedSoCodes);
+      const beforeSo = this.shippingOrders.find(
+        (so) => (so.so_code || '').trim().toLowerCase() === soCode.trim().toLowerCase()
+      );
+      this.recalculateShippingOrder(soCode, deletedSoCodes, allProcessedItems);
+      const afterSo = beforeSo || this.shippingOrders.find(
+        (so) => (so.so_code || '').trim().toLowerCase() === soCode.trim().toLowerCase()
+      );
+      if (afterSo) touchedOrders.push(afterSo);
     });
+
+    // Prune completed items from active this.defectiveItems if !this.isCompletedSessionLoaded
+    if (!this.isCompletedSessionLoaded) {
+      this.defectiveItems = this.defectiveItems.filter(
+        (it) => !isCompletedJourneyStatus(it.motorola_parts_status)
+      );
+    }
+
+    const itemsToPush = allProcessedItems.filter((i) => affectedSoCodes.has(i.shipping_order_code));
+    const ordersToPush = touchedOrders.length > 0
+      ? touchedOrders
+      : this.shippingOrders.filter((o) => affectedSoCodes.has(o.so_code));
 
     // Live push to Supabase Cloud (push ALL processed items & orders so cloud has complete archive)
     if (isSupabaseConfigured && supabase) {
       const client = supabase;
-      const itemsToPush = Array.from(itemMap.values()).filter((i) => affectedSoCodes.has(i.shipping_order_code));
-      const ordersToPush = this.shippingOrders.filter((o) => affectedSoCodes.has(o.so_code));
 
       (async () => {
         try {
@@ -1577,6 +1632,8 @@ class CRMDatabase {
       promotedCount,
       deletedCompositeKeys: deletedPendingKeys,
       deletedSoCodes,
+      itemsToPush,
+      ordersToPush,
     };
   }
 

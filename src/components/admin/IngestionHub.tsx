@@ -115,12 +115,16 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({ user }) => {
       let cloudFeedback = '';
       if (isSupabaseConfigured) {
         setSyncProgress('Ingesting uploaded rows directly into Supabase Cloud PostgreSQL...');
-        const ordersToPush = crmDb.getShippingOrders().filter((o) => 
-          parsed.items.some((i) => i.shipping_order_code === o.so_code)
-        );
-        const itemsToPush = crmDb.getDefectiveItems().filter((it) => 
-          parsed.items.some((i) => i.shipping_order_code === it.shipping_order_code)
-        );
+        const ordersToPush = result.ordersToPush && result.ordersToPush.length > 0
+          ? result.ordersToPush
+          : crmDb.getShippingOrders().filter((o) => 
+              parsed.items.some((i) => i.shipping_order_code === o.so_code)
+            );
+        const itemsToPush = result.itemsToPush && result.itemsToPush.length > 0
+          ? result.itemsToPush
+          : crmDb.getDefectiveItems().filter((it) => 
+              parsed.items.some((i) => i.shipping_order_code === it.shipping_order_code)
+            );
         const pushRes = await pushUploadedDataToSupabase(
           ordersToPush,
           itemsToPush,

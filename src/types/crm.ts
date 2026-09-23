@@ -179,6 +179,8 @@ export interface IngestionResult {
   promotedCount?: number;
   deletedCompositeKeys?: string[];
   deletedSoCodes?: string[];
+  itemsToPush?: DefectiveItem[];
+  ordersToPush?: ShippingOrder[];
 }
 
 export interface ShippingOrderDetailRecord {
