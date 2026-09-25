@@ -15,7 +15,6 @@ import {
   Barcode
 } from 'lucide-react';
 import { ShippingOrder, CCIMaster, UserProfile } from '../../types/crm';
-import { isCompletedJourneyStatus } from '../../lib/motorolaStatus';
 import { crmDb } from '../../lib/db';
 import { toast } from 'sonner';
 
@@ -61,11 +60,8 @@ export const BulkRcDispatchModal: React.FC<BulkRcDispatchModalProps> = ({
   const stationMap = new Map<string, CCIMaster>();
   stations.forEach((st) => stationMap.set(st.station_code, st));
 
-  // Eligible orders for RC dispatch (ASP Send to RC or awaiting outbound AWB; strictly excludes finished RC Received ASP)
+  // Eligible orders for RC dispatch (ASP Send to RC or awaiting outbound AWB)
   const eligibleRcOrders = orders.filter((o) => {
-    if (isCompletedJourneyStatus(o.motorola_status) || o.crm_status === 'Delivered to RC') {
-      return false;
-    }
     const moto = (o.motorola_status || '').toLowerCase();
     const crm = (o.crm_status || '').toLowerCase();
     // Show orders in ASP Send to RC stage or orders flagged with an ASP-RC SO code

@@ -33,8 +33,7 @@ import {
   isDummyAwb,
   getCwhActionDetails,
   getUnifiedStageDetails,
-  getUnifiedPickupStatus,
-  isCompletedJourneyStatus
+  getUnifiedPickupStatus
 } from '../../lib/motorolaStatus';
 import { BulkAwbUploadModal } from './BulkAwbUploadModal';
 import { BulkRcDispatchModal } from './BulkRcDispatchModal';
@@ -209,10 +208,6 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     );
 
     if (matchedOrder) {
-      if (isCompletedJourneyStatus(matchedOrder.motorola_status) || matchedOrder.crm_status === 'Delivered to RC') {
-        toast.info(`Consignment ${matchedOrder.so_code} is already completed (${matchedOrder.motorola_status || 'RC Received ASP'}). Action from CWH is finished.`);
-        return;
-      }
       onOpenUnboxing(matchedOrder);
       setSearchQuery('');
     } else {
@@ -220,13 +215,9 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     }
   };
 
-  // Station and Region filtered orders (strictly excludes completed RC Received ASP where CWH action is finished)
+  // Station and Region filtered orders
   const stationScopedOrders = useMemo(() => {
     return orders.filter((o) => {
-      // Completed RC Received ASP orders have finished their journey; rest in background
-      if (isCompletedJourneyStatus(o.motorola_status) || o.crm_status === 'Delivered to RC') {
-        return false;
-      }
       if (selectedStation !== 'ALL' && o.station_code !== selectedStation) {
         return false;
       }
@@ -411,13 +402,8 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       ) {
         return false;
       }
-      // Strictly exclude completed RC Received ASP (action from CWH is finished; rests in background)
-      if (
-        isCompletedJourneyStatus(o.motorola_status) ||
-        motoInfo.code === 5 ||
-        moto.includes('rc received') ||
-        o.crm_status === 'Delivered to RC'
-      ) {
+      // Option A: Strictly exclude completed RC Received ASP (leaves active card as per default rule)
+      if (motoInfo.code === 5 || moto.includes('rc received')) {
         return false;
       }
       // Strictly include ASP Send to RC (Code 4) or active outbound stages

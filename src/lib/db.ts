@@ -446,7 +446,7 @@ class CRMDatabase {
     if (!isSupabaseConfigured || !supabase) return this.shippingOrders.length;
     try {
       const soRows = await this.fetchAllRowsParallel('shipping_orders', 'created_at', (q) =>
-        q.not('motorola_status', 'in', '("RC Received ASP","RCP Received ASP")')
+        q.neq('motorola_status', 'RC Received ASP')
       );
       if (soRows === null || soRows === undefined) return this.shippingOrders.length;
 
@@ -555,13 +555,11 @@ class CRMDatabase {
       // 2. Fetch stations, defective parts catalog, audit logs, and awb history in parallel
       const [stRes, itemRows, logRes, awbHistRes, soCountRes, itemCountRes] = await Promise.all([
         supabase.from('cci_master').select('*').order('station_code', { ascending: true }),
-        this.fetchAllRowsParallel('defective_master', 'created_at', (q) =>
-          q.not('motorola_parts_status', 'in', '("RC Received ASP","RCP Received ASP")')
-        ),
+        this.fetchAllRowsParallel('defective_master', 'created_at', (q) => q.neq('motorola_parts_status', 'RC Received ASP')),
         supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100),
         supabase.from('awb_history').select('*').order('created_at', { ascending: false }).limit(1000),
-        supabase.from('shipping_orders').select('id', { count: 'exact', head: true }).in('motorola_status', ['RC Received ASP', 'RCP Received ASP']),
-        supabase.from('defective_master').select('id', { count: 'exact', head: true }).in('motorola_parts_status', ['RC Received ASP', 'RCP Received ASP']),
+        supabase.from('shipping_orders').select('id', { count: 'exact', head: true }).eq('motorola_status', 'RC Received ASP'),
+        supabase.from('defective_master').select('id', { count: 'exact', head: true }).eq('motorola_parts_status', 'RC Received ASP'),
       ]);
 
       if (typeof soCountRes.count === 'number') {
@@ -756,12 +754,8 @@ class CRMDatabase {
 
     try {
       const [completedSoRows, completedItemRows] = await Promise.all([
-        this.fetchAllRowsParallel('shipping_orders', 'created_at', (q) =>
-          q.in('motorola_status', ['RC Received ASP', 'RCP Received ASP'])
-        ),
-        this.fetchAllRowsParallel('defective_master', 'created_at', (q) =>
-          q.in('motorola_parts_status', ['RC Received ASP', 'RCP Received ASP'])
-        ),
+        this.fetchAllRowsParallel('shipping_orders', 'created_at', (q) => q.eq('motorola_status', 'RC Received ASP')),
+        this.fetchAllRowsParallel('defective_master', 'created_at', (q) => q.eq('motorola_parts_status', 'RC Received ASP')),
       ]);
 
       const mappedCompletedOrders: ShippingOrder[] = (completedSoRows || []).map((so: any) => ({
