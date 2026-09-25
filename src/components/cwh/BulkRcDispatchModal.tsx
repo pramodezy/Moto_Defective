@@ -63,7 +63,7 @@ export const BulkRcDispatchModal: React.FC<BulkRcDispatchModalProps> = ({
 
   // Eligible orders for RC dispatch (ASP Send to RC or awaiting outbound AWB; strictly excludes finished RC Received ASP)
   const eligibleRcOrders = orders.filter((o) => {
-    if (isCompletedJourneyStatus(o.motorola_status) || o.crm_status === 'Delivered to RC' || o.crm_status === 'Closed') {
+    if (isCompletedJourneyStatus(o.motorola_status) || o.crm_status === 'Delivered to RC') {
       return false;
     }
     const moto = (o.motorola_status || '').toLowerCase();

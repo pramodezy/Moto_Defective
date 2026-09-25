@@ -209,7 +209,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     );
 
     if (matchedOrder) {
-      if (isCompletedJourneyStatus(matchedOrder.motorola_status) || matchedOrder.crm_status === 'Delivered to RC' || matchedOrder.crm_status === 'Closed') {
+      if (isCompletedJourneyStatus(matchedOrder.motorola_status) || matchedOrder.crm_status === 'Delivered to RC') {
         toast.info(`Consignment ${matchedOrder.so_code} is already completed (${matchedOrder.motorola_status || 'RC Received ASP'}). Action from CWH is finished.`);
         return;
       }
@@ -224,7 +224,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   const stationScopedOrders = useMemo(() => {
     return orders.filter((o) => {
       // Completed RC Received ASP orders have finished their journey; rest in background
-      if (isCompletedJourneyStatus(o.motorola_status) || o.crm_status === 'Delivered to RC' || o.crm_status === 'Closed') {
+      if (isCompletedJourneyStatus(o.motorola_status) || o.crm_status === 'Delivered to RC') {
         return false;
       }
       if (selectedStation !== 'ALL' && o.station_code !== selectedStation) {
@@ -416,8 +416,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         isCompletedJourneyStatus(o.motorola_status) ||
         motoInfo.code === 5 ||
         moto.includes('rc received') ||
-        o.crm_status === 'Delivered to RC' ||
-        o.crm_status === 'Closed'
+        o.crm_status === 'Delivered to RC'
       ) {
         return false;
       }
