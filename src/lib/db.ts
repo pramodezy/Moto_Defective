@@ -1210,15 +1210,20 @@ class CRMDatabase {
     const state = station?.state || existingSo?.state || '';
     const city = station?.city || existingSo?.city || '';
 
+    // For consignments with active items pending at CWH or in active pipeline, Leg 2 details reflect the active items.
+    // If all items are completed, reflect the completed Leg 2 details.
+    const activeItems = items.filter((it) => !isCompletedJourneyStatus(it.motorola_parts_status));
+    const targetItems = activeItems.length > 0 ? activeItems : items;
+
     // Leg 2 Outbound data from constituent items
-    const latestScreeningStatus = items.find((it) => it.screening_status && it.screening_status !== 'Pending')?.screening_status;
-    const latestAspRcSo = items.find((it) => it.asp_rc_shipping_order_code)?.asp_rc_shipping_order_code;
-    const latestAspRcShipDate = items.find((it) => it.asp_rc_ship_date)?.asp_rc_ship_date;
-    const latestAspOutboundAwb = items.find((it) => it.asp_outbound_awb)?.asp_outbound_awb;
-    const latestAspRcPickupDate = items.find((it) => it.asp_rc_pickup_date)?.asp_rc_pickup_date;
-    const latestAspRcDeliveredDate = items.find((it) => it.asp_rc_delivered_date)?.asp_rc_delivered_date;
-    const latestSoGrnTime = items.find((it) => it.so_grn_time)?.so_grn_time;
-    const latestRcRemark = items.find((it) => it.rc_receive_remark)?.rc_receive_remark;
+    const latestScreeningStatus = targetItems.find((it) => it.screening_status && it.screening_status !== 'Pending')?.screening_status;
+    const latestAspRcSo = targetItems.find((it) => it.asp_rc_shipping_order_code)?.asp_rc_shipping_order_code;
+    const latestAspRcShipDate = targetItems.find((it) => it.asp_rc_ship_date)?.asp_rc_ship_date;
+    const latestAspOutboundAwb = targetItems.find((it) => it.asp_outbound_awb)?.asp_outbound_awb;
+    const latestAspRcPickupDate = targetItems.find((it) => it.asp_rc_pickup_date)?.asp_rc_pickup_date;
+    const latestAspRcDeliveredDate = targetItems.find((it) => it.asp_rc_delivered_date)?.asp_rc_delivered_date;
+    const latestSoGrnTime = targetItems.find((it) => it.so_grn_time)?.so_grn_time;
+    const latestRcRemark = targetItems.find((it) => it.rc_receive_remark)?.rc_receive_remark;
 
     const derivedCrmStatus = deriveCrmStatusFromMotorolaStatus(
       latestMotoStatus,
@@ -1248,7 +1253,7 @@ class CRMDatabase {
       existingSo.total_declared_value = totalVal;
       existingSo.priority_tier = tier;
       existingSo.eway_bill_required = ewayRequired;
-      existingSo.total_items = items.reduce((sum, item) => sum + (item.deliver_qty || item.quantity || 1), 0);
+      existingSo.total_items = targetItems.reduce((sum, item) => sum + (item.deliver_qty || item.quantity || 1), 0);
       existingSo.motorola_status = latestMotoStatus || existingSo.motorola_status;
       existingSo.crm_status = existingSo.crm_status === 'Debit Posting' ? 'Debit Posting' : finalDerivedCrmStatus;
       if (existingSo.crm_status === 'Delivered to RC' || isCompletedJourneyStatus(latestMotoStatus) || allItemsDeliveredAtRc) {
@@ -1260,12 +1265,12 @@ class CRMDatabase {
       existingSo.city = city;
 
       // Update Leg 2 Outbound details from Motorola CRM
-      existingSo.asp_rc_shipping_order_code = latestAspRcSo || existingSo.asp_rc_shipping_order_code;
-      existingSo.asp_rc_ship_date = latestAspRcShipDate || existingSo.asp_rc_ship_date;
+      existingSo.asp_rc_shipping_order_code = latestAspRcSo;
+      existingSo.asp_rc_ship_date = latestAspRcShipDate;
       // Leg 2 AWB: preserve existing CWH assignment, never auto-populate from dump
-      existingSo.asp_rc_delivered_date = latestAspRcDeliveredDate || existingSo.asp_rc_delivered_date;
-      existingSo.so_grn_time = latestSoGrnTime || existingSo.so_grn_time;
-      existingSo.rc_receive_remark = latestRcRemark || existingSo.rc_receive_remark;
+      existingSo.asp_rc_delivered_date = latestAspRcDeliveredDate;
+      existingSo.so_grn_time = latestSoGrnTime;
+      existingSo.rc_receive_remark = latestRcRemark;
 
       existingSo.updated_at = new Date().toISOString();
 
@@ -1297,7 +1302,7 @@ class CRMDatabase {
         total_declared_value: totalVal,
         max_sr_age: maxAge,
         priority_tier: tier,
-        total_items: items.reduce((sum, item) => sum + (item.deliver_qty || item.quantity || 1), 0),
+        total_items: targetItems.reduce((sum, item) => sum + (item.deliver_qty || item.quantity || 1), 0),
         asp_rc_shipping_order_code: latestAspRcSo,
         asp_rc_ship_date: latestAspRcShipDate,
         asp_outbound_awb: undefined, // Blank until manually assigned by CWH

@@ -373,8 +373,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         o.crm_status === 'In Transit to RC' ||
         o.crm_status === 'CWH Shipped to RC' ||
         o.crm_status === 'Delivered to RC' ||
-        o.crm_status === 'Delivered to RC (Discrepancies)' ||
-        Boolean(o.asp_rc_shipping_order_code)
+        o.crm_status === 'Delivered to RC (Discrepancies)'
       ) {
         return false;
       }
