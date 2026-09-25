@@ -100,7 +100,14 @@ export function normalizeMotoStatusKey(status?: string | null): string {
   const clean = status.trim().toLowerCase().replace(/\s+/g, ' ');
   if (clean.includes('discrepanc')) return 'cwh received - discrepancies';
   if (clean.includes('negative') || clean.includes('(negative)')) return 'rc received asp(negative)';
-  if (clean.includes('rc received')) return 'rc received asp';
+  if (
+    clean.includes('rc received') ||
+    clean.includes('rcp received') ||
+    clean.includes('rc_received') ||
+    clean.includes('rcp_received')
+  ) {
+    return 'rc received asp';
+  }
   if (clean.includes('send to rc')) return 'asp send to rc';
   if (clean.includes('cwh received')) return 'cwh received';
   if (clean.includes('not return')) return 'not return';
@@ -109,10 +116,11 @@ export function normalizeMotoStatusKey(status?: string | null): string {
 }
 
 /**
- * Checks if a Motorola status represents a completed finished journey (Code 5: RC Received ASP).
+ * Checks if a Motorola status represents a completed finished journey (Code 5: RC Received ASP / RCP Received ASP).
  * Excludes RC Received ASP(Negative) which is a discrepancy.
  */
 export function isCompletedJourneyStatus(status?: string | null): boolean {
+  if (!status) return false;
   return normalizeMotoStatusKey(status) === 'rc received asp';
 }
 
