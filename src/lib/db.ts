@@ -1228,9 +1228,13 @@ class CRMDatabase {
       latestScreeningStatus
     );
 
+    const allItemsDeliveredAtRc = items.length > 0 && items.every(
+      (it) => isCompletedJourneyStatus(it.motorola_parts_status) || Boolean(it.so_grn_time) || Boolean(it.asp_rc_delivered_date)
+    );
+
     let finalDerivedCrmStatus = derivedCrmStatus;
     if (
-      (latestSoGrnTime || latestAspRcDeliveredDate) &&
+      allItemsDeliveredAtRc &&
       derivedCrmStatus !== 'Delivered to RC (Discrepancies)' &&
       derivedCrmStatus !== 'Debit Posting' &&
       derivedCrmStatus !== 'Discrepancies'
@@ -1247,7 +1251,7 @@ class CRMDatabase {
       existingSo.total_items = items.reduce((sum, item) => sum + (item.deliver_qty || item.quantity || 1), 0);
       existingSo.motorola_status = latestMotoStatus || existingSo.motorola_status;
       existingSo.crm_status = existingSo.crm_status === 'Debit Posting' ? 'Debit Posting' : finalDerivedCrmStatus;
-      if (existingSo.crm_status === 'Delivered to RC' || isCompletedJourneyStatus(latestMotoStatus) || latestSoGrnTime || latestAspRcDeliveredDate) {
+      if (existingSo.crm_status === 'Delivered to RC' || isCompletedJourneyStatus(latestMotoStatus) || allItemsDeliveredAtRc) {
         existingSo.pickup_status = 'Pickup Done';
       }
       // Leg 1 AWB: keep existing CWH assignment, do not auto-populate from dump
@@ -1272,7 +1276,7 @@ class CRMDatabase {
         );
       }
     } else {
-      const isDelivered = latestMotoStatus.toLowerCase().includes('received') || finalDerivedCrmStatus === 'Delivered to RC' || Boolean(latestSoGrnTime) || Boolean(latestAspRcDeliveredDate);
+      const isDelivered = latestMotoStatus.toLowerCase().includes('received') || finalDerivedCrmStatus === 'Delivered to RC' || allItemsDeliveredAtRc;
       const newSo: ShippingOrder = {
         id: `so-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
         so_code: soCode,
