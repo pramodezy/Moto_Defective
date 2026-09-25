@@ -64,6 +64,16 @@ export const BulkRcDispatchModal: React.FC<BulkRcDispatchModalProps> = ({
   const eligibleRcOrders = orders.filter((o) => {
     const moto = (o.motorola_status || '').toLowerCase();
     const crm = (o.crm_status || '').toLowerCase();
+    // Exclude completed/delivered RC orders
+    if (
+      o.crm_status === 'Delivered to RC' ||
+      o.crm_status === 'Delivered to RC (Discrepancies)' ||
+      moto.includes('rc received') ||
+      Boolean(o.asp_rc_delivered_date) ||
+      Boolean(o.so_grn_time)
+    ) {
+      return false;
+    }
     // Show orders in ASP Send to RC stage or orders flagged with an ASP-RC SO code
     return moto.includes('send to rc') || crm.includes('send to rc') || Boolean(o.asp_rc_shipping_order_code);
   });

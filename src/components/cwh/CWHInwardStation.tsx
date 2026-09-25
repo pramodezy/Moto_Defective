@@ -245,7 +245,13 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         o.crm_status === 'Pending Inward at CWH' ||
         o.crm_status === 'CWH to Create DC' ||
         o.crm_status === 'In Transit' ||
-        o.pickup_status === 'Pickup Done'
+        o.crm_status === 'Pickup Pending for RC' ||
+        o.crm_status === 'In Transit to RC' ||
+        o.crm_status === 'CWH Shipped to RC' ||
+        o.crm_status === 'Delivered to RC' ||
+        o.crm_status === 'Delivered to RC (Discrepancies)' ||
+        o.pickup_status === 'Pickup Done' ||
+        Boolean(o.asp_rc_shipping_order_code)
       ) return false;
       if (motoInfo.code === 1 || o.crm_status === 'CCI to Create DC') return false;
       const hasValidAwb = Boolean(
@@ -286,14 +292,20 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       // Exclude Not Return
       if (motoInfo.code === 1 || o.crm_status === 'CCI to Create DC') return false;
 
-      // Strictly exclude orders that have already reached In Transit, Delivered, or Inward
+      // Strictly exclude orders that have already reached In Transit, Delivered, Inward, or Outbound RC
       if (
         o.crm_status === 'In Transit' ||
         o.pickup_status === 'Pickup Done' ||
         o.crm_status === 'Delivered at CWH' ||
         o.crm_status === 'Pending Inward at CWH' ||
         o.crm_status === 'CWH to Create DC' ||
-        o.crm_status === 'Discrepancies'
+        o.crm_status === 'Pickup Pending for RC' ||
+        o.crm_status === 'In Transit to RC' ||
+        o.crm_status === 'CWH Shipped to RC' ||
+        o.crm_status === 'Delivered to RC' ||
+        o.crm_status === 'Delivered to RC (Discrepancies)' ||
+        o.crm_status === 'Discrepancies' ||
+        Boolean(o.asp_rc_shipping_order_code)
       ) {
         return false;
       }
@@ -323,13 +335,20 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       ) {
         return false;
       }
+      // Strictly exclude warehouse inward, DC creation, discrepancies, and any Outbound RC stages
       if (
         o.crm_status === 'Pending AWB Re-Issue' || 
         o.pickup_status === 'Pickup Not Done' ||
         o.crm_status === 'Delivered at CWH' ||
         o.crm_status === 'Pending Inward at CWH' ||
         o.crm_status === 'CWH to Create DC' ||
-        o.crm_status === 'Discrepancies'
+        o.crm_status === 'Pickup Pending for RC' ||
+        o.crm_status === 'In Transit to RC' ||
+        o.crm_status === 'CWH Shipped to RC' ||
+        o.crm_status === 'Delivered to RC' ||
+        o.crm_status === 'Delivered to RC (Discrepancies)' ||
+        o.crm_status === 'Discrepancies' ||
+        Boolean(o.asp_rc_shipping_order_code)
       ) {
         return false;
       }
@@ -345,7 +364,18 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       const moto = (o.motorola_status || '').toLowerCase();
       const motoInfo = getMotorolaStatusInfo(o.motorola_status);
       // Exclude RC stages
-      if (motoInfo.code === 4 || moto.includes('send to rc') || motoInfo.code >= 5 || moto.includes('rc received')) {
+      if (
+        motoInfo.code === 4 || 
+        moto.includes('send to rc') || 
+        motoInfo.code >= 5 || 
+        moto.includes('rc received') ||
+        o.crm_status === 'Pickup Pending for RC' ||
+        o.crm_status === 'In Transit to RC' ||
+        o.crm_status === 'CWH Shipped to RC' ||
+        o.crm_status === 'Delivered to RC' ||
+        o.crm_status === 'Delivered to RC (Discrepancies)' ||
+        Boolean(o.asp_rc_shipping_order_code)
+      ) {
         return false;
       }
       // Exclude Discrepancies
@@ -402,8 +432,14 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       ) {
         return false;
       }
-      // Option A: Strictly exclude completed RC Received ASP (leaves active card as per default rule)
-      if (motoInfo.code === 5 || moto.includes('rc received')) {
+      // Strictly exclude completed RC deliveries (leaves active outbound pipeline)
+      if (
+        motoInfo.code === 5 ||
+        moto.includes('rc received') ||
+        o.crm_status === 'Delivered to RC' ||
+        Boolean(o.asp_rc_delivered_date) ||
+        Boolean(o.so_grn_time)
+      ) {
         return false;
       }
       // Strictly include ASP Send to RC (Code 4) or active outbound stages

@@ -191,6 +191,12 @@ export function deriveCrmStatusFromMotorolaStatus(
 
   // 10 & 11. ASP Send To RC: Outbound leg from CWH to RC
   if (norm === 'asp send to rc') {
+    if (existingCrmStatus === 'Delivered to RC' || existingCrmStatus === 'Delivered to RC (Discrepancies)') {
+      return existingCrmStatus;
+    }
+    if (existingCrmStatus === 'CWH Shipped to RC') {
+      return 'CWH Shipped to RC';
+    }
     if (existingCrmStatus === 'In Transit to RC' || pickupStatus === 'Pickup Done') {
       return 'In Transit to RC';
     }

@@ -1228,6 +1228,16 @@ class CRMDatabase {
       latestScreeningStatus
     );
 
+    let finalDerivedCrmStatus = derivedCrmStatus;
+    if (
+      (latestSoGrnTime || latestAspRcDeliveredDate) &&
+      derivedCrmStatus !== 'Delivered to RC (Discrepancies)' &&
+      derivedCrmStatus !== 'Debit Posting' &&
+      derivedCrmStatus !== 'Discrepancies'
+    ) {
+      finalDerivedCrmStatus = 'Delivered to RC';
+    }
+
     if (existingSo) {
       if (latestDcCode) existingSo.delivery_challan_code = latestDcCode;
       existingSo.max_sr_age = maxAge;
@@ -1236,8 +1246,8 @@ class CRMDatabase {
       existingSo.eway_bill_required = ewayRequired;
       existingSo.total_items = items.reduce((sum, item) => sum + (item.deliver_qty || item.quantity || 1), 0);
       existingSo.motorola_status = latestMotoStatus || existingSo.motorola_status;
-      existingSo.crm_status = existingSo.crm_status === 'Debit Posting' ? 'Debit Posting' : derivedCrmStatus;
-      if (existingSo.crm_status === 'Delivered to RC' || isCompletedJourneyStatus(latestMotoStatus)) {
+      existingSo.crm_status = existingSo.crm_status === 'Debit Posting' ? 'Debit Posting' : finalDerivedCrmStatus;
+      if (existingSo.crm_status === 'Delivered to RC' || isCompletedJourneyStatus(latestMotoStatus) || latestSoGrnTime || latestAspRcDeliveredDate) {
         existingSo.pickup_status = 'Pickup Done';
       }
       // Leg 1 AWB: keep existing CWH assignment, do not auto-populate from dump
@@ -1262,7 +1272,7 @@ class CRMDatabase {
         );
       }
     } else {
-      const isDelivered = latestMotoStatus.toLowerCase().includes('received') || derivedCrmStatus === 'Delivered to RC';
+      const isDelivered = latestMotoStatus.toLowerCase().includes('received') || finalDerivedCrmStatus === 'Delivered to RC' || Boolean(latestSoGrnTime) || Boolean(latestAspRcDeliveredDate);
       const newSo: ShippingOrder = {
         id: `so-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
         so_code: soCode,
@@ -1271,7 +1281,7 @@ class CRMDatabase {
         state,
         city,
         motorola_status: latestMotoStatus,
-        crm_status: derivedCrmStatus,
+        crm_status: finalDerivedCrmStatus,
         excel_ref_awb: undefined,
         active_awb: undefined, // Blank until manually assigned by CWH
         courier: 'BlueDart Express',
