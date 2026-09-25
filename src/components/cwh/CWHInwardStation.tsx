@@ -381,7 +381,6 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       // Exclude Discrepancies
       if (
         o.crm_status === 'Discrepancies' ||
-        o.crm_status === 'Delivered to RC (Discrepancies)' ||
         motoInfo.code === 35 ||
         motoInfo.code === 6 ||
         moto.includes('discrepanc') ||
