@@ -1115,7 +1115,7 @@ class CRMDatabase {
     soCode: string, 
     deletedSoCodes?: string[],
     sourceItems?: DefectiveItem[]
-  ) {
+  ): ShippingOrder | undefined {
     const allCandidateItems = sourceItems || this.defectiveItems;
     const items = allCandidateItems.filter(
       (i) => (i.shipping_order_code || '').trim().toLowerCase() === soCode.trim().toLowerCase()
@@ -1124,21 +1124,27 @@ class CRMDatabase {
       (so) => (so.so_code || '').trim().toLowerCase() === soCode.trim().toLowerCase()
     );
 
-    // Prune retired SO-PENDING orders with 0 items
+    // Prune retired SO-PENDING orders with 0 items, or completed orders when !isCompletedSessionLoaded
     if (items.length === 0) {
-      if (existingSo && soCode.startsWith('SO-PENDING-')) {
-        this.shippingOrders = this.shippingOrders.filter(
-          (so) => (so.so_code || '').trim().toLowerCase() !== soCode.trim().toLowerCase()
-        );
-        deletedSoCodes?.push(soCode);
-        if (isSupabaseConfigured && supabase) {
-          supabase.from('shipping_orders').delete().eq('so_code', soCode).then(() => {});
+      if (existingSo) {
+        if (soCode.startsWith('SO-PENDING-')) {
+          this.shippingOrders = this.shippingOrders.filter(
+            (so) => (so.so_code || '').trim().toLowerCase() !== soCode.trim().toLowerCase()
+          );
+          deletedSoCodes?.push(soCode);
+          if (isSupabaseConfigured && supabase) {
+            supabase.from('shipping_orders').delete().eq('so_code', soCode).then(() => {});
+          }
+        } else if (!this.isCompletedSessionLoaded) {
+          this.shippingOrders = this.shippingOrders.filter(
+            (so) => (so.so_code || '').trim().toLowerCase() !== soCode.trim().toLowerCase()
+          );
         }
       }
-      return;
+      return existingSo;
     }
 
-    if (!existingSo && items.length === 0) return;
+    if (!existingSo && items.length === 0) return undefined;
 
     let maxAge = 0;
     let totalVal = 0;
@@ -1316,7 +1322,9 @@ class CRMDatabase {
       if (this.isCompletedSessionLoaded || !isCompletedJourneyStatus(latestMotoStatus)) {
         this.shippingOrders.unshift(newSo);
       }
+      return newSo;
     }
+    return existingSo;
   }
 
   // --- UPSERT DEFECTIVE MASTER (Dual-Status Ingestion Engine) ---
@@ -1469,14 +1477,8 @@ class CRMDatabase {
 
     // Trigger B: Recalculate each affected parent shipping order with complete item context
     affectedSoCodes.forEach((soCode) => {
-      const beforeSo = this.shippingOrders.find(
-        (so) => (so.so_code || '').trim().toLowerCase() === soCode.trim().toLowerCase()
-      );
-      this.recalculateShippingOrder(soCode, deletedSoCodes, allProcessedItems);
-      const afterSo = beforeSo || this.shippingOrders.find(
-        (so) => (so.so_code || '').trim().toLowerCase() === soCode.trim().toLowerCase()
-      );
-      if (afterSo) touchedOrders.push(afterSo);
+      const updatedSo = this.recalculateShippingOrder(soCode, deletedSoCodes, allProcessedItems);
+      if (updatedSo) touchedOrders.push(updatedSo);
     });
 
     // Prune completed items from active this.defectiveItems if !this.isCompletedSessionLoaded

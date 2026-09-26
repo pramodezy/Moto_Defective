@@ -17,7 +17,12 @@ import {
 } from 'lucide-react';
 import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile, AWBHistory } from '../../types/crm';
 import { formatINR, getAgeingBucket, parseDateSafe } from '../../lib/utils';
-import { getUnifiedPickupStatus } from '../../lib/motorolaStatus';
+import { 
+  getUnifiedPickupStatus,
+  deriveCrmStatusFromMotorolaStatus,
+  normalizeMotoStatusKey,
+  isCompletedJourneyStatus
+} from '../../lib/motorolaStatus';
 import { crmDb } from '../../lib/db';
 import { toast } from 'sonner';
 
@@ -75,6 +80,17 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
     });
     return map;
   }, [items]);
+
+  // Map orders by SO code for O(1) lookup
+  const ordersByCode = useMemo(() => {
+    const map = new Map<string, ShippingOrder>();
+    orders.forEach((so) => {
+      if (so.so_code) {
+        map.set(so.so_code.trim().toUpperCase(), so);
+      }
+    });
+    return map;
+  }, [orders]);
 
   // Order age map (days calculated from SO Close Time or max_sr_age)
   const orderAgeMap = useMemo(() => {
@@ -181,7 +197,7 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
   // Generate granular line-item records (1 row per defective part)
   const lineItemRows = useMemo(() => {
     const list: {
-      so: ShippingOrder;
+      so?: ShippingOrder;
       item?: DefectiveItem;
       soCode: string;
       dcCode: string;
@@ -207,80 +223,136 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
       ewayBillNumber: string;
     }[] = [];
 
-    filteredOrders.forEach((so) => {
-      const soItems = itemsBySo.get(so.so_code.toUpperCase()) || [];
-      const st = stationMap.get(so.station_code);
-      const ageDays = orderAgeMap.get(so.so_code.toUpperCase()) ?? Number(so.max_sr_age || 0);
-      const ageBucket = getAgeingBucket(ageDays);
-      const pickupStatus = getUnifiedPickupStatus(so);
-      const awb = so.active_awb || so.excel_ref_awb || '';
-      const dcCode = so.delivery_challan_code || '';
+    const now = Date.now();
 
-      if (soItems.length === 0) {
-        // Even if no defective parts catalog row mapped, export order-level row
-        list.push({
-          so,
-          soCode: so.so_code,
-          dcCode,
-          partNumber: 'N/A (Order Level)',
-          description: `Consignment of ${so.total_items || 1} units`,
-          quantity: so.total_items || 1,
-          deliverQty: so.total_items || 1,
-          unitPrice: (so.total_declared_value || 0) / Math.max(1, so.total_items || 1),
-          lineValue: so.total_declared_value || 0,
-          motoStatus: so.motorola_status || 'CCI Send To CWH',
-          crmStatus: so.crm_status,
-          pickupStatus,
-          awbNumber: awb,
-          courier: so.courier || 'BlueDart Express',
-          stationCode: so.station_code,
-          stationName: st?.station_name || `Service Center ${so.station_code}`,
-          region: st?.region || so.region || 'West',
-          city: st?.city || so.city || '',
-          state: st?.state || so.state || '',
-          ageDays,
-          ageBucket,
-          closeTime: so.created_at ? so.created_at.slice(0, 10) : '',
-          ewayBillNumber: so.eway_bill_number || '',
-        });
-      } else {
-        soItems.forEach((it) => {
-          const partVal = it.value !== undefined && it.value !== null ? it.value : (it.estimated_value || 8000);
-          const partQty = it.deliver_qty || it.quantity || 1;
-          const unitP = it.deliver_qty && it.deliver_qty > 0 ? (partVal / it.deliver_qty) : (it.estimated_value || 8000);
+    items.forEach((it) => {
+      const soCode = (it.shipping_order_code || '').trim();
+      const so = ordersByCode.get(soCode.toUpperCase());
+      const stationCode = it.station_code || so?.station_code || '068';
+      const st = stationMap.get(stationCode);
+      const effectiveRegion = st?.region || it.region || so?.region || 'West';
 
-          list.push({
-            so,
-            item: it,
-            soCode: so.so_code,
-            dcCode: it.delivery_challan_code || dcCode,
-            partNumber: it.new_part_number || it.sr_part_number || 'UNKNOWN_PART',
-            description: it.part_description || it.sr_model_name || '',
-            quantity: it.quantity || 1,
-            deliverQty: partQty,
-            unitPrice: Math.round(unitP * 100) / 100,
-            lineValue: Math.round(partVal * 100) / 100,
-            motoStatus: it.motorola_parts_status || so.motorola_status || 'CCI Send To CWH',
-            crmStatus: so.crm_status,
-            pickupStatus,
-            awbNumber: awb,
-            courier: so.courier || 'BlueDart Express',
-            stationCode: so.station_code,
-            stationName: st?.station_name || `Service Center ${so.station_code}`,
-            region: st?.region || so.region || 'West',
-            city: st?.city || so.city || '',
-            state: st?.state || so.state || '',
-            ageDays,
-            ageBucket,
-            closeTime: it.sr_close_timestamp || so.created_at?.slice(0, 10) || '',
-            ewayBillNumber: so.eway_bill_number || '',
-          });
-        });
+      // 1. Station Filter
+      if (selectedStation !== 'ALL' && stationCode !== selectedStation) {
+        return;
       }
+
+      // 2. Region Filter
+      if (selectedRegion !== 'ALL' && effectiveRegion.toUpperCase() !== selectedRegion.toUpperCase()) {
+        return;
+      }
+
+      // Determine age
+      let ageDays = 0;
+      if (it.sr_close_timestamp) {
+        const d = parseDateSafe(it.sr_close_timestamp);
+        if (d) {
+          ageDays = Math.max(0, Math.floor((now - d.getTime()) / (1000 * 60 * 60 * 24)));
+        }
+      }
+      if (ageDays === 0 && so) {
+        ageDays = orderAgeMap.get(so.so_code.toUpperCase()) ?? Number(so.max_sr_age || 0);
+      }
+      const ageBucket = getAgeingBucket(ageDays);
+
+      // 3. Priority / Ageing Filter
+      if (selectedPriority !== 'ALL' && ageBucket !== selectedPriority) {
+        return;
+      }
+
+      const motoStatus = it.motorola_parts_status || so?.motorola_status || 'CCI Send To CWH';
+      const crmStatus = so?.crm_status || deriveCrmStatusFromMotorolaStatus(
+        motoStatus,
+        it.excel_awb || so?.active_awb || so?.excel_ref_awb
+      );
+
+      // 4. Logistics Status Filter
+      if (selectedStatus !== 'ALL') {
+        const normMoto = normalizeMotoStatusKey(motoStatus);
+        if (selectedStatus === 'PENDING_AWB') {
+          if (crmStatus !== 'Pending AWB') return;
+        } else if (selectedStatus === 'PICKUP_PENDING') {
+          if (crmStatus !== 'Pickup Pending') return;
+        } else if (selectedStatus === 'IN_TRANSIT') {
+          if (crmStatus !== 'In Transit') return;
+        } else if (selectedStatus === 'DELIVERED_AT_CWH') {
+          if (crmStatus !== 'Delivered at CWH') return;
+        } else if (selectedStatus === 'CWH_TO_CREATE_DC') {
+          if (crmStatus !== 'CWH to Create DC' && normMoto !== 'cwh received') return;
+        } else if (selectedStatus === 'OUTBOUND_RC') {
+          if (
+            crmStatus !== 'Pickup Pending for RC' &&
+            crmStatus !== 'In Transit to RC' &&
+            crmStatus !== 'Delivered to RC' &&
+            crmStatus !== 'Delivered to RC (Discrepancies)' &&
+            normMoto !== 'asp send to rc'
+          ) return;
+        } else if (selectedStatus === 'DEBIT_POSTING') {
+          if (crmStatus !== 'Debit Posting') return;
+        } else if (crmStatus !== selectedStatus && normMoto !== normalizeMotoStatusKey(selectedStatus)) {
+          return;
+        }
+      }
+
+      // 5. Search Filter
+      if (searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
+        const dcCode = it.delivery_challan_code || so?.delivery_challan_code || '';
+        const awb = so?.active_awb || so?.excel_ref_awb || it.excel_awb || '';
+        const stationName = st?.station_name || `Service Center ${stationCode}`;
+
+        const matches =
+          soCode.toLowerCase().includes(q) ||
+          dcCode.toLowerCase().includes(q) ||
+          awb.toLowerCase().includes(q) ||
+          stationCode.toLowerCase().includes(q) ||
+          stationName.toLowerCase().includes(q) ||
+          (it.sr_number && it.sr_number.toLowerCase().includes(q)) ||
+          (it.sr_part_number && it.sr_part_number.toLowerCase().includes(q)) ||
+          (it.new_part_number && it.new_part_number.toLowerCase().includes(q)) ||
+          (it.part_description && it.part_description.toLowerCase().includes(q)) ||
+          (it.sr_model_name && it.sr_model_name.toLowerCase().includes(q));
+
+        if (!matches) return;
+      }
+
+      const partVal = it.value !== undefined && it.value !== null ? it.value : (it.estimated_value || 8000);
+      const partQty = it.deliver_qty || it.quantity || 1;
+      const unitP = it.deliver_qty && it.deliver_qty > 0 ? (partVal / it.deliver_qty) : (it.estimated_value || 8000);
+      const pickupStatus = so ? getUnifiedPickupStatus(so) : (crmStatus === 'Delivered to RC' || isCompletedJourneyStatus(motoStatus) ? 'Pickup Done' : 'Pickup Pending');
+      const awb = so?.active_awb || so?.excel_ref_awb || it.excel_awb || '';
+      const dcCode = it.delivery_challan_code || so?.delivery_challan_code || '';
+
+      list.push({
+        so,
+        item: it,
+        soCode: soCode || (so ? so.so_code : 'N/A'),
+        dcCode,
+        partNumber: it.new_part_number || it.sr_part_number || 'UNKNOWN_PART',
+        description: it.part_description || it.sr_model_name || '',
+        quantity: it.quantity || 1,
+        deliverQty: partQty,
+        unitPrice: Math.round(unitP * 100) / 100,
+        lineValue: Math.round(partVal * 100) / 100,
+        motoStatus,
+        crmStatus,
+        pickupStatus,
+        awbNumber: awb,
+        courier: so?.courier || 'BlueDart Express',
+        stationCode,
+        stationName: st?.station_name || `Service Center ${stationCode}`,
+        region: effectiveRegion,
+        city: st?.city || it.city || so?.city || '',
+        state: st?.state || it.state || so?.state || '',
+        ageDays,
+        ageBucket,
+        closeTime: it.sr_close_timestamp || so?.created_at?.slice(0, 10) || '',
+        ewayBillNumber: so?.eway_bill_number || '',
+      });
     });
 
     return list;
-  }, [filteredOrders, itemsBySo, stationMap, orderAgeMap]);
+  }, [items, ordersByCode, stationMap, orderAgeMap, selectedStation, selectedRegion, selectedPriority, selectedStatus, searchQuery]);
 
   // Map AWB History by SO
   const awbHistoryBySo = useMemo(() => {
@@ -409,7 +481,8 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
 
   // Export to Excel
   const handleExportToExcel = () => {
-    if (filteredOrders.length === 0) {
+    const recordsCount = reportType === 'line_item' ? lineItemRows.length : reportType === 'so_summary' ? filteredOrders.length : awbHistoryRows.length;
+    if (recordsCount === 0) {
       toast.warning('No records to export matching the selected filters.');
       return;
     }
@@ -431,7 +504,7 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
           'CRM Status': r.crmStatus,
           'Pickup Status': r.pickupStatus,
           'AWB Number': r.awbNumber || 'Pending AWB',
-          'Token Issue Date': r.so.token_issue_date || (r.so.pickup_date ? r.so.pickup_date.slice(0, 10) : '') || 'N/A',
+          'Token Issue Date': r.so?.token_issue_date || (r.so?.pickup_date ? r.so.pickup_date.slice(0, 10) : '') || 'N/A',
           'Courier Partner': r.courier,
           'Origin Station Code': r.stationCode,
           'Station Name': r.stationName,
@@ -912,9 +985,9 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
                             </div>
                             <div className="text-[10px] text-slate-600 font-sans flex items-center gap-1.5 mt-0.5">
                               <span>{row.courier}</span>
-                              {(row.so.token_issue_date || row.so.pickup_date) && (
+                              {(row.so?.token_issue_date || row.so?.pickup_date) && (
                                 <span className="text-slate-400 font-mono text-[9px]">
-                                  • {(row.so.token_issue_date || row.so.pickup_date || '').slice(0, 10)}
+                                  • {(row.so?.token_issue_date || row.so?.pickup_date || '').slice(0, 10)}
                                 </span>
                               )}
                             </div>
