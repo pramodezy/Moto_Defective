@@ -18,7 +18,7 @@ import {
   INITIAL_AUDIT_LOGS 
 } from '../data/seedData';
 import { supabase, isSupabaseConfigured } from './supabase';
-import { deriveCrmStatusFromMotorolaStatus, isCompletedJourneyStatus, normalizeMotoStatusKey, getMotorolaStatusInfo } from './motorolaStatus';
+import { deriveCrmStatusFromMotorolaStatus, isCompletedJourneyStatus, normalizeMotoStatusKey, getMotorolaStatusInfo, resolveConsignmentMotorolaStatus } from './motorolaStatus';
 import { parseDateSafe } from './utils';
 import { ShippingOrderItemRow } from '../services/shippingOrderIngestor';
 import { 
@@ -635,6 +635,45 @@ class CRMDatabase {
         this.defectiveItems = activeMappedItems;
       }
 
+      // Auto-reconcile parent consignment motorola_status with constituent line items
+      const ordersToUpdateInSupabase: { id: string; so_code: string; motorola_status: string }[] = [];
+      const itemsBySoCode = new Map<string, DefectiveItem[]>();
+      this.defectiveItems.forEach((it) => {
+        if (it.shipping_order_code) {
+          const k = it.shipping_order_code.trim().toUpperCase();
+          const arr = itemsBySoCode.get(k) || [];
+          arr.push(it);
+          itemsBySoCode.set(k, arr);
+        }
+      });
+
+      this.shippingOrders.forEach((so) => {
+        const soItems = itemsBySoCode.get(so.so_code.trim().toUpperCase());
+        if (soItems && soItems.length > 0) {
+          const resolvedMoto = resolveConsignmentMotorolaStatus(soItems, so.motorola_status);
+          const currRank = getMotorolaStatusInfo(so.motorola_status).code;
+          const newRank = getMotorolaStatusInfo(resolvedMoto).code;
+          if (newRank > currRank || (so.motorola_status !== resolvedMoto && newRank >= currRank)) {
+            so.motorola_status = resolvedMoto;
+            ordersToUpdateInSupabase.push({ id: so.id, so_code: so.so_code, motorola_status: resolvedMoto });
+          }
+        }
+      });
+
+      if (ordersToUpdateInSupabase.length > 0 && isSupabaseConfigured && supabase) {
+        const client = supabase;
+        (async () => {
+          for (let i = 0; i < ordersToUpdateInSupabase.length; i += 50) {
+            const batch = ordersToUpdateInSupabase.slice(i, i + 50);
+            await Promise.all(
+              batch.map((b) =>
+                client.from('shipping_orders').update({ motorola_status: b.motorola_status, updated_at: new Date().toISOString() }).eq('id', b.id)
+              )
+            );
+          }
+        })().catch((err) => console.warn('Background SO reconciliation sync notice:', err));
+      }
+
       if (logRes.data) {
         this.auditLogs = logRes.data.map((l: any) => ({
           id: l.id,
@@ -1172,37 +1211,7 @@ class CRMDatabase {
     });
 
     // Determine overall Motorola status across all constituent items:
-    // 1. If any item has discrepancy at RC or CWH, flag discrepancy
-    // 2. If all items are completed (RC Received ASP), mark order completed
-    // 3. Otherwise, set status to highest active stage (ASP Send to RC > CWH Received > CCI Send to CWH > Not Return)
-    let latestMotoStatus = 'CCI Send To CWH';
-    const anyDiscrepancy = items.find((it) => {
-      const k = normalizeMotoStatusKey(it.motorola_parts_status);
-      return k === 'rc received asp(negative)' || k === 'cwh received - discrepancies';
-    });
-    const allCompleted = items.length > 0 && items.every((it) => isCompletedJourneyStatus(it.motorola_parts_status));
-
-    if (anyDiscrepancy) {
-      latestMotoStatus = anyDiscrepancy.motorola_parts_status || 'RC Received ASP(Negative)';
-    } else if (allCompleted) {
-      latestMotoStatus = 'RC Received ASP';
-    } else {
-      const activeItems = items.filter((it) => !isCompletedJourneyStatus(it.motorola_parts_status));
-      if (activeItems.length > 0) {
-        let highestRank = 0;
-        let chosenStatus = activeItems[0].motorola_parts_status || 'CCI Send To CWH';
-        for (const it of activeItems) {
-          const info = getMotorolaStatusInfo(it.motorola_parts_status);
-          if (info.code > highestRank) {
-            highestRank = info.code;
-            chosenStatus = it.motorola_parts_status;
-          }
-        }
-        latestMotoStatus = chosenStatus;
-      } else {
-        latestMotoStatus = 'RC Received ASP';
-      }
-    }
+    const latestMotoStatus = resolveConsignmentMotorolaStatus(items, existingSo?.motorola_status);
 
     // Priority Tier: 1: >25D (Super Critical), 2: 16-25D (Critical), 3: 8-15D (High), 4: 0-7D (Low)
     const tier = maxAge > 25 ? 1 : maxAge >= 16 ? 2 : maxAge >= 8 ? 3 : 4;

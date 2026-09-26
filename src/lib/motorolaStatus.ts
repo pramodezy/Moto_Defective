@@ -136,6 +136,49 @@ export function getMotorolaStatusInfo(status?: string | null): MotorolaStatusDef
 }
 
 /**
+ * Resolves the overall Motorola status of a consignment across its constituent line items.
+ * Prioritizes discrepancies, then completed status, and otherwise selects the highest active operational stage.
+ */
+export function resolveConsignmentMotorolaStatus(
+  items?: DefectiveItem[] | null,
+  fallbackStatus: string = 'CCI Send To CWH'
+): string {
+  if (!items || items.length === 0) return fallbackStatus;
+
+  // 1. Discrepancy at RC or CWH takes top operational precedence
+  const anyDiscrepancy = items.find((it) => {
+    const k = normalizeMotoStatusKey(it.motorola_parts_status);
+    return k === 'rc received asp(negative)' || k === 'cwh received - discrepancies';
+  });
+  if (anyDiscrepancy) {
+    return anyDiscrepancy.motorola_parts_status || 'RC Received ASP(Negative)';
+  }
+
+  // 2. If all constituent items are completed (RC Received ASP)
+  const allCompleted = items.length > 0 && items.every((it) => isCompletedJourneyStatus(it.motorola_parts_status));
+  if (allCompleted) {
+    return 'RC Received ASP';
+  }
+
+  // 3. Otherwise, pick highest operational stage among active items (ASP Send to RC > CWH Received > CCI Send to CWH > Not Return)
+  const activeItems = items.filter((it) => !isCompletedJourneyStatus(it.motorola_parts_status));
+  if (activeItems.length > 0) {
+    let highestRank = getMotorolaStatusInfo(fallbackStatus).code || 0;
+    let chosenStatus = fallbackStatus;
+    for (const it of activeItems) {
+      const info = getMotorolaStatusInfo(it.motorola_parts_status);
+      if (info.code > highestRank) {
+        highestRank = info.code;
+        chosenStatus = it.motorola_parts_status;
+      }
+    }
+    return chosenStatus;
+  }
+
+  return 'RC Received ASP';
+}
+
+/**
  * Checks whether an AWB string is a placeholder/dummy value from Motorola exports
  * (e.g. Virtual DC, 0000, 12345, NA, By Hand, Road, etc.)
  */

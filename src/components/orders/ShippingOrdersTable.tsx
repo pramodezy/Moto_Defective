@@ -33,7 +33,8 @@ import {
   isCompletedJourneyStatus, 
   normalizeMotoStatusKey,
   getUnifiedStageDetails,
-  getUnifiedPickupStatus
+  getUnifiedPickupStatus,
+  resolveConsignmentMotorolaStatus
 } from '../../lib/motorolaStatus';
 
 interface ShippingOrdersTableProps {
@@ -497,8 +498,9 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {paginatedOrders.map((so) => {
                 const station = stationMap.get(so.station_code);
-                const orderItems = items.filter((i) => i.shipping_order_code === so.so_code);
-                const motoInfo = getMotorolaStatusInfo(so.motorola_status);
+                const orderItems = items.filter((i) => i.shipping_order_code === so.so_code || (i.shipping_order_id && i.shipping_order_id === so.id));
+                const effectiveMoto = resolveConsignmentMotorolaStatus(orderItems, so.motorola_status);
+                const motoInfo = getMotorolaStatusInfo(effectiveMoto);
 
                 return (
                   <tr key={so.id} className="hover:bg-slate-50 transition-colors group">

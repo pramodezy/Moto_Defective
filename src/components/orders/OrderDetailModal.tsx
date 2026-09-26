@@ -28,7 +28,8 @@ import {
   getCciActionDetails,
   getCwhActionDetails,
   getUnifiedStageDetails,
-  getUnifiedPickupStatus
+  getUnifiedPickupStatus,
+  resolveConsignmentMotorolaStatus
 } from '../../lib/motorolaStatus';
 
 interface OrderDetailModalProps {
@@ -181,7 +182,8 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   const totalUnitCount = orderItems.length > 0 
     ? orderItems.reduce((s, i) => s + (i.deliver_qty || i.quantity || 1), 0) 
     : (order.total_items || 1);
-  const motoInfo = getMotorolaStatusInfo(order.motorola_status);
+  const effectiveMoto = resolveConsignmentMotorolaStatus(orderItems, order.motorola_status);
+  const motoInfo = getMotorolaStatusInfo(effectiveMoto);
   const needsAwb = isAwbIssueRequired(order);
   const stage = getUnifiedStageDetails(order);
   const unifiedPickup = getUnifiedPickupStatus(order);
@@ -544,7 +546,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
               <span className="text-xs text-slate-500">Motorola Parts Status</span>
               <div className="text-xs font-semibold text-slate-800 mt-1 truncate" title={motoInfo.meaning}>
-                {order.motorola_status || 'CCI Send To CWH'}
+                {effectiveMoto || 'CCI Send To CWH'}
               </div>
               <span className="text-[10px] text-slate-500">{motoInfo.meaning}</span>
             </div>

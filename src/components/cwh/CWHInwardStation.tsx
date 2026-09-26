@@ -33,7 +33,8 @@ import {
   isDummyAwb,
   getCwhActionDetails,
   getUnifiedStageDetails,
-  getUnifiedPickupStatus
+  getUnifiedPickupStatus,
+  resolveConsignmentMotorolaStatus
 } from '../../lib/motorolaStatus';
 import { BulkAwbUploadModal } from './BulkAwbUploadModal';
 import { BulkRcDispatchModal } from './BulkRcDispatchModal';
@@ -1003,7 +1004,8 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
                     normalize(i.shipping_order_code) === normalize(so.so_code) ||
                     (i.shipping_order_id && i.shipping_order_id === so.id)
                 );
-                const motoInfo = getMotorolaStatusInfo(so.motorola_status);
+                const effectiveMotoStatus = resolveConsignmentMotorolaStatus(orderItems, so.motorola_status);
+                const motoInfo = getMotorolaStatusInfo(effectiveMotoStatus);
                 const isReissue = so.crm_status === 'Pending AWB Re-Issue' || so.pickup_status === 'Pickup Not Done';
                 const isDiscrepancy = 
                   so.crm_status === 'Discrepancies' || 
