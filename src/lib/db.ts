@@ -2073,7 +2073,6 @@ class CRMDatabase {
         // Cascade deactivation/reactivation to station user profiles
         await supabase.from('profiles').update({
           is_active: isActive,
-          updated_at: new Date().toISOString(),
         }).eq('station_code', stationCode).eq('role', 'CCI');
       } catch (err: any) {
         cloudError = err.message || 'Supabase update error';

@@ -1,5 +1,14 @@
 import { UserProfile, UserRole } from '../types/crm';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import bcrypt from 'bcryptjs';
+
+function hashPasswordForSupabase(pwd: string): string {
+  let hash = bcrypt.hashSync(pwd, 10);
+  if (hash.startsWith('$2b$')) {
+    hash = '$2a$' + hash.slice(4);
+  }
+  return hash;
+}
 
 const LOCAL_USERS_STORAGE_KEY = 'moto_crm_user_profiles_v1';
 
@@ -130,6 +139,7 @@ export async function createNewUser(params: {
       }
 
       // 2. Direct insert fallback if RPC isn't loaded
+      const hash = hashPasswordForSupabase(password);
       const { data: insertData, error: insertError } = await supabase
         .from('profiles')
         .insert({
@@ -137,6 +147,7 @@ export async function createNewUser(params: {
           full_name: fullName,
           role,
           station_code: stationCode || null,
+          password_hash: hash,
           is_active: true,
         })
         .select()
@@ -196,19 +207,51 @@ export async function resetUserPassword(
 
   if (isSupabaseConfigured && supabase) {
     try {
+      // 1. Try dedicated RPC function first if migration has been executed
       const { data, error } = await supabase.rpc('admin_reset_user_password', {
         p_username: trimmed,
         p_new_password: pwd,
       });
 
-      if (error) {
+      if (!error && data?.success !== false) {
+        return { success: true, message: data?.message || `Password reset successfully for ${trimmed}!` };
+      }
+
+      // If error is NOT a missing RPC function error (PGRST202), return it
+      if (error && error.code !== 'PGRST202' && !error.message?.includes('admin_reset_user_password')) {
         return { success: false, error: error.message };
       }
-      if (data && data.success === false) {
-        return { success: false, error: data.error || 'Failed to reset password.' };
+
+      // 2. Client-side bcrypt fallback: generates standard $2a$ hash for Supabase PostgreSQL crypt()
+      const hash = hashPasswordForSupabase(pwd);
+      const { data: updateData, error: updateError } = await supabase
+        .from('profiles')
+        .update({ password_hash: hash })
+        .ilike('username', trimmed)
+        .select('username');
+
+      if (updateError) {
+        return { success: false, error: updateError.message };
       }
-      return { success: true, message: data?.message || `Password reset successfully for ${trimmed}!` };
+
+      if (!updateData || updateData.length === 0) {
+        return { success: false, error: `User "${trimmed}" not found in database profiles.` };
+      }
+
+      return { success: true, message: `Password reset successfully for ${trimmed}!` };
     } catch (err: any) {
+      // Fallback inside catch as well
+      try {
+        const hash = hashPasswordForSupabase(pwd);
+        const { error: fallbackError } = await supabase
+          .from('profiles')
+          .update({ password_hash: hash })
+          .ilike('username', trimmed);
+
+        if (!fallbackError) {
+          return { success: true, message: `Password reset successfully for ${trimmed}!` };
+        }
+      } catch {}
       return { success: false, error: err.message || 'Failed to communicate with authentication database.' };
     }
   }
@@ -224,10 +267,11 @@ export async function toggleUserStatus(
 
   if (isSupabaseConfigured && supabase) {
     try {
+      // Avoid sending updated_at directly to profiles in case column hasn't been added yet
       const { error } = await supabase
         .from('profiles')
-        .update({ is_active: isActive, updated_at: new Date().toISOString() })
-        .eq('username', trimmed);
+        .update({ is_active: isActive })
+        .ilike('username', trimmed);
 
       if (error) {
         return { success: false, error: error.message };
