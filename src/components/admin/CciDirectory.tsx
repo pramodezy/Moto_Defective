@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { 
   Store, 
@@ -7,16 +7,25 @@ import {
   User, 
   Phone, 
   CheckCircle2, 
+  XCircle,
   Download, 
+  Upload,
+  Plus,
+  Edit2,
   ChevronLeft, 
-  ChevronRight,
-  Building2,
-  X
+  ChevronRight, 
+  X,
+  FileSpreadsheet,
+  AlertCircle
 } from 'lucide-react';
-import { CCIMaster } from '../../types/crm';
+import { CCIMaster, UserProfile } from '../../types/crm';
+import { crmDb } from '../../lib/db';
+import { parseRegionMappingFile, generateSampleRegionTemplateCSV } from '../../services/regionMappingIngestor';
+import { toast } from 'sonner';
 
 interface CciDirectoryProps {
   stations: CCIMaster[];
+  currentUser?: UserProfile;
   onSelectStation?: (stationCode: string) => void;
 }
 
@@ -38,28 +47,58 @@ const getRegionBadge = (region?: string) => {
   }
 };
 
-export const CciDirectory: React.FC<CciDirectoryProps> = ({ stations, onSelectStation }) => {
+const STANDARD_REGIONS = ['North', 'South', 'West', 'East', 'Central'];
+
+export const CciDirectory: React.FC<CciDirectoryProps> = ({ 
+  stations, 
+  currentUser, 
+  onSelectStation 
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRegion, setSelectedRegion] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
+  // Modals state
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingStation, setEditingStation] = useState<CCIMaster | null>(null);
+  const [statusToggleStation, setStatusToggleStation] = useState<CCIMaster | null>(null);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+
+  // Form states - Add / Edit
+  const [formStationCode, setFormStationCode] = useState('');
+  const [formStationName, setFormStationName] = useState('');
+  const [formRegion, setFormRegion] = useState('West');
+  const [formState, setFormState] = useState('');
+  const [formCity, setFormCity] = useState('');
+  const [formContactPerson, setFormContactPerson] = useState('');
+  const [formContactPhone, setFormContactPhone] = useState('');
+  const [isSubmittingForm, setIsSubmittingForm] = useState(false);
+
+  // Upload Excel states
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [isParsingExcel, setIsParsingExcel] = useState(false);
+  const [parsedPreview, setParsedPreview] = useState<{ stations: CCIMaster[]; totalRows: number } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Available regions from dataset
   const availableRegions = useMemo(() => {
     const regSet = new Set<string>();
     stations.forEach((st) => {
       if (st.region?.trim()) regSet.add(st.region.trim());
     });
-    if (regSet.size === 0) {
-      ['Central', 'East', 'North', 'South', 'West'].forEach((r) => regSet.add(r));
-    }
+    STANDARD_REGIONS.forEach((r) => regSet.add(r));
     return Array.from(regSet).sort();
   }, [stations]);
 
+  // Filtering
   const filteredStations = useMemo(() => {
     return stations.filter((st) => {
-      if (selectedRegion !== 'ALL' && st.region !== selectedRegion) {
-        return false;
-      }
+      if (selectedRegion !== 'ALL' && st.region !== selectedRegion) return false;
+      if (statusFilter === 'ACTIVE' && st.is_active === false) return false;
+      if (statusFilter === 'INACTIVE' && st.is_active !== false) return false;
+
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
         const matchCode = st.station_code.toLowerCase().includes(q);
@@ -75,12 +114,12 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({ stations, onSelectSt
       }
       return true;
     });
-  }, [stations, selectedRegion, searchTerm]);
+  }, [stations, selectedRegion, statusFilter, searchTerm]);
 
   // Reset to page 1 when search or region filter changes
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedRegion, pageSize]);
+  }, [searchTerm, selectedRegion, statusFilter, pageSize]);
 
   const totalPages = Math.ceil(filteredStations.length / pageSize) || 1;
   const paginatedStations = useMemo(() => {
@@ -88,6 +127,15 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({ stations, onSelectSt
     return filteredStations.slice(start, start + pageSize);
   }, [filteredStations, currentPage, pageSize]);
 
+  // Stats calculation
+  const stats = useMemo(() => {
+    const total = stations.length;
+    const active = stations.filter((s) => s.is_active !== false).length;
+    const inactive = stations.filter((s) => s.is_active === false).length;
+    return { total, active, inactive };
+  }, [stations]);
+
+  // Handle Export to Excel
   const handleExportExcel = () => {
     const exportData = filteredStations.map((st) => ({
       'Station Code': st.station_code,
@@ -98,28 +146,247 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({ stations, onSelectSt
       'State': st.state || '',
       'Contact Person': st.contact_person || '',
       'Contact Phone': st.contact_phone || '',
-      'Status': 'Active Node',
+      'Status': st.is_active !== false ? 'Active' : 'Inactive',
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'CCI Stations');
-    XLSX.writeFile(wb, `Motorola_CCI_Stations_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(wb, `Motorola_CCI_Centers_${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast.success(`Exported ${filteredStations.length} CCI center records to Excel.`);
+  };
+
+  // Open Add Modal
+  const handleOpenAddModal = () => {
+    setFormStationCode('');
+    setFormStationName('');
+    setFormRegion('West');
+    setFormState('');
+    setFormCity('');
+    setFormContactPerson('');
+    setFormContactPhone('');
+    setShowAddModal(true);
+  };
+
+  // Open Edit Modal
+  const handleOpenEditModal = (st: CCIMaster) => {
+    setEditingStation(st);
+    setFormStationCode(st.station_code);
+    setFormStationName(st.station_name);
+    setFormRegion(st.region || 'West');
+    setFormState(st.state || '');
+    setFormCity(st.city || '');
+    setFormContactPerson(st.contact_person || '');
+    setFormContactPhone(st.contact_phone || '');
+  };
+
+  // Save Station (Add or Edit)
+  const handleSaveStation = (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = formStationCode.trim();
+    const name = formStationName.trim();
+    if (!code) {
+      toast.error('Station Code is required.');
+      return;
+    }
+    if (!name) {
+      toast.error('Service Center Name is required.');
+      return;
+    }
+
+    setIsSubmittingForm(true);
+    try {
+      const isEditing = !!editingStation;
+      const targetStation: CCIMaster = {
+        station_code: code,
+        username: isEditing ? (editingStation.username || `cci_${code}`) : `cci_${code}`,
+        station_name: name,
+        region: formRegion,
+        state: formState.trim() || undefined,
+        city: formCity.trim() || undefined,
+        contact_person: formContactPerson.trim() || undefined,
+        contact_phone: formContactPhone.trim() || undefined,
+        is_active: isEditing ? editingStation.is_active : true,
+      };
+
+      crmDb.upsertSingleStation(targetStation, currentUser);
+      toast.success(
+        isEditing
+          ? `Updated CCI Center ${code} successfully.`
+          : `Added new CCI Center ${code} successfully.`
+      );
+
+      setShowAddModal(false);
+      setEditingStation(null);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save CCI center.');
+    } finally {
+      setIsSubmittingForm(false);
+    }
+  };
+
+  // Confirm Status Toggle
+  const handleConfirmToggleStatus = () => {
+    if (!statusToggleStation) return;
+    const currentIsActive = statusToggleStation.is_active !== false;
+    const newStatus = !currentIsActive;
+
+    try {
+      crmDb.toggleStationStatus(statusToggleStation.station_code, newStatus, currentUser);
+      toast.success(
+        `CCI Center ${statusToggleStation.station_code} marked as ${newStatus ? 'ACTIVE' : 'INACTIVE'}.`
+      );
+      setStatusToggleStation(null);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update CCI status.');
+    }
+  };
+
+  // Handle Excel Upload Selection
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadedFile(file);
+    setIsParsingExcel(true);
+    setParsedPreview(null);
+
+    try {
+      const result = await parseRegionMappingFile(file);
+      setParsedPreview({
+        stations: result.stations,
+        totalRows: result.totalRows,
+      });
+      toast.info(`Parsed ${result.stations.length} stations from "${file.name}".`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to parse Excel file.');
+      setUploadedFile(null);
+    } finally {
+      setIsParsingExcel(false);
+    }
+  };
+
+  // Submit Bulk Upload
+  const handleConfirmBulkUpload = () => {
+    if (!parsedPreview || parsedPreview.stations.length === 0) return;
+
+    try {
+      const res = crmDb.batchUpsertStations(
+        parsedPreview.stations,
+        currentUser || {
+          id: 'admin',
+          username: 'Admin',
+          full_name: 'Administrator',
+          role: 'ADMIN',
+        }
+      );
+
+      toast.success(
+        `Region mapping imported: ${res.inserted} new centers added, ${res.updated} centers updated.`
+      );
+      setShowUploadModal(false);
+      setUploadedFile(null);
+      setParsedPreview(null);
+    } catch (err: any) {
+      toast.error(err.message || 'Bulk upload failed.');
+    }
+  };
+
+  // Download Sample Template
+  const handleDownloadTemplate = () => {
+    const csvContent = generateSampleRegionTemplateCSV();
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'CCI_Region_Mapping_Template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
     <div className="space-y-4">
-      {/* Header & Filter Controls Bar */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 rounded-xl bg-white border border-slate-200 shadow-xs">
+      {/* Top Banner / Actions Header */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2.5 bg-blue-50 text-[#001489] rounded-xl border border-blue-100">
+              <Store className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2 font-['Outfit']">
+                CCI Master Management
+                <span className="text-xs font-normal font-sans px-2.5 py-0.5 rounded-full bg-blue-50 text-[#001489] border border-blue-200/60 font-semibold">
+                  Admin Console
+                </span>
+              </h1>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Manage Motorola authorized service centers (CCIs), regional coverage, and active operation status.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => {
+                setUploadedFile(null);
+                setParsedPreview(null);
+                setShowUploadModal(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition shadow-xs cursor-pointer"
+            >
+              <Upload className="w-3.5 h-3.5 text-slate-600" />
+              Upload Region Mapping (Excel)
+            </button>
+
+            <button
+              onClick={handleOpenAddModal}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-[#001489] hover:bg-[#08209e] rounded-xl shadow-md shadow-blue-900/15 transition cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              Add New CCI
+            </button>
+          </div>
+        </div>
+
+        {/* Stats strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 mt-4 pt-4 border-t border-slate-100 text-xs">
+          <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200/60">
+            <div className="text-[11px] text-slate-500 uppercase font-medium">Total CCIs</div>
+            <div className="text-base font-bold text-slate-900 mt-0.5">{stats.total}</div>
+          </div>
+          <div className="bg-emerald-50/60 rounded-lg p-2.5 border border-emerald-200/60">
+            <div className="text-[11px] text-emerald-700 uppercase font-medium">Active Nodes</div>
+            <div className="text-base font-bold text-emerald-700 mt-0.5">{stats.active}</div>
+          </div>
+          <div className="bg-red-50/60 rounded-lg p-2.5 border border-red-200/60">
+            <div className="text-[11px] text-red-700 uppercase font-medium">Inactive Nodes</div>
+            <div className="text-base font-bold text-red-700 mt-0.5">{stats.inactive}</div>
+          </div>
+          {['North', 'South', 'West', 'East'].map((r) => {
+            const count = stations.filter((s) => (s.region || '').toLowerCase() === r.toLowerCase()).length;
+            return (
+              <div key={r} className="bg-slate-50/80 rounded-lg p-2.5 border border-slate-200/60">
+                <div className="text-[11px] text-slate-500 uppercase font-medium">{r} Region</div>
+                <div className="text-base font-bold text-slate-800 mt-0.5">{count}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Filter and Search Bar */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-4 rounded-xl bg-white border border-slate-200 shadow-xs">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
-          {/* Search Box with Clear Button */}
+          {/* Search Box */}
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search code, name, city, state, username..."
+              placeholder="Search station code, center name, city, state, username..."
               className="w-full bg-slate-50 border border-slate-300 rounded-lg pl-9 pr-8 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
             />
             {searchTerm && (
@@ -134,29 +401,44 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({ stations, onSelectSt
           </div>
 
           {/* Region Dropdown Filter */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-500 font-medium whitespace-nowrap">Region:</span>
             <select
               value={selectedRegion}
               onChange={(e) => setSelectedRegion(e.target.value)}
-              className="bg-slate-50 border border-slate-300 text-slate-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#001489] focus:bg-white transition-colors"
+              className="bg-slate-50 border border-slate-300 text-slate-700 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-[#001489]"
             >
               <option value="ALL">All Regions ({stations.length})</option>
               {availableRegions.map((reg) => {
                 const count = stations.filter((s) => s.region === reg).length;
                 return (
                   <option key={reg} value={reg}>
-                    {reg} Region ({count})
+                    {reg} ({count})
                   </option>
                 );
               })}
             </select>
           </div>
+
+          {/* Status Dropdown Filter */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-500 font-medium whitespace-nowrap">Status:</span>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="bg-slate-50 border border-slate-300 text-slate-700 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-[#001489]"
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="ACTIVE">Active Nodes</option>
+              <option value="INACTIVE">Inactive Nodes</option>
+            </select>
+          </div>
         </div>
 
-        {/* Right Controls: Export & Scope Count */}
+        {/* Right Controls: Export & Count */}
         <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200">
           <span className="text-xs text-slate-500 font-mono">
-            Showing <strong className="text-slate-900">{filteredStations.length}</strong> of {stations.length} stations
+            Showing <strong className="text-slate-900">{filteredStations.length}</strong> of {stations.length}
           </span>
 
           <button
@@ -200,106 +482,146 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({ stations, onSelectSt
                 <th className="py-3 px-3.5 text-center uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">
                   Status
                 </th>
-                {onSelectStation && (
-                  <th className="py-3 px-3.5 text-right uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">
-                    Action
-                  </th>
-                )}
+                <th className="py-3 px-3.5 text-right uppercase tracking-wider text-[11px] font-semibold whitespace-nowrap">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 text-slate-700 bg-white">
-              {paginatedStations.map((st) => (
-                <tr 
-                  key={st.station_code} 
-                  className="hover:bg-slate-50/80 transition-colors"
-                >
-                  {/* Station Code */}
-                  <td className="py-3 px-3.5 whitespace-nowrap align-middle">
-                    <span className="font-mono font-bold text-slate-900 text-xs bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                      Station {st.station_code}
-                    </span>
-                  </td>
+              {paginatedStations.map((st) => {
+                const isActive = st.is_active !== false;
 
-                  {/* Portal Login (@username) */}
-                  <td className="py-3 px-3.5 whitespace-nowrap align-middle">
-                    <span className="font-mono text-xs text-sky-800 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
-                      @{st.username || `cci_${st.station_code}`}
-                    </span>
-                  </td>
-
-                  {/* Service Center Name */}
-                  <td className="py-3 px-3.5 align-middle">
-                    <div className="font-semibold text-slate-900 max-w-xs truncate" title={st.station_name}>
-                      {st.station_name}
-                    </div>
-                  </td>
-
-                  {/* Region */}
-                  <td className="py-3 px-3.5 whitespace-nowrap align-middle">
-                    <span className={`px-2.5 py-0.5 rounded text-[10px] font-semibold border ${getRegionBadge(st.region)}`}>
-                      {st.region || 'West'}
-                    </span>
-                  </td>
-
-                  {/* Location (City, State) */}
-                  <td className="py-3 px-3.5 whitespace-nowrap align-middle">
-                    <div className="flex items-center gap-1.5 text-slate-700">
-                      <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                      <span>
-                        {[st.city, st.state].filter(Boolean).join(', ') || 'India'}
+                return (
+                  <tr 
+                    key={st.station_code} 
+                    className="hover:bg-slate-50/80 transition-colors"
+                  >
+                    {/* Station Code */}
+                    <td className="py-3 px-3.5 whitespace-nowrap align-middle">
+                      <span className="font-mono font-bold text-slate-900 text-xs bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                        Station {st.station_code}
                       </span>
-                    </div>
-                  </td>
-
-                  {/* Contact Person */}
-                  <td className="py-3 px-3.5 whitespace-nowrap align-middle">
-                    {st.contact_person ? (
-                      <div className="flex items-center gap-1.5 text-slate-700">
-                        <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span>{st.contact_person}</span>
-                      </div>
-                    ) : (
-                      <span className="text-slate-400 italic text-[11px]">—</span>
-                    )}
-                  </td>
-
-                  {/* Contact Phone */}
-                  <td className="py-3 px-3.5 whitespace-nowrap align-middle">
-                    {st.contact_phone ? (
-                      <div className="flex items-center gap-1.5 text-slate-700 font-mono text-xs">
-                        <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span>{st.contact_phone}</span>
-                      </div>
-                    ) : (
-                      <span className="text-slate-400 italic text-[11px]">—</span>
-                    )}
-                  </td>
-
-                  {/* Status */}
-                  <td className="py-3 px-3.5 text-center whitespace-nowrap align-middle">
-                    <span className="inline-flex items-center gap-1 text-emerald-800 bg-emerald-50 border border-emerald-300 px-2 py-0.5 rounded-full text-[10px] font-medium">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                      Active Node
-                    </span>
-                  </td>
-
-                  {/* Action (if applicable) */}
-                  {onSelectStation && (
-                    <td className="py-3 px-3.5 text-right whitespace-nowrap align-middle">
-                      <button
-                        onClick={() => onSelectStation(st.station_code)}
-                        className="text-xs text-[#001489] hover:underline cursor-pointer font-medium"
-                      >
-                        View as CCI →
-                      </button>
                     </td>
-                  )}
-                </tr>
-              ))}
+
+                    {/* Portal Login (@username) */}
+                    <td className="py-3 px-3.5 whitespace-nowrap align-middle">
+                      <span className="font-mono text-xs text-sky-800 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
+                        @{st.username || `cci_${st.station_code}`}
+                      </span>
+                    </td>
+
+                    {/* Service Center Name */}
+                    <td className="py-3 px-3.5 align-middle">
+                      <div className="font-semibold text-slate-900 max-w-xs truncate" title={st.station_name}>
+                        {st.station_name}
+                      </div>
+                    </td>
+
+                    {/* Region */}
+                    <td className="py-3 px-3.5 whitespace-nowrap align-middle">
+                      <span className={`px-2.5 py-0.5 rounded text-[10px] font-semibold border ${getRegionBadge(st.region)}`}>
+                        {st.region || 'West'}
+                      </span>
+                    </td>
+
+                    {/* Location (City, State) */}
+                    <td className="py-3 px-3.5 whitespace-nowrap align-middle">
+                      <div className="flex items-center gap-1.5 text-slate-700">
+                        <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                        <span>
+                          {[st.city, st.state].filter(Boolean).join(', ') || 'India'}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Contact Person */}
+                    <td className="py-3 px-3.5 whitespace-nowrap align-middle">
+                      {st.contact_person ? (
+                        <div className="flex items-center gap-1.5 text-slate-700">
+                          <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{st.contact_person}</span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 italic text-[11px]">—</span>
+                      )}
+                    </td>
+
+                    {/* Contact Phone */}
+                    <td className="py-3 px-3.5 whitespace-nowrap align-middle">
+                      {st.contact_phone ? (
+                        <div className="flex items-center gap-1.5 text-slate-700 font-mono text-xs">
+                          <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{st.contact_phone}</span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 italic text-[11px]">—</span>
+                      )}
+                    </td>
+
+                    {/* Status */}
+                    <td className="py-3 px-3.5 text-center whitespace-nowrap align-middle">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${
+                          isActive
+                            ? 'text-emerald-800 bg-emerald-50 border-emerald-300'
+                            : 'text-red-800 bg-red-50 border-red-300'
+                        }`}
+                      >
+                        {isActive ? (
+                          <>
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            Active Node
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="w-3 h-3 text-red-600" />
+                            Inactive Node
+                          </>
+                        )}
+                      </span>
+                    </td>
+
+                    {/* Actions */}
+                    <td className="py-3 px-3.5 text-right whitespace-nowrap align-middle">
+                      <div className="inline-flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleOpenEditModal(st)}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition cursor-pointer"
+                          title="Edit Center Details"
+                        >
+                          <Edit2 className="w-3 h-3 text-slate-500" />
+                          Edit
+                        </button>
+
+                        <button
+                          onClick={() => setStatusToggleStation(st)}
+                          className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg border transition cursor-pointer ${
+                            isActive
+                              ? 'text-red-700 bg-red-50 hover:bg-red-100 border-red-200'
+                              : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
+                          }`}
+                          title={isActive ? 'Deactivate Center' : 'Activate Center'}
+                        >
+                          {isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+
+                        {onSelectStation && (
+                          <button
+                            onClick={() => onSelectStation(st.station_code)}
+                            className="text-xs text-[#001489] hover:underline font-medium cursor-pointer ml-1"
+                          >
+                            Preview →
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
 
               {filteredStations.length === 0 && (
                 <tr>
-                  <td colSpan={onSelectStation ? 9 : 8} className="py-12 text-center text-slate-500">
+                  <td colSpan={9} className="py-12 text-center text-slate-500">
                     <Store className="w-8 h-8 text-slate-400 mx-auto mb-2" />
                     No service center stations match &quot;{searchTerm || selectedRegion}&quot;.
                   </td>
@@ -353,7 +675,354 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({ stations, onSelectSt
           </div>
         )}
       </div>
+
+      {/* MODAL 1: Add New CCI Center / Edit Center */}
+      {(showAddModal || editingStation) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50/70">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-blue-100/70 text-[#001489] rounded-xl">
+                  <Store className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 font-['Outfit'] text-base">
+                    {editingStation ? `Edit CCI Center: ${editingStation.station_code}` : 'Add New CCI Center'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {editingStation
+                      ? 'Update service center profile and regional coverage'
+                      : 'Register an authorized Motorola customer care center'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAddModal(false);
+                  setEditingStation(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveStation} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                {/* Station Code */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Station Code *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    disabled={!!editingStation}
+                    value={formStationCode}
+                    onChange={(e) => setFormStationCode(e.target.value)}
+                    placeholder="e.g. 068 or DEL01"
+                    className="w-full px-3.5 py-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-[#001489] focus:bg-white transition disabled:opacity-50"
+                  />
+                </div>
+
+                {/* Region */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Region *
+                  </label>
+                  <select
+                    value={formRegion}
+                    onChange={(e) => setFormRegion(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-[#001489] focus:bg-white transition"
+                  >
+                    {STANDARD_REGIONS.map((r) => (
+                      <option key={r} value={r}>
+                        {r} Region
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Center Name */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Service Center Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formStationName}
+                  onChange={(e) => setFormStationName(e.target.value)}
+                  placeholder="e.g. RRLC-068-Noble Sales And Services"
+                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-[#001489] focus:bg-white transition"
+                />
+              </div>
+
+              {/* City and State */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    City / Location
+                  </label>
+                  <input
+                    type="text"
+                    value={formCity}
+                    onChange={(e) => setFormCity(e.target.value)}
+                    placeholder="e.g. Mumbai"
+                    className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-[#001489] focus:bg-white transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    State
+                  </label>
+                  <input
+                    type="text"
+                    value={formState}
+                    onChange={(e) => setFormState(e.target.value)}
+                    placeholder="e.g. Maharashtra"
+                    className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-[#001489] focus:bg-white transition"
+                  />
+                </div>
+              </div>
+
+              {/* Contact Person & Phone */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Contact Person
+                  </label>
+                  <input
+                    type="text"
+                    value={formContactPerson}
+                    onChange={(e) => setFormContactPerson(e.target.value)}
+                    placeholder="e.g. Pravin Jadhav"
+                    className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-[#001489] focus:bg-white transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Contact Phone
+                  </label>
+                  <input
+                    type="text"
+                    value={formContactPhone}
+                    onChange={(e) => setFormContactPhone(e.target.value)}
+                    placeholder="e.g. +91 98201 12345"
+                    className="w-full px-3.5 py-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-[#001489] focus:bg-white transition"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setEditingStation(null);
+                  }}
+                  className="px-4 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingForm}
+                  className="px-5 py-2 text-xs font-bold text-white bg-[#001489] hover:bg-[#08209e] rounded-xl shadow-md transition disabled:opacity-50 cursor-pointer"
+                >
+                  {isSubmittingForm
+                    ? 'Saving...'
+                    : editingStation
+                    ? 'Update Center'
+                    : 'Add CCI Center'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: Activate / Deactivate Confirmation */}
+      {statusToggleStation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full overflow-hidden p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div
+                className={`p-3 rounded-2xl ${
+                  statusToggleStation.is_active === false
+                    ? 'bg-emerald-50 text-emerald-600'
+                    : 'bg-red-50 text-red-600'
+                }`}
+              >
+                {statusToggleStation.is_active === false ? (
+                  <CheckCircle2 className="w-6 h-6" />
+                ) : (
+                  <AlertCircle className="w-6 h-6" />
+                )}
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 font-['Outfit'] text-base">
+                  {statusToggleStation.is_active === false
+                    ? 'Activate CCI Center?'
+                    : 'Deactivate CCI Center?'}
+                </h3>
+                <p className="text-xs text-slate-500 font-mono">
+                  Station {statusToggleStation.station_code} ({statusToggleStation.station_name})
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {statusToggleStation.is_active === false ? (
+                <>
+                  Are you sure you want to reactivate CCI Center{' '}
+                  <strong>{statusToggleStation.station_name}</strong>? Associated station user login accounts will also be reactivated.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to mark this center as <strong>INACTIVE</strong>? All user login accounts assigned to this center will also be deactivated immediately, preventing portal access.
+                </>
+              )}
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setStatusToggleStation(null)}
+                className="px-4 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmToggleStatus}
+                className={`px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md transition cursor-pointer ${
+                  statusToggleStation.is_active === false
+                    ? 'bg-emerald-600 hover:bg-emerald-700'
+                    : 'bg-red-600 hover:bg-red-700'
+                }`}
+              >
+                {statusToggleStation.is_active === false ? 'Yes, Reactivate Center' : 'Yes, Deactivate Center'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: Upload Region Mapping (Excel) */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full overflow-hidden">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50/70">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-100/70 text-emerald-800 rounded-xl">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 font-['Outfit'] text-base">
+                    Upload Region Mapping (Excel)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Bulk import or synchronize CCI centers, states, cities, and regional zones
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowUploadModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Template download link */}
+              <div className="flex items-center justify-between p-3 bg-blue-50/60 rounded-xl border border-blue-200/60 text-xs">
+                <span className="text-blue-900">Need the official format for bulk mapping?</span>
+                <button
+                  type="button"
+                  onClick={handleDownloadTemplate}
+                  className="font-bold text-[#001489] hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Download Sample CSV
+                </button>
+              </div>
+
+              {/* Upload Dropzone */}
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="border-2 border-dashed border-slate-300 hover:border-[#001489] rounded-2xl p-6 text-center cursor-pointer transition-colors bg-slate-50/50 hover:bg-blue-50/20"
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx, .xls, .csv"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+                <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                <div className="text-xs font-bold text-slate-700">
+                  {uploadedFile ? uploadedFile.name : 'Click to select or drag & drop Region Mapping file'}
+                </div>
+                <div className="text-[11px] text-slate-400 mt-1">
+                  Supports .xlsx, .xls, and .csv with Station Code, Name, Region, State, City
+                </div>
+              </div>
+
+              {isParsingExcel && (
+                <div className="text-center py-3 text-xs text-slate-500 animate-pulse">
+                  Parsing spreadsheet columns and normalizing station codes...
+                </div>
+              )}
+
+              {/* Parsed Preview */}
+              {parsedPreview && (
+                <div className="p-3.5 bg-emerald-50/50 rounded-xl border border-emerald-200/60 text-xs space-y-2">
+                  <div className="flex items-center justify-between font-semibold text-emerald-900">
+                    <span>Parsed {parsedPreview.stations.length} valid stations from {parsedPreview.totalRows} rows.</span>
+                    <span className="text-emerald-700 font-mono">Ready to Sync</span>
+                  </div>
+                  <div className="max-h-36 overflow-y-auto divide-y divide-emerald-100 text-[11px] text-emerald-800">
+                    {parsedPreview.stations.slice(0, 5).map((st) => (
+                      <div key={st.station_code} className="py-1 flex justify-between">
+                        <span><strong>{st.station_code}</strong>: {st.station_name}</span>
+                        <span className="font-mono">{st.region} ({st.city || 'N/A'})</span>
+                      </div>
+                    ))}
+                    {parsedPreview.stations.length > 5 && (
+                      <div className="pt-1 text-center text-emerald-600 font-medium">
+                        ... and {parsedPreview.stations.length - 5} more stations
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowUploadModal(false)}
+                  className="px-4 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!parsedPreview || parsedPreview.stations.length === 0}
+                  onClick={handleConfirmBulkUpload}
+                  className="px-5 py-2 text-xs font-bold text-white bg-[#001489] hover:bg-[#08209e] rounded-xl shadow-md transition disabled:opacity-40 cursor-pointer"
+                >
+                  Import &amp; Synchronize Mappings
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
-

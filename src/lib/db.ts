@@ -1963,6 +1963,110 @@ class CRMDatabase {
     };
   }
 
+  // --- UPSERT SINGLE CCI CENTER ---
+  public upsertSingleStation(
+    st: CCIMaster,
+    user?: UserProfile
+  ): CCIMaster {
+    const idx = this.stations.findIndex((s) => s.station_code === st.station_code);
+    let finalStation: CCIMaster;
+    if (idx >= 0) {
+      this.stations[idx] = {
+        ...this.stations[idx],
+        ...st,
+        updated_at: new Date().toISOString(),
+      };
+      finalStation = this.stations[idx];
+    } else {
+      finalStation = {
+        ...st,
+        username: st.username || `cci_${st.station_code}`,
+        is_active: st.is_active ?? true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      this.stations.push(finalStation);
+    }
+
+    // Propagate region, state, city to defective items and shipping orders
+    this.reapplyStationLocationMappings();
+
+    // Sync to Supabase cci_master
+    if (isSupabaseConfigured && supabase) {
+      supabase.from('cci_master').upsert({
+        station_code: finalStation.station_code,
+        username: finalStation.username,
+        station_name: finalStation.station_name,
+        region: finalStation.region,
+        state: finalStation.state || '',
+        city: finalStation.city || '',
+        contact_person: finalStation.contact_person || '',
+        contact_phone: finalStation.contact_phone || '',
+        is_active: finalStation.is_active,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'station_code' }).then(({ error }) => {
+        if (error) console.error('Failed to sync station to Supabase cci_master:', error);
+      });
+    }
+
+    this.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      user_name: user?.full_name || 'Admin',
+      user_role: user?.role || 'ADMIN',
+      action: idx >= 0 ? 'CCI_UPDATE' : 'CCI_CREATE',
+      remarks: `${idx >= 0 ? 'Updated' : 'Registered'} CCI Center: ${finalStation.station_code} (${finalStation.station_name}) in ${finalStation.region}.`,
+      created_at: new Date().toISOString(),
+    });
+
+    this.saveToStorage();
+    this.notify();
+    return finalStation;
+  }
+
+  // --- TOGGLE CCI STATUS (ACTIVE / INACTIVE WITH CASCADE) ---
+  public toggleStationStatus(
+    stationCode: string,
+    isActive: boolean,
+    user?: UserProfile
+  ): boolean {
+    const st = this.stations.find((s) => s.station_code === stationCode);
+    if (!st) return false;
+
+    st.is_active = isActive;
+    st.updated_at = new Date().toISOString();
+
+    // Also sync to Supabase cci_master and cascade to profiles
+    if (isSupabaseConfigured && supabase) {
+      supabase.from('cci_master').update({
+        is_active: isActive,
+        updated_at: new Date().toISOString(),
+      }).eq('station_code', stationCode).then(({ error }) => {
+        if (error) console.error('Failed to update cci_master status in Supabase:', error);
+      });
+
+      // Cascade deactivation/reactivation to station user profiles
+      supabase.from('profiles').update({
+        is_active: isActive,
+        updated_at: new Date().toISOString(),
+      }).eq('station_code', stationCode).eq('role', 'CCI').then(({ error }) => {
+        if (error) console.error('Failed to cascade station status to profiles in Supabase:', error);
+      });
+    }
+
+    this.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      user_name: user?.full_name || 'Admin',
+      user_role: user?.role || 'ADMIN',
+      action: 'CCI_STATUS_CHANGE',
+      remarks: `Changed CCI Center ${stationCode} (${st.station_name}) status to ${isActive ? 'ACTIVE' : 'INACTIVE'}. Associated station user accounts cascaded.`,
+      created_at: new Date().toISOString(),
+    });
+
+    this.saveToStorage();
+    this.notify();
+    return true;
+  }
+
   // --- STEP 1: CWH COURIER RECEIPT ACKNOWLEDGMENT (DOCK / GATE INTAKE) ---
   public acknowledgeCourierDelivery(
     soId: string,

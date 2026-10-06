@@ -14,7 +14,8 @@ import {
   Search,
   LogOut,
   Archive,
-  Barcode
+  Barcode,
+  Users
 } from 'lucide-react';
 import { UserRole, CCIMaster, UserProfile } from '../../types/crm';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -267,6 +268,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <Store className="w-3.5 h-3.5" />
                 CCI Stations & Regions
+              </button>
+
+              <button
+                onClick={() => onTabChange('user_management')}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
+                  activeTab === 'user_management'
+                    ? 'bg-white text-[#001489] shadow-sm font-semibold'
+                    : 'text-blue-100 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                User Management
               </button>
 
               <button

@@ -12,6 +12,7 @@ import { Navbar } from './components/layout/Navbar';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { IngestionHub } from './components/admin/IngestionHub';
 import { CciDirectory } from './components/admin/CciDirectory';
+import { UserManagement } from './components/admin/UserManagement';
 import { ShippingOrdersTable } from './components/orders/ShippingOrdersTable';
 import { OrderDetailModal } from './components/orders/OrderDetailModal';
 import { CWHInwardStation } from './components/cwh/CWHInwardStation';
@@ -359,7 +360,10 @@ export function App() {
               <IngestionHub user={currentUser} />
             )}
             {activeTab === 'cci_master' && (
-              <CciDirectory stations={stations} />
+              <CciDirectory stations={stations} currentUser={currentUser || undefined} />
+            )}
+            {activeTab === 'user_management' && currentUser && (
+              <UserManagement currentUser={currentUser} stations={stations} />
             )}
             {activeTab === 'audit' && (
               <AuditLogsViewer logs={logs} />

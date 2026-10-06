@@ -54,7 +54,10 @@ export interface UserProfile {
   full_name: string;
   role: UserRole;
   station_code?: string;      // if role === 'CCI'
+  is_active?: boolean;
+  last_login?: string;
   created_at?: string;
+  updated_at?: string;
 }
 
 export interface ShippingOrder {
