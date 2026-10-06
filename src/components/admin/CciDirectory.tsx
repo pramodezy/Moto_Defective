@@ -18,7 +18,7 @@ import {
   FileSpreadsheet,
   AlertCircle
 } from 'lucide-react';
-import { CCIMaster, UserProfile } from '../../types/crm';
+import { CCIMaster, UserProfile, OPERATIONAL_REGIONS } from '../../types/crm';
 import { crmDb } from '../../lib/db';
 import { parseRegionMappingFile, generateSampleRegionTemplateCSV } from '../../services/regionMappingIngestor';
 import { toast } from 'sonner';
@@ -30,24 +30,30 @@ interface CciDirectoryProps {
 }
 
 const getRegionBadge = (region?: string) => {
-  const r = (region || '').trim().toLowerCase();
+  const r = (region || '').trim().toUpperCase().replace(/\s+/g, '-');
   switch (r) {
-    case 'north':
-      return 'bg-blue-50 text-blue-800 border-blue-300';
-    case 'south':
-      return 'bg-emerald-50 text-emerald-800 border-emerald-300';
-    case 'west':
+    case 'WEST':
       return 'bg-amber-50 text-amber-900 border-amber-300';
-    case 'east':
+    case 'SOUTH-2':
+      return 'bg-teal-50 text-teal-800 border-teal-300';
+    case 'NORTH-2':
+      return 'bg-indigo-50 text-indigo-800 border-indigo-300';
+    case 'EAST':
       return 'bg-purple-50 text-purple-800 border-purple-300';
-    case 'central':
+    case 'SOUTH-1':
+    case 'SOUTH':
+      return 'bg-emerald-50 text-emerald-800 border-emerald-300';
+    case 'CENTRAL':
       return 'bg-cyan-50 text-cyan-800 border-cyan-300';
+    case 'NORTH-1':
+    case 'NORTH':
+      return 'bg-blue-50 text-blue-800 border-blue-300';
+    case 'SOUTH-3':
+      return 'bg-green-50 text-green-800 border-green-300';
     default:
       return 'bg-slate-100 text-slate-700 border-slate-300';
   }
 };
-
-const STANDARD_REGIONS = ['North', 'South', 'West', 'East', 'Central'];
 
 export const CciDirectory: React.FC<CciDirectoryProps> = ({ 
   stations, 
@@ -69,7 +75,7 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({
   // Form states - Add / Edit
   const [formStationCode, setFormStationCode] = useState('');
   const [formStationName, setFormStationName] = useState('');
-  const [formRegion, setFormRegion] = useState('West');
+  const [formRegion, setFormRegion] = useState('WEST');
   const [formState, setFormState] = useState('');
   const [formCity, setFormCity] = useState('');
   const [formContactPerson, setFormContactPerson] = useState('');
@@ -82,20 +88,28 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({
   const [parsedPreview, setParsedPreview] = useState<{ stations: CCIMaster[]; totalRows: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Available regions from dataset
+  // Available regions from dataset: WEST, SOUTH-2, NORTH-2, EAST, SOUTH-1, CENTRAL, NORTH-1, SOUTH-3
   const availableRegions = useMemo(() => {
-    const regSet = new Set<string>();
+    const ordered = [...OPERATIONAL_REGIONS];
     stations.forEach((st) => {
-      if (st.region?.trim()) regSet.add(st.region.trim());
+      const reg = (st.region || '').trim().toUpperCase();
+      if (reg && !ordered.includes(reg as any)) {
+        ordered.push(reg as any);
+      }
     });
-    STANDARD_REGIONS.forEach((r) => regSet.add(r));
-    return Array.from(regSet).sort();
+    return ordered;
   }, [stations]);
 
   // Filtering
   const filteredStations = useMemo(() => {
     return stations.filter((st) => {
-      if (selectedRegion !== 'ALL' && st.region !== selectedRegion) return false;
+      if (selectedRegion !== 'ALL') {
+        const stationReg = (st.region || '').trim().toUpperCase();
+        const filterReg = selectedRegion.trim().toUpperCase();
+        if (stationReg !== filterReg && !(filterReg === 'SOUTH' && stationReg.startsWith('SOUTH')) && !(filterReg === 'NORTH' && stationReg.startsWith('NORTH'))) {
+          return false;
+        }
+      }
       if (statusFilter === 'ACTIVE' && st.is_active === false) return false;
       if (statusFilter === 'INACTIVE' && st.is_active !== false) return false;
 
@@ -160,7 +174,7 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({
   const handleOpenAddModal = () => {
     setFormStationCode('');
     setFormStationName('');
-    setFormRegion('West');
+    setFormRegion('WEST');
     setFormState('');
     setFormCity('');
     setFormContactPerson('');
@@ -173,7 +187,7 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({
     setEditingStation(st);
     setFormStationCode(st.station_code);
     setFormStationName(st.station_name);
-    setFormRegion(st.region || 'West');
+    setFormRegion(st.region || 'WEST');
     setFormState(st.state || '');
     setFormCity(st.city || '');
     setFormContactPerson(st.contact_person || '');
@@ -351,24 +365,27 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({
         </div>
 
         {/* Stats strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 mt-4 pt-4 border-t border-slate-100 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-11 gap-2 mt-4 pt-4 border-t border-slate-100 text-xs">
           <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200/60">
             <div className="text-[11px] text-slate-500 uppercase font-medium">Total CCIs</div>
             <div className="text-base font-bold text-slate-900 mt-0.5">{stats.total}</div>
           </div>
           <div className="bg-emerald-50/60 rounded-lg p-2.5 border border-emerald-200/60">
-            <div className="text-[11px] text-emerald-700 uppercase font-medium">Active Nodes</div>
+            <div className="text-[11px] text-emerald-700 uppercase font-medium">Active</div>
             <div className="text-base font-bold text-emerald-700 mt-0.5">{stats.active}</div>
           </div>
           <div className="bg-red-50/60 rounded-lg p-2.5 border border-red-200/60">
-            <div className="text-[11px] text-red-700 uppercase font-medium">Inactive Nodes</div>
+            <div className="text-[11px] text-red-700 uppercase font-medium">Inactive</div>
             <div className="text-base font-bold text-red-700 mt-0.5">{stats.inactive}</div>
           </div>
-          {['North', 'South', 'West', 'East'].map((r) => {
-            const count = stations.filter((s) => (s.region || '').toLowerCase() === r.toLowerCase()).length;
+          {OPERATIONAL_REGIONS.map((r) => {
+            const count = stations.filter((s) => {
+              const stReg = (s.region || '').trim().toUpperCase();
+              return stReg === r;
+            }).length;
             return (
               <div key={r} className="bg-slate-50/80 rounded-lg p-2.5 border border-slate-200/60">
-                <div className="text-[11px] text-slate-500 uppercase font-medium">{r} Region</div>
+                <div className="text-[10px] text-slate-500 uppercase font-bold truncate" title={r}>{r}</div>
                 <div className="text-base font-bold text-slate-800 mt-0.5">{count}</div>
               </div>
             );
@@ -735,7 +752,7 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({
                     onChange={(e) => setFormRegion(e.target.value)}
                     className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-[#001489] focus:bg-white transition"
                   >
-                    {STANDARD_REGIONS.map((r) => (
+                    {OPERATIONAL_REGIONS.map((r) => (
                       <option key={r} value={r}>
                         {r} Region
                       </option>

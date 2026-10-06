@@ -24,7 +24,7 @@ import {
   ArrowUpDown,
   AlertOctagon
 } from 'lucide-react';
-import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile, AgeingCriticality } from '../../types/crm';
+import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile, AgeingCriticality, OPERATIONAL_REGIONS } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle, getAgeingBucket, parseDateSafe } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
 import { 
@@ -182,16 +182,14 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
     return map;
   }, [stations]);
 
-  // Unique list of regions
+  // Unique list of regions from OPERATIONAL_REGIONS
   const availableRegions = useMemo(() => {
-    const regSet = new Set<string>();
+    const ordered = [...OPERATIONAL_REGIONS];
     stations.forEach((st) => {
-      if (st.region?.trim()) regSet.add(st.region.trim());
+      const reg = (st.region || '').trim().toUpperCase();
+      if (reg && !ordered.includes(reg as any)) ordered.push(reg as any);
     });
-    if (regSet.size === 0) {
-      ['Central', 'East', 'North', 'South', 'West'].forEach((r) => regSet.add(r));
-    }
-    return Array.from(regSet).sort();
+    return ordered;
   }, [stations]);
 
   // Smart barcode scan & inspect handler
@@ -223,9 +221,13 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         return false;
       }
       const st = stationMap.get(o.station_code);
-      const effectiveRegion = st?.region || o.region || 'West';
-      if (selectedRegion !== 'ALL' && effectiveRegion !== selectedRegion) {
-        return false;
+      const effectiveRegion = st?.region || o.region || 'WEST';
+      if (selectedRegion !== 'ALL') {
+        const effReg = (effectiveRegion || '').trim().toUpperCase();
+        const selReg = selectedRegion.trim().toUpperCase();
+        if (effReg !== selReg && !(selReg === 'SOUTH' && effReg.startsWith('SOUTH')) && !(selReg === 'NORTH' && effReg.startsWith('NORTH'))) {
+          return false;
+        }
       }
       return true;
     });

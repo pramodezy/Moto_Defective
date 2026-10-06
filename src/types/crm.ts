@@ -34,11 +34,24 @@ export type PriorityTier = 1 | 2 | 3 | 4; // 1: Super Critical (>25D), 2: Critic
 
 export type AgeingCriticality = 'super_critical' | 'critical' | 'high' | 'low';
 
+export const OPERATIONAL_REGIONS = [
+  'WEST',
+  'SOUTH-2',
+  'NORTH-2',
+  'EAST',
+  'SOUTH-1',
+  'CENTRAL',
+  'NORTH-1',
+  'SOUTH-3',
+] as const;
+
+export type OperationalRegion = typeof OPERATIONAL_REGIONS[number];
+
 export interface CCIMaster {
   station_code: string;       // e.g. '068', '071', '65'
   username: string;           // e.g. 'cci_068', 'cci_65'
   station_name: string;       // e.g. 'RRLC-068-Noble Sales And Services'
-  region: string;             // 'North' | 'South' | 'East' | 'West'
+  region: string;             // e.g. 'WEST' | 'SOUTH-2' | 'NORTH-2' | 'EAST' | 'SOUTH-1' | 'CENTRAL' | 'NORTH-1' | 'SOUTH-3'
   state?: string;
   city?: string;
   contact_person?: string;

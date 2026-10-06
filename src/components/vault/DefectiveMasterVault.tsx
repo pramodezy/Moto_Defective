@@ -13,7 +13,7 @@ import {
   Archive,
   RefreshCw
 } from 'lucide-react';
-import { DefectiveItem, CCIMaster, UserRole } from '../../types/crm';
+import { DefectiveItem, CCIMaster, UserRole, OPERATIONAL_REGIONS } from '../../types/crm';
 import { formatINR, formatDate, getScreeningStatusStyle } from '../../lib/utils';
 import { getMotorolaStatusInfo, isCompletedJourneyStatus } from '../../lib/motorolaStatus';
 
@@ -60,21 +60,19 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
     return map;
   }, [stations]);
 
-  // Dynamic regions derived from CCI Master
+  // Dynamic regions derived from OPERATIONAL_REGIONS and CCI Master
   const availableRegions = useMemo(() => {
-    const regSet = new Set<string>();
+    const ordered = [...OPERATIONAL_REGIONS];
     stations.forEach((st) => {
-      if (st.region?.trim()) regSet.add(st.region.trim());
+      const reg = (st.region || '').trim().toUpperCase();
+      if (reg && !ordered.includes(reg as any)) ordered.push(reg as any);
     });
     items.forEach((item) => {
       const st = stationMap.get(item.station_code);
-      const reg = st?.region || item.region;
-      if (reg?.trim()) regSet.add(reg.trim());
+      const reg = (st?.region || item.region || '').trim().toUpperCase();
+      if (reg && !ordered.includes(reg as any)) ordered.push(reg as any);
     });
-    if (regSet.size === 0) {
-      ['Central', 'East', 'North', 'South', 'West'].forEach((r) => regSet.add(r));
-    }
-    return Array.from(regSet).sort();
+    return ordered;
   }, [stations, items, stationMap]);
 
   // Distinct categories for dropdown
@@ -99,10 +97,14 @@ export const DefectiveMasterVault: React.FC<DefectiveMasterVaultProps> = ({
 
       // Strictly resolve region from CCI master station mapping
       const st = stationMap.get(item.station_code);
-      const effectiveRegion = st?.region || item.region || 'West';
+      const effectiveRegion = st?.region || item.region || 'WEST';
 
-      if (selectedRegion !== 'ALL' && effectiveRegion !== selectedRegion) {
-        return false;
+      if (selectedRegion !== 'ALL') {
+        const effReg = (effectiveRegion || '').trim().toUpperCase();
+        const selReg = selectedRegion.trim().toUpperCase();
+        if (effReg !== selReg && !(selReg === 'SOUTH' && effReg.startsWith('SOUTH')) && !(selReg === 'NORTH' && effReg.startsWith('NORTH'))) {
+          return false;
+        }
       }
       if (selectedScreening !== 'ALL' && item.screening_status !== selectedScreening) {
         return false;

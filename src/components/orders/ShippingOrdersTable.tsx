@@ -22,7 +22,7 @@ import {
   Clock,
   Upload
 } from 'lucide-react';
-import { ShippingOrder, DefectiveItem, CCIMaster, PriorityTier, CRMStatus, UserRole, UserProfile } from '../../types/crm';
+import { ShippingOrder, DefectiveItem, CCIMaster, PriorityTier, CRMStatus, UserRole, UserProfile, OPERATIONAL_REGIONS } from '../../types/crm';
 import { formatINR, formatDate, getCrmStatusStyle } from '../../lib/utils';
 import { SlaBadge } from '../layout/SlaBadge';
 import { printConsignmentManifest } from '../../services/manifestGenerator';
@@ -99,21 +99,19 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
     return map;
   }, [stations]);
 
-  // Dynamic regions derived from CCI Master stations
+  // Dynamic regions derived from OPERATIONAL_REGIONS and CCI Master stations
   const availableRegions = useMemo(() => {
-    const regSet = new Set<string>();
+    const ordered = [...OPERATIONAL_REGIONS];
     stations.forEach((st) => {
-      if (st.region?.trim()) regSet.add(st.region.trim());
+      const reg = (st.region || '').trim().toUpperCase();
+      if (reg && !ordered.includes(reg as any)) ordered.push(reg as any);
     });
     orders.forEach((so) => {
       const st = stationMap.get(so.station_code);
-      const reg = st?.region || so.region;
-      if (reg?.trim()) regSet.add(reg.trim());
+      const reg = (st?.region || so.region || '').trim().toUpperCase();
+      if (reg && !ordered.includes(reg as any)) ordered.push(reg as any);
     });
-    if (regSet.size === 0) {
-      ['Central', 'East', 'North', 'South', 'West'].forEach((r) => regSet.add(r));
-    }
-    return Array.from(regSet).sort();
+    return ordered;
   }, [stations, orders, stationMap]);
 
   // Consignments awaiting courier pickup (Code 2, AWB issued, not yet delivered/completed)
@@ -177,10 +175,14 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
 
       // Strictly resolve region from CCI master station mapping
       const st = stationMap.get(so.station_code);
-      const effectiveRegion = st?.region || so.region || 'West';
+      const effectiveRegion = st?.region || so.region || 'WEST';
 
-      if (selectedRegion !== 'ALL' && effectiveRegion !== selectedRegion) {
-        return false;
+      if (selectedRegion !== 'ALL') {
+        const effReg = (effectiveRegion || '').trim().toUpperCase();
+        const selReg = selectedRegion.trim().toUpperCase();
+        if (effReg !== selReg && !(selReg === 'SOUTH' && effReg.startsWith('SOUTH')) && !(selReg === 'NORTH' && effReg.startsWith('NORTH'))) {
+          return false;
+        }
       }
 
       if (selectedTier !== 'ALL' && so.priority_tier !== parseInt(selectedTier, 10)) {

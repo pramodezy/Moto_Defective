@@ -16,7 +16,7 @@ import {
   PackageCheck,
   RefreshCw
 } from 'lucide-react';
-import { ShippingOrder, DefectiveItem, CCIMaster } from '../../types/crm';
+import { ShippingOrder, DefectiveItem, CCIMaster, OPERATIONAL_REGIONS } from '../../types/crm';
 import { formatINR } from '../../lib/utils';
 import { StatCard } from '../ui/StatCard';
 import { SlaBadge } from '../layout/SlaBadge';
@@ -101,20 +101,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
 
     const regSet = new Set<string>();
+    OPERATIONAL_REGIONS.forEach((r) => regSet.add(r));
     stations.forEach((s) => {
-      if (s.region?.trim()) regSet.add(s.region.trim());
+      if (s.region?.trim()) regSet.add(s.region.trim().toUpperCase());
     });
-    if (regSet.size === 0) {
-      ['Central', 'East', 'North', 'South', 'West'].forEach((r) => regSet.add(r));
-    }
-    const regions = Array.from(regSet).sort();
+    const regions = Array.from(regSet);
 
     return regions.map((region) => {
       const regionOrders = orders.filter((o) => {
         const st = stationMap.get(o.station_code) || 
                    stationMap.get(o.station_code.padStart(3, '0')) || 
                    stationMap.get(normalizeCode(o.station_code));
-        const effectiveRegion = st?.region || o.region || 'West';
+        const effectiveRegion = (st?.region || o.region || 'WEST').trim().toUpperCase();
         return effectiveRegion === region;
       });
       const val = regionOrders.reduce((sum, o) => sum + (o.total_declared_value || 0), 0);

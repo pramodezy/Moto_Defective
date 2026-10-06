@@ -15,7 +15,7 @@ import {
   History,
   AlertTriangle
 } from 'lucide-react';
-import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile, AWBHistory } from '../../types/crm';
+import { ShippingOrder, DefectiveItem, CCIMaster, UserProfile, AWBHistory, OPERATIONAL_REGIONS } from '../../types/crm';
 import { formatINR, getAgeingBucket, parseDateSafe } from '../../lib/utils';
 import { 
   getUnifiedPickupStatus,
@@ -831,11 +831,11 @@ export const CWHReportsHub: React.FC<CWHReportsHubProps> = ({
               className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-500 outline-hidden text-slate-700 cursor-pointer"
             >
               <option value="ALL">All Regions</option>
-              <option value="CENTRAL">Central</option>
-              <option value="WEST">West</option>
-              <option value="NORTH">North</option>
-              <option value="SOUTH">South</option>
-              <option value="EAST">East</option>
+              {OPERATIONAL_REGIONS.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
             </select>
           </div>
 

@@ -57,7 +57,7 @@ export async function parseRegionMappingFile(file: File): Promise<RegionParseRes
     }
 
     const stationName = getColVal(r, ['stationname', 'name', 'cciname', 'aspservicename']) || `Station ${stationCode}`;
-    const region = getColVal(r, ['region', 'zone']) || 'West';
+    let region = getColVal(r, ['region', 'zone']).toUpperCase() || 'WEST';
     const state = getColVal(r, ['state', 'province']);
     const city = getColVal(r, ['city', 'location']);
     const contactPerson = getColVal(r, ['contactperson', 'manager', 'contact', 'head']);
@@ -89,11 +89,14 @@ export async function parseRegionMappingFile(file: File): Promise<RegionParseRes
 export function generateSampleRegionTemplateCSV(): string {
   const headers = ['Station Code', 'Station Name', 'Region', 'State', 'City', 'Contact Person', 'Contact Phone'];
   const samples = [
-    ['068', 'RRLC-068-Noble Sales And Services', 'West', 'Maharashtra', 'Mumbai', 'Pravin Jadhav', '+91 98201 12345'],
-    ['071', 'RRLC-071-HRK Tec Serv Pvt Ltd', 'South', 'Karnataka', 'Bengaluru', 'Karthik Rao', '+91 98450 67890'],
-    ['027', 'RRLC-027-Viaan Services', 'North', 'Delhi', 'New Delhi', 'Rajesh Sharma', '+91 98110 54321'],
-    ['015', 'RRLC-015-Yatharth Services', 'North', 'Uttar Pradesh', 'Noida', 'Amit Verma', '+91 98990 11223'],
-    ['037', 'RRLC-037-G.M.Enterprises', 'East', 'West Bengal', 'Kolkata', 'Subhashish Roy', '+91 98300 44556'],
+    ['068', 'RRLC-068-Noble Sales And Services', 'WEST', 'Maharashtra', 'Mumbai', 'Pravin Jadhav', '+91 98201 12345'],
+    ['071', 'RRLC-071-HRK Tec Serv Pvt Ltd', 'SOUTH-1', 'Karnataka', 'Bengaluru', 'Karthik Rao', '+91 98450 67890'],
+    ['027', 'RRLC-027-Viaan Services', 'NORTH-1', 'Delhi', 'New Delhi', 'Rajesh Sharma', '+91 98110 54321'],
+    ['015', 'RRLC-015-Yatharth Services', 'NORTH-2', 'Uttar Pradesh', 'Noida', 'Amit Verma', '+91 98990 11223'],
+    ['037', 'RRLC-037-G.M.Enterprises', 'EAST', 'West Bengal', 'Kolkata', 'Subhashish Roy', '+91 98300 44556'],
+    ['042', 'RRLC-042-Apex Solutions', 'SOUTH-2', 'Tamil Nadu', 'Chennai', 'Venkatesh S', '+91 98401 23456'],
+    ['055', 'RRLC-055-Central Telecom Hub', 'CENTRAL', 'Madhya Pradesh', 'Bhopal', 'Deepak Jain', '+91 98260 78901'],
+    ['088', 'RRLC-088-Coastal Services', 'SOUTH-3', 'Kerala', 'Kochi', 'Anand Nair', '+91 98470 34567'],
   ];
 
   const csvRows = [
