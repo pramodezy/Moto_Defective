@@ -1964,10 +1964,10 @@ class CRMDatabase {
   }
 
   // --- UPSERT SINGLE CCI CENTER ---
-  public upsertSingleStation(
+  public async upsertSingleStation(
     st: CCIMaster,
     user?: UserProfile
-  ): CCIMaster {
+  ): Promise<{ success: boolean; station: CCIMaster; cloudSynced: boolean; error?: string }> {
     const idx = this.stations.findIndex((s) => s.station_code === st.station_code);
     let finalStation: CCIMaster;
     if (idx >= 0) {
@@ -1991,22 +1991,34 @@ class CRMDatabase {
     // Propagate region, state, city to defective items and shipping orders
     this.reapplyStationLocationMappings();
 
+    let cloudSynced = false;
+    let cloudError: string | undefined;
+
     // Sync to Supabase cci_master
     if (isSupabaseConfigured && supabase) {
-      supabase.from('cci_master').upsert({
-        station_code: finalStation.station_code,
-        username: finalStation.username,
-        station_name: finalStation.station_name,
-        region: finalStation.region,
-        state: finalStation.state || '',
-        city: finalStation.city || '',
-        contact_person: finalStation.contact_person || '',
-        contact_phone: finalStation.contact_phone || '',
-        is_active: finalStation.is_active,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'station_code' }).then(({ error }) => {
-        if (error) console.error('Failed to sync station to Supabase cci_master:', error);
-      });
+      try {
+        const { error } = await supabase.from('cci_master').upsert({
+          station_code: finalStation.station_code,
+          username: finalStation.username,
+          station_name: finalStation.station_name,
+          region: finalStation.region,
+          state: finalStation.state || '',
+          city: finalStation.city || '',
+          contact_person: finalStation.contact_person || '',
+          contact_phone: finalStation.contact_phone || '',
+          is_active: finalStation.is_active,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'station_code' });
+
+        if (error) {
+          console.error('Failed to sync station to Supabase cci_master:', error);
+          cloudError = error.message;
+        } else {
+          cloudSynced = true;
+        }
+      } catch (err: any) {
+        cloudError = err.message || 'Supabase request error';
+      }
     }
 
     this.auditLogs.unshift({
@@ -2020,37 +2032,52 @@ class CRMDatabase {
 
     this.saveToStorage();
     this.notify();
-    return finalStation;
+    return {
+      success: true,
+      station: finalStation,
+      cloudSynced,
+      error: cloudError,
+    };
   }
 
   // --- TOGGLE CCI STATUS (ACTIVE / INACTIVE WITH CASCADE) ---
-  public toggleStationStatus(
+  public async toggleStationStatus(
     stationCode: string,
     isActive: boolean,
     user?: UserProfile
-  ): boolean {
+  ): Promise<{ success: boolean; cloudSynced: boolean; error?: string }> {
     const st = this.stations.find((s) => s.station_code === stationCode);
-    if (!st) return false;
+    if (!st) return { success: false, cloudSynced: false, error: 'Station not found' };
 
     st.is_active = isActive;
     st.updated_at = new Date().toISOString();
 
+    let cloudSynced = false;
+    let cloudError: string | undefined;
+
     // Also sync to Supabase cci_master and cascade to profiles
     if (isSupabaseConfigured && supabase) {
-      supabase.from('cci_master').update({
-        is_active: isActive,
-        updated_at: new Date().toISOString(),
-      }).eq('station_code', stationCode).then(({ error }) => {
-        if (error) console.error('Failed to update cci_master status in Supabase:', error);
-      });
+      try {
+        const { error } = await supabase.from('cci_master').update({
+          is_active: isActive,
+          updated_at: new Date().toISOString(),
+        }).eq('station_code', stationCode);
 
-      // Cascade deactivation/reactivation to station user profiles
-      supabase.from('profiles').update({
-        is_active: isActive,
-        updated_at: new Date().toISOString(),
-      }).eq('station_code', stationCode).eq('role', 'CCI').then(({ error }) => {
-        if (error) console.error('Failed to cascade station status to profiles in Supabase:', error);
-      });
+        if (error) {
+          console.error('Failed to update cci_master status in Supabase:', error);
+          cloudError = error.message;
+        } else {
+          cloudSynced = true;
+        }
+
+        // Cascade deactivation/reactivation to station user profiles
+        await supabase.from('profiles').update({
+          is_active: isActive,
+          updated_at: new Date().toISOString(),
+        }).eq('station_code', stationCode).eq('role', 'CCI');
+      } catch (err: any) {
+        cloudError = err.message || 'Supabase update error';
+      }
     }
 
     this.auditLogs.unshift({
@@ -2064,7 +2091,7 @@ class CRMDatabase {
 
     this.saveToStorage();
     this.notify();
-    return true;
+    return { success: true, cloudSynced, error: cloudError };
   }
 
   // --- STEP 1: CWH COURIER RECEIPT ACKNOWLEDGMENT (DOCK / GATE INTAKE) ---

@@ -195,7 +195,7 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({
   };
 
   // Save Station (Add or Edit)
-  const handleSaveStation = (e: React.FormEvent) => {
+  const handleSaveStation = async (e: React.FormEvent) => {
     e.preventDefault();
     const code = formStationCode.trim();
     const name = formStationName.trim();
@@ -223,12 +223,24 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({
         is_active: isEditing ? editingStation.is_active : true,
       };
 
-      crmDb.upsertSingleStation(targetStation, currentUser);
-      toast.success(
-        isEditing
-          ? `Updated CCI Center ${code} successfully.`
-          : `Added new CCI Center ${code} successfully.`
-      );
+      const result = await crmDb.upsertSingleStation(targetStation, currentUser);
+      if (result.cloudSynced) {
+        toast.success(
+          isEditing
+            ? `Updated CCI Center ${code} successfully in cloud database.`
+            : `Added new CCI Center ${code} successfully in cloud database.`
+        );
+      } else if (result.error) {
+        toast.warning(
+          `Saved locally, but Supabase sync failed: ${result.error}. Please execute migration in Supabase SQL editor.`
+        );
+      } else {
+        toast.success(
+          isEditing
+            ? `Updated CCI Center ${code} successfully.`
+            : `Added new CCI Center ${code} successfully.`
+        );
+      }
 
       setShowAddModal(false);
       setEditingStation(null);
@@ -240,19 +252,30 @@ export const CciDirectory: React.FC<CciDirectoryProps> = ({
   };
 
   // Confirm Status Toggle
-  const handleConfirmToggleStatus = () => {
+  const handleConfirmToggleStatus = async () => {
     if (!statusToggleStation) return;
     const currentIsActive = statusToggleStation.is_active !== false;
     const newStatus = !currentIsActive;
 
     try {
-      crmDb.toggleStationStatus(statusToggleStation.station_code, newStatus, currentUser);
-      toast.success(
-        `CCI Center ${statusToggleStation.station_code} marked as ${newStatus ? 'ACTIVE' : 'INACTIVE'}.`
-      );
-      setStatusToggleStation(null);
+      const result = await crmDb.toggleStationStatus(statusToggleStation.station_code, newStatus, currentUser);
+      if (result.cloudSynced) {
+        toast.success(
+          `CCI Center ${statusToggleStation.station_code} marked as ${newStatus ? 'ACTIVE' : 'INACTIVE'} (synced to cloud).`
+        );
+      } else if (result.error) {
+        toast.warning(
+          `Status changed locally, but Supabase sync failed: ${result.error}`
+        );
+      } else {
+        toast.success(
+          `CCI Center ${statusToggleStation.station_code} marked as ${newStatus ? 'ACTIVE' : 'INACTIVE'}.`
+        );
+      }
     } catch (err: any) {
       toast.error(err.message || 'Failed to update CCI status.');
+    } finally {
+      setStatusToggleStation(null);
     }
   };
 

@@ -1,21 +1,56 @@
 -- =============================================================
 -- MOTOROLA DEFECTIVE RETURNS CRM: USER & CCI MANAGEMENT
 -- Migration: 20261007_user_and_cci_management.sql
--- Provides admin functions and cascading triggers matching Happy Calling portal
+-- Provides admin functions, cascading triggers, and fixes trigger pgcrypto resolution
 -- =============================================================
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 -- 1. Ensure columns exist on profiles
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ;
 
--- 2. Trigger: Cascade CCI Active/Inactive status to station user profiles
+-- 2. CRITICAL FIX: Update sync_cci_to_profile() with search_path including extensions
+-- Resolves error: "function gen_salt(unknown) does not exist" when adding/updating stations
+CREATE OR REPLACE FUNCTION sync_cci_to_profile()
+RETURNS TRIGGER 
+SECURITY DEFINER
+SET search_path = public, extensions
+AS $$
+BEGIN
+  -- Insert or update user profile with station password placeholder
+  INSERT INTO profiles (username, full_name, role, station_code, password_hash, is_active)
+  VALUES (
+    COALESCE(NEW.username, 'cci_' || NEW.station_code),
+    NEW.station_name,
+    'CCI',
+    NEW.station_code,
+    crypt('SetStationPassword#', gen_salt('bf')),
+    COALESCE(NEW.is_active, true)
+  )
+  ON CONFLICT (username) DO UPDATE
+  SET 
+    full_name = EXCLUDED.full_name,
+    station_code = EXCLUDED.station_code,
+    is_active = EXCLUDED.is_active;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_sync_cci_to_profile ON cci_master;
+CREATE TRIGGER trg_sync_cci_to_profile
+AFTER INSERT OR UPDATE ON cci_master
+FOR EACH ROW
+EXECUTE FUNCTION sync_cci_to_profile();
+
+-- 3. Trigger: Cascade CCI Active/Inactive status to station user profiles
 CREATE OR REPLACE FUNCTION cascade_cci_status_to_profiles()
 RETURNS TRIGGER 
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 BEGIN
   -- When station status changes, cascade to associated station users
@@ -36,12 +71,12 @@ AFTER UPDATE OF is_active ON cci_master
 FOR EACH ROW
 EXECUTE FUNCTION cascade_cci_status_to_profiles();
 
--- 3. Secure Admin Reset Password Function
+-- 4. Secure Admin Reset Password Function
 CREATE OR REPLACE FUNCTION admin_reset_user_password(p_username TEXT, p_new_password TEXT)
 RETURNS JSONB
 SECURITY DEFINER
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_exists BOOLEAN;
@@ -82,7 +117,7 @@ BEGIN
 END;
 $$;
 
--- 4. Admin Create User Function
+-- 5. Admin Create User Function
 CREATE OR REPLACE FUNCTION admin_create_user(
   p_username TEXT,
   p_full_name TEXT,
@@ -93,7 +128,7 @@ CREATE OR REPLACE FUNCTION admin_create_user(
 RETURNS JSONB
 SECURITY DEFINER
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_new_id UUID := gen_random_uuid();
@@ -153,12 +188,12 @@ BEGIN
 END;
 $$;
 
--- 5. Admin Toggle User Status Function
+-- 6. Admin Toggle User Status Function
 CREATE OR REPLACE FUNCTION admin_toggle_user_status(p_username TEXT, p_is_active BOOLEAN)
 RETURNS JSONB
 SECURITY DEFINER
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 BEGIN
   UPDATE profiles
@@ -174,7 +209,8 @@ BEGIN
 END;
 $$;
 
--- 6. Grant execute permissions
+-- 7. Grant execute permissions
+GRANT EXECUTE ON FUNCTION sync_cci_to_profile() TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION admin_reset_user_password(TEXT, TEXT) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION admin_create_user(TEXT, TEXT, TEXT, TEXT, TEXT) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION admin_toggle_user_status(TEXT, BOOLEAN) TO anon, authenticated, service_role;
