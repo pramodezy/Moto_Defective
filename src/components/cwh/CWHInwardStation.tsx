@@ -244,6 +244,8 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
       if (motoInfo.code >= 3 || motoInfo.isDelivered || moto.includes('cwh received') || moto.includes('send to rc') || moto.includes('rc received')) return false;
       if (o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done') return false;
       if (
+        o.crm_status === 'Pickup Pending' ||
+        Boolean(o.active_awb && o.active_awb.trim()) ||
         o.crm_status === 'Delivered at CWH' ||
         o.crm_status === 'Pending Inward at CWH' ||
         o.crm_status === 'CWH to Create DC' ||
@@ -317,7 +319,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
         (o.active_awb && !isDummyAwb(o.active_awb)) ||
         (o.excel_ref_awb && !isDummyAwb(o.excel_ref_awb))
       );
-      return (o.crm_status === 'Pickup Pending' && hasValidAwb) || (hasValidAwb && o.crm_status !== 'Pending AWB');
+      return o.crm_status === 'Pickup Pending' || (hasValidAwb && o.crm_status !== 'Pending AWB');
     });
   }, [stationScopedOrders]);
 

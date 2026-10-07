@@ -1187,7 +1187,6 @@ class CRMDatabase {
 
     let maxAge = 0;
     let totalVal = 0;
-    let latestExcelAwb = '';
 
     const now = new Date().getTime();
     const latestDcCode = items.find((it) => it.delivery_challan_code)?.delivery_challan_code;
@@ -1204,9 +1203,6 @@ class CRMDatabase {
           const ageDays = Math.max(0, Math.floor((now - d.getTime()) / (1000 * 60 * 60 * 24)));
           if (ageDays > maxAge) maxAge = ageDays;
         }
-      }
-      if (item.excel_awb) {
-        latestExcelAwb = item.excel_awb;
       }
     });
 
@@ -1240,9 +1236,13 @@ class CRMDatabase {
     const latestSoGrnTime = targetItems.find((it) => it.so_grn_time)?.so_grn_time;
     const latestRcRemark = targetItems.find((it) => it.rc_receive_remark)?.rc_receive_remark;
 
+    // Authoritative AWB: Completely ignore whatever AWB/tracking is in the dump file.
+    // The AWB assigned by CWH or Admin (active_awb / excel_ref_awb) is the sole truth.
+    const effectiveAwb = existingSo?.active_awb || existingSo?.excel_ref_awb;
+
     const derivedCrmStatus = deriveCrmStatusFromMotorolaStatus(
       latestMotoStatus,
-      latestExcelAwb || existingSo?.active_awb,
+      effectiveAwb,
       existingSo?.crm_status,
       existingSo?.pickup_status,
       latestScreeningStatus
@@ -1270,9 +1270,23 @@ class CRMDatabase {
       existingSo.eway_bill_required = ewayRequired;
       existingSo.total_items = targetItems.reduce((sum, item) => sum + (item.deliver_qty || item.quantity || 1), 0);
       existingSo.motorola_status = latestMotoStatus || existingSo.motorola_status;
+
+      // Status Protection: If consignment has an assigned AWB or was already beyond Pending AWB (e.g. Pickup Pending, In Transit, Delivered at CWH),
+      // it must NEVER roll back to 'Pending AWB' upon dump upload!
+      if (
+        (existingSo.crm_status !== 'Pending AWB' && existingSo.crm_status !== 'CCI to Create DC') ||
+        Boolean(existingSo.active_awb && existingSo.active_awb.trim())
+      ) {
+        if (finalDerivedCrmStatus === 'Pending AWB') {
+          finalDerivedCrmStatus = existingSo.crm_status || 'Pickup Pending';
+        }
+      }
+
       existingSo.crm_status = existingSo.crm_status === 'Debit Posting' ? 'Debit Posting' : finalDerivedCrmStatus;
       if (existingSo.crm_status === 'Delivered to RC' || isCompletedJourneyStatus(latestMotoStatus) || allItemsDeliveredAtRc) {
         existingSo.pickup_status = 'Pickup Done';
+      } else if (existingSo.crm_status === 'Pickup Pending' && (!existingSo.pickup_status || existingSo.pickup_status === 'Pickup Pending')) {
+        existingSo.pickup_status = 'Pickup Pending';
       }
       // Leg 1 AWB: keep existing CWH assignment, do not auto-populate from dump
       existingSo.region = region;
@@ -1452,6 +1466,7 @@ class CRMDatabase {
             sr_fault_description: incoming.sr_fault_description,
             motorola_parts_status: incoming.motorola_parts_status || 'CCI Send To CWH',
             excel_awb: incoming.excel_awb || '',
+            delivery_challan_code: incoming.delivery_challan_code || previousPendingItem?.delivery_challan_code || undefined,
             screening_status: incoming.screening_status || (previousPendingItem?.screening_status !== 'Pending' ? previousPendingItem?.screening_status : undefined) || 'Pending',
             item_remarks: incoming.item_remarks || previousPendingItem?.item_remarks || '',
             estimated_value: (catalogPrice !== undefined && catalogPrice > 0)
@@ -1521,18 +1536,51 @@ class CRMDatabase {
             }
           }
 
-          const { error: soUpsertErr } = await client.from('shipping_orders').upsert(
-            ordersToPush.map((so) => ({
+          const pushCodes = ordersToPush.map((o) => o.so_code);
+          const cloudMap = new Map<string, any>();
+          if (pushCodes.length > 0) {
+            try {
+              const { data: cloudSos } = await client
+                .from('shipping_orders')
+                .select('so_code, active_awb, courier, crm_status, pickup_status')
+                .in('so_code', pushCodes);
+              if (cloudSos) {
+                cloudSos.forEach((c: any) => cloudMap.set(c.so_code, c));
+              }
+            } catch (err) {
+              console.warn('Failed prefetching cloud records in batchUpsertDefectiveItems:', err);
+            }
+          }
+
+          const safeOrdersToPush = ordersToPush.map((so) => {
+            const cloud = cloudMap.get(so.so_code);
+            // Authoritative AWB: CWH or Admin assignment is the sole truth.
+            const effectiveAwb = (so.active_awb && so.active_awb.trim()) || (cloud?.active_awb && cloud.active_awb.trim()) || '';
+            const effectiveCourier = (so.active_awb && so.active_awb.trim())
+              ? so.courier
+              : (cloud?.courier || so.courier || 'BlueDart Express');
+
+            let safeCrmStatus = so.crm_status;
+            if (effectiveAwb || so.crm_status === 'Pickup Pending' || cloud?.crm_status === 'Pickup Pending') {
+              if (safeCrmStatus === 'Pending AWB' || !safeCrmStatus) {
+                safeCrmStatus = 'Pickup Pending';
+              }
+            }
+            if (cloud?.crm_status && cloud.crm_status !== 'Pending AWB' && cloud.crm_status !== 'CCI to Create DC' && safeCrmStatus === 'Pending AWB') {
+              safeCrmStatus = cloud.crm_status;
+            }
+
+            return {
               so_code: so.so_code,
               station_code: so.station_code,
               region: so.region,
               state: so.state,
               city: so.city,
               motorola_status: so.motorola_status,
-              crm_status: so.crm_status,
-              excel_ref_awb: so.excel_ref_awb,
-              active_awb: so.active_awb,
-              courier: so.courier,
+              crm_status: safeCrmStatus,
+              excel_ref_awb: effectiveAwb,
+              active_awb: effectiveAwb,
+              courier: effectiveCourier,
               eway_bill_required: so.eway_bill_required,
               total_declared_value: so.total_declared_value,
               max_sr_age: so.max_sr_age,
@@ -1544,14 +1592,18 @@ class CRMDatabase {
               asp_rc_delivered_date: so.asp_rc_delivered_date || null,
               so_grn_time: so.so_grn_time || null,
               rc_receive_remark: so.rc_receive_remark || null,
-            })),
+            };
+          });
+
+          const { error: soUpsertErr } = await client.from('shipping_orders').upsert(
+            safeOrdersToPush,
             { onConflict: 'so_code' }
           );
 
           if (soUpsertErr && (soUpsertErr.code === '42703' || soUpsertErr.message?.includes('does not exist'))) {
             // Fallback if SQL migration not yet executed on Supabase
             await client.from('shipping_orders').upsert(
-              ordersToPush.map((so) => ({
+              safeOrdersToPush.map((so) => ({
                 so_code: so.so_code,
                 station_code: so.station_code,
                 region: so.region,
@@ -2793,6 +2845,7 @@ class CRMDatabase {
       }
     }
 
+    this.saveToStorage();
     this.notify();
     return so;
   }
@@ -3109,6 +3162,7 @@ class CRMDatabase {
       }
     }
 
+    this.saveToStorage();
     this.notify();
     return so;
   }

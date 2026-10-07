@@ -148,6 +148,9 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   // 5. Stage 2: "Pending AWB" (DC created in Moto CRM, awaiting initial AWB token generation by CWH)
   const awaitingCwhAwbOrders = useMemo(() => {
     return stationOrders.filter((o) => {
+      if (o.crm_status === 'Pickup Pending' || Boolean(o.active_awb && o.active_awb.trim())) {
+        return false;
+      }
       if (o.crm_status === 'In Transit' || o.crm_status === 'Delivered at CWH' || o.crm_status === 'Pending Inward at CWH' || o.crm_status === 'CWH to Create DC' || o.crm_status === 'Pickup Pending for RC' || o.crm_status === 'In Transit to RC' || o.crm_status === 'Delivered to RC' || o.crm_status === 'Discrepancies' || o.crm_status === 'Delivered to RC (Discrepancies)') {
         return false;
       }

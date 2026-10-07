@@ -289,19 +289,19 @@ export function deriveCrmStatusFromMotorolaStatus(
     if (pickupStatus === 'Pickup Done' || existingCrmStatus === 'In Transit') {
       return 'In Transit';
     }
-    // If explicitly in Pending AWB, preserve it
+    // If genuine AWB has been updated by CWH/Admin or already moved to Pickup Pending -> Preserve Pickup Pending
+    if ((awb && awb.trim()) || existingCrmStatus === 'Pickup Pending') {
+      return 'Pickup Pending';
+    }
+    // If explicitly in Pending AWB without assigned AWB, preserve it
     if (existingCrmStatus === 'Pending AWB') {
       return 'Pending AWB';
-    }
-    // If genuine AWB has been issued by CWH -> Pickup Pending
-    if (awb && awb.trim() && !isDummyAwb(awb)) {
-      return 'Pickup Pending';
     }
     // Default initial state awaiting AWB generation
     return 'Pending AWB';
   }
 
-  return existingCrmStatus || (awb && awb.trim() && !isDummyAwb(awb) ? 'Pickup Pending' : 'Pending AWB');
+  return existingCrmStatus || (awb && awb.trim() ? 'Pickup Pending' : 'Pending AWB');
 }
 
 /**
@@ -342,10 +342,15 @@ export function isAwbIssueRequired(order: ShippingOrder): boolean {
     return true;
   }
 
+  // If already in Pickup Pending or has assigned AWB token from CWH, AWB issue is NOT required
+  if (order.crm_status === 'Pickup Pending' || Boolean(order.active_awb && order.active_awb.trim())) {
+    return false;
+  }
+
   // Active Pending AWB without assigned token
   const hasValidAwb = Boolean(
-    (order.active_awb && !isDummyAwb(order.active_awb)) ||
-    (order.excel_ref_awb && !isDummyAwb(order.excel_ref_awb))
+    (order.active_awb && order.active_awb.trim()) ||
+    (order.excel_ref_awb && order.excel_ref_awb.trim())
   );
   return order.crm_status === 'Pending AWB' || !hasValidAwb;
 }

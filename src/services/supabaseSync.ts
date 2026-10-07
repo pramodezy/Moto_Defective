@@ -153,23 +153,82 @@ export async function pushUploadedDataToSupabase(
       onProgress?.(`Ingesting ${orders.length} shipping orders to Supabase cloud...`);
       for (let i = 0; i < orders.length; i += 50) {
         const batch = orders.slice(i, i + 50);
-        const { error: soErr } = await supabase.from('shipping_orders').upsert(
-          batch.map((so) => ({
+        const soCodes = batch.map((b) => b.so_code);
+
+        // Pre-fetch existing cloud records to prevent rolling back AWB or CRM status updated by CWH/Admin
+        const cloudMap = new Map<string, any>();
+        try {
+          const { data: cloudSos } = await supabase
+            .from('shipping_orders')
+            .select('so_code, active_awb, courier, crm_status, pickup_status, token_issue_date, eway_bill_number, eway_bill_url, delivery_challan_code')
+            .in('so_code', soCodes);
+          if (cloudSos) {
+            cloudSos.forEach((c: any) => cloudMap.set(c.so_code, c));
+          }
+        } catch (fetchErr) {
+          console.warn('Could not pre-fetch existing shipping orders from Supabase:', fetchErr);
+        }
+
+        const preparedBatch = batch.map((so) => {
+          const cloud = cloudMap.get(so.so_code);
+          // Authoritative AWB: CWH or Admin assignment is the sole truth. Dump file AWB is completely ignored.
+          const effectiveAwb = (so.active_awb && so.active_awb.trim()) || (cloud?.active_awb && cloud.active_awb.trim()) || '';
+          const effectiveCourier = (so.active_awb && so.active_awb.trim())
+            ? so.courier
+            : (cloud?.courier || so.courier || 'BlueDart Express');
+
+          // Status Protection: Never demote from Pickup Pending or higher to Pending AWB
+          const isNotReturn = normalizeMotoStatusKey(so.motorola_status) === 'not return';
+          let derivedStatus: string;
+          if (isNotReturn) {
+            derivedStatus = 'CCI to Create DC';
+          } else {
+            const rawStatus = (so.crm_status as string) === 'AWB Pending' ? 'Pending AWB' : (so.crm_status || 'Pending AWB');
+            // If already in Pickup Pending or has assigned AWB token, never roll back to Pending AWB
+            if (effectiveAwb || rawStatus === 'Pickup Pending' || cloud?.crm_status === 'Pickup Pending') {
+              if (rawStatus === 'Pending AWB' || !rawStatus) {
+                derivedStatus = 'Pickup Pending';
+              } else {
+                derivedStatus = rawStatus;
+              }
+            } else {
+              derivedStatus = rawStatus;
+            }
+
+            // Also preserve advanced cloud statuses (In Transit, Delivered at CWH, etc.)
+            if (
+              cloud?.crm_status &&
+              cloud.crm_status !== 'Pending AWB' &&
+              cloud.crm_status !== 'CCI to Create DC' &&
+              derivedStatus === 'Pending AWB'
+            ) {
+              derivedStatus = cloud.crm_status;
+            }
+          }
+
+          const effectivePickupStatus = so.pickup_status || cloud?.pickup_status || (effectiveAwb || derivedStatus === 'Pickup Pending' ? 'Pickup Pending' : undefined);
+          const effectiveTokenDate = so.token_issue_date || cloud?.token_issue_date || null;
+          const effectiveEwayNumber = so.eway_bill_number || cloud?.eway_bill_number || '';
+          const effectiveEwayUrl = so.eway_bill_url || cloud?.eway_bill_url || '';
+          const effectiveDcCode = so.delivery_challan_code || cloud?.delivery_challan_code || null;
+
+          return {
             so_code: so.so_code,
             station_code: so.station_code,
             region: so.region || 'West',
             state: so.state || '',
             city: so.city || '',
             motorola_status: so.motorola_status || 'CCI Send To CWH',
-            crm_status: normalizeMotoStatusKey(so.motorola_status) === 'not return'
-              ? 'CCI to Create DC'
-              : ((so.crm_status as string) === 'AWB Pending' ? 'Pending AWB' : (so.crm_status || 'Pending AWB')),
-            excel_ref_awb: so.excel_ref_awb || '',
-            active_awb: so.active_awb || '',
-            courier: so.courier || 'BlueDart Express',
+            crm_status: derivedStatus,
+            pickup_status: effectivePickupStatus,
+            excel_ref_awb: effectiveAwb,
+            active_awb: effectiveAwb,
+            courier: effectiveCourier,
+            token_issue_date: effectiveTokenDate,
             eway_bill_required: !!so.eway_bill_required,
-            eway_bill_number: so.eway_bill_number || '',
-            delivery_challan_code: so.delivery_challan_code || null,
+            eway_bill_number: effectiveEwayNumber,
+            eway_bill_url: effectiveEwayUrl,
+            delivery_challan_code: effectiveDcCode,
             total_declared_value: so.total_declared_value || 0,
             max_sr_age: so.max_sr_age || 0,
             priority_tier: so.priority_tier || 3,
@@ -180,14 +239,18 @@ export async function pushUploadedDataToSupabase(
             asp_rc_delivered_date: so.asp_rc_delivered_date || null,
             so_grn_time: so.so_grn_time || null,
             rc_receive_remark: so.rc_receive_remark || null,
-          })),
+          };
+        });
+
+        const { error: soErr } = await supabase.from('shipping_orders').upsert(
+          preparedBatch,
           { onConflict: 'so_code' }
         );
         if (soErr) {
           // Graceful fallback if columns not yet migrated in Supabase
           if (soErr.code === '42703' || soErr.message?.includes('does not exist') || soErr.message?.includes('delivery_challan_code') || soErr.code === 'PGRST204') {
             await supabase.from('shipping_orders').upsert(
-              batch.map((so) => ({
+              preparedBatch.map((so) => ({
                 so_code: so.so_code,
                 station_code: so.station_code,
                 crm_status: so.crm_status,
