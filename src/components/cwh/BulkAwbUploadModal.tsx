@@ -13,13 +13,14 @@ import {
   Layers, 
   FileCheck
 } from 'lucide-react';
-import { ShippingOrder, CCIMaster, UserProfile } from '../../types/crm';
+import { ShippingOrder, CCIMaster, UserProfile, DefectiveItem } from '../../types/crm';
 import { crmDb } from '../../lib/db';
 import { isAwbIssueRequired } from '../../lib/motorolaStatus';
 import { toast } from 'sonner';
 
 interface BulkAwbUploadModalProps {
   orders: ShippingOrder[];
+  items?: DefectiveItem[];
   stations: CCIMaster[];
   user: UserProfile;
   isOpen: boolean;
@@ -78,6 +79,7 @@ function formatParsedExcelDate(val: any): string {
 
 export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
   orders,
+  items,
   stations,
   user,
   isOpen,
@@ -98,6 +100,27 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
 
   // Orders currently awaiting AWB assignment
   const pendingAwbOrders = orders.filter((o) => isAwbIssueRequired(o));
+
+  // Helper to reliably resolve DC Code from order, constituent items, or database details
+  const resolveOrderDcCode = (so: ShippingOrder): string => {
+    if (so.delivery_challan_code && so.delivery_challan_code.trim()) {
+      return so.delivery_challan_code.trim();
+    }
+    const cleanSo = (so.so_code || '').trim().toUpperCase();
+    const cleanId = (so.id || '').trim();
+    const propItem = (items || []).find((it) => {
+      const itSo = (it.shipping_order_code || '').trim().toUpperCase();
+      const itId = (it.shipping_order_id || '').trim();
+      return (
+        (itSo === cleanSo || (cleanId && itId === cleanId)) &&
+        Boolean(it.delivery_challan_code && it.delivery_challan_code.trim())
+      );
+    });
+    if (propItem?.delivery_challan_code && propItem.delivery_challan_code.trim()) {
+      return propItem.delivery_challan_code.trim();
+    }
+    return crmDb.getEffectiveDcCode(so.so_code || so.id);
+  };
 
   // 1. Download Blank Template
   const handleDownloadBlankTemplate = () => {
@@ -129,17 +152,33 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
   };
 
   // 2. Download Pre-filled Template with Pending SOs
-  const handleDownloadPendingSosTemplate = () => {
+  const handleDownloadPendingSosTemplate = async () => {
     if (pendingAwbOrders.length === 0) {
       toast.info('No shipping orders are currently awaiting AWB assignment.');
     }
 
     const today = new Date().toISOString().slice(0, 10);
+
+    // If any pending order is missing DC code locally, attempt quick cloud lookup for line details
+    const unresolvedOrders = pendingAwbOrders.filter((so) => !resolveOrderDcCode(so));
+    if (unresolvedOrders.length > 0) {
+      await Promise.all(
+        unresolvedOrders.slice(0, 30).map(async (so) => {
+          try {
+            await crmDb.fetchShippingOrderDetails(so.so_code);
+          } catch (_) {
+            // Ignore background fetch failure
+          }
+        })
+      );
+    }
+
     const exportData = pendingAwbOrders.map((so) => {
       const st = stationMap.get(so.station_code);
+      const effectiveDc = resolveOrderDcCode(so);
       return {
         'Shipping Order Code': so.so_code,
-        'DC Code': so.delivery_challan_code || '',
+        'DC Code': effectiveDc || '',
         'Token Issue Date': so.token_issue_date || today,
         'Origin Station': `${so.station_code} - ${st?.station_name || ''}`,
         'City': st?.city || so.city || '',
@@ -241,10 +280,11 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
             seenSos.add(normSo);
           }
 
+          const effectiveRowDc = dcCode || (matchedOrder ? resolveOrderDcCode(matchedOrder) : crmDb.getEffectiveDcCode(soCode)) || '';
           parsed.push({
             rowNum: index + 2, // 1-indexed header + row
             soCode,
-            dcCode: dcCode || matchedOrder?.delivery_challan_code || '',
+            dcCode: effectiveRowDc,
             tokenIssueDate,
             courier,
             awbNumber,
@@ -282,7 +322,7 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
         courier: r.courier,
         awbNumber: r.awbNumber,
         ewayBillNumber: r.ewayBillNumber,
-        dcCode: r.dcCode || r.matchedOrder?.delivery_challan_code,
+        dcCode: r.dcCode || (r.matchedOrder ? resolveOrderDcCode(r.matchedOrder) : crmDb.getEffectiveDcCode(r.soCode)),
         tokenIssueDate: r.tokenIssueDate,
       }));
 

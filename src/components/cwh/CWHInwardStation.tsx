@@ -1528,6 +1528,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
           toast.success(`Updated ${count} orders with AWB tokens. Switched to "Pickup Pending" subtab.`);
         }}
         orders={orders}
+        items={items}
         stations={stations}
         user={user}
       />

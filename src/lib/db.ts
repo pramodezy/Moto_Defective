@@ -162,6 +162,114 @@ class CRMDatabase {
     };
   }
 
+  // Resolves the definitive DC Code for a shipping order from all available sources
+  public getEffectiveDcCode(soCodeOrId?: string): string {
+    if (!soCodeOrId) return '';
+    const clean = (s?: string) => (s || '').trim().toUpperCase();
+    const target = clean(soCodeOrId);
+    if (!target) return '';
+
+    // 1. Direct match on ShippingOrder
+    const so = this.shippingOrders.find(
+      (o) => clean(o.so_code) === target || clean(o.id) === target
+    );
+    if (so?.delivery_challan_code && so.delivery_challan_code.trim()) {
+      return so.delivery_challan_code.trim();
+    }
+
+    const targetSoCode = so ? clean(so.so_code) : target;
+    const targetSoId = so ? clean(so.id) : target;
+
+    // 2. Check constituent defective items in memory
+    const matchedItem = this.defectiveItems.find((it) => {
+      const itSo = clean(it.shipping_order_code);
+      const itId = clean(it.shipping_order_id);
+      return (
+        (itSo === targetSoCode || itSo === target || (itId && (itId === targetSoId || itId === target))) &&
+        Boolean(it.delivery_challan_code && it.delivery_challan_code.trim())
+      );
+    });
+    if (matchedItem?.delivery_challan_code && matchedItem.delivery_challan_code.trim()) {
+      const dc = matchedItem.delivery_challan_code.trim();
+      if (so && !so.delivery_challan_code) {
+        so.delivery_challan_code = dc;
+      }
+      return dc;
+    }
+
+    // 3. Check shippingOrderDetails lines in memory
+    const matchedDetail = this.shippingOrderDetails.find((d) => {
+      const dSo = clean(d.shipping_order_code);
+      return (
+        (dSo === targetSoCode || dSo === target) &&
+        Boolean(d.delivery_challan_code && d.delivery_challan_code.trim())
+      );
+    });
+    if (matchedDetail?.delivery_challan_code && matchedDetail.delivery_challan_code.trim()) {
+      const dc = matchedDetail.delivery_challan_code.trim();
+      if (so && !so.delivery_challan_code) {
+        so.delivery_challan_code = dc;
+      }
+      return dc;
+    }
+
+    return '';
+  }
+
+  // Cross-reconciles DC code between shippingOrders, defectiveItems, and shippingOrderDetails
+  public reconcileDeliveryChallanCodes(): void {
+    const clean = (s?: string) => (s || '').trim().toUpperCase();
+    const dcMap = new Map<string, string>();
+
+    // 1. Seed from shippingOrders that have valid DC
+    this.shippingOrders.forEach((so) => {
+      if (so.delivery_challan_code && so.delivery_challan_code.trim()) {
+        const dc = so.delivery_challan_code.trim();
+        if (so.so_code) dcMap.set(clean(so.so_code), dc);
+        if (so.id) dcMap.set(clean(so.id), dc);
+      }
+    });
+
+    // 2. Add from defectiveItems that have valid DC
+    this.defectiveItems.forEach((it) => {
+      if (it.delivery_challan_code && it.delivery_challan_code.trim()) {
+        const dc = it.delivery_challan_code.trim();
+        if (it.shipping_order_code && !dcMap.has(clean(it.shipping_order_code))) {
+          dcMap.set(clean(it.shipping_order_code), dc);
+        }
+        if (it.shipping_order_id && !dcMap.has(clean(it.shipping_order_id))) {
+          dcMap.set(clean(it.shipping_order_id), dc);
+        }
+      }
+    });
+
+    // 3. Add from shippingOrderDetails that have valid DC
+    this.shippingOrderDetails.forEach((d) => {
+      if (d.delivery_challan_code && d.delivery_challan_code.trim()) {
+        const dc = d.delivery_challan_code.trim();
+        if (d.shipping_order_code && !dcMap.has(clean(d.shipping_order_code))) {
+          dcMap.set(clean(d.shipping_order_code), dc);
+        }
+      }
+    });
+
+    // 4. Backfill shippingOrders missing DC
+    this.shippingOrders.forEach((so) => {
+      if (!so.delivery_challan_code || !so.delivery_challan_code.trim()) {
+        const dc = dcMap.get(clean(so.so_code)) || dcMap.get(clean(so.id));
+        if (dc) so.delivery_challan_code = dc;
+      }
+    });
+
+    // 5. Backfill defectiveItems missing DC
+    this.defectiveItems.forEach((it) => {
+      if (!it.delivery_challan_code || !it.delivery_challan_code.trim()) {
+        const dc = dcMap.get(clean(it.shipping_order_code)) || dcMap.get(clean(it.shipping_order_id));
+        if (dc) it.delivery_challan_code = dc;
+      }
+    });
+  }
+
   constructor() {
     this.loadFromStorage();
     this.reapplyStationLocationMappings();
@@ -504,7 +612,7 @@ class CRMDatabase {
           eway_bill_number: so.eway_bill_number,
           eway_bill_url: so.eway_bill_url,
           cwh_evidence_ref: so.cwh_evidence_ref,
-          delivery_challan_code: so.delivery_challan_code || undefined,
+          delivery_challan_code: so.delivery_challan_code || this.getEffectiveDcCode(so.so_code) || undefined,
           total_declared_value: parseFloat(so.total_declared_value || 0),
           max_sr_age: parseInt(so.max_sr_age || 0, 10),
           priority_tier: parseInt(so.priority_tier || 3, 10) as any,
@@ -531,6 +639,7 @@ class CRMDatabase {
       }
 
       this.reapplyStationLocationMappings();
+      this.reconcileDeliveryChallanCodes();
       this.saveToStorage();
       this.notify();
       return this.shippingOrders.length;
@@ -653,12 +762,37 @@ class CRMDatabase {
           const resolvedMoto = resolveConsignmentMotorolaStatus(soItems, so.motorola_status);
           const currRank = getMotorolaStatusInfo(so.motorola_status).code;
           const newRank = getMotorolaStatusInfo(resolvedMoto).code;
+          let motoChanged = false;
           if (newRank > currRank || (so.motorola_status !== resolvedMoto && newRank >= currRank)) {
             so.motorola_status = resolvedMoto;
-            ordersToUpdateInSupabase.push({ id: so.id, so_code: so.so_code, motorola_status: resolvedMoto });
+            motoChanged = true;
+          }
+
+          let dcChanged = false;
+          const itemWithDc = soItems.find((it) => it.delivery_challan_code && it.delivery_challan_code.trim());
+          if ((!so.delivery_challan_code || !so.delivery_challan_code.trim()) && itemWithDc?.delivery_challan_code) {
+            so.delivery_challan_code = itemWithDc.delivery_challan_code.trim();
+            dcChanged = true;
+          } else if (so.delivery_challan_code && so.delivery_challan_code.trim()) {
+            soItems.forEach((it) => {
+              if (!it.delivery_challan_code || !it.delivery_challan_code.trim()) {
+                it.delivery_challan_code = so.delivery_challan_code;
+              }
+            });
+          }
+
+          if (motoChanged || dcChanged) {
+            ordersToUpdateInSupabase.push({
+              id: so.id,
+              so_code: so.so_code,
+              motorola_status: so.motorola_status,
+              ...(dcChanged ? { delivery_challan_code: so.delivery_challan_code } : {}),
+            });
           }
         }
       });
+
+      this.reconcileDeliveryChallanCodes();
 
       if (ordersToUpdateInSupabase.length > 0 && isSupabaseConfigured && supabase) {
         const client = supabase;
@@ -666,8 +800,12 @@ class CRMDatabase {
           for (let i = 0; i < ordersToUpdateInSupabase.length; i += 50) {
             const batch = ordersToUpdateInSupabase.slice(i, i + 50);
             await Promise.all(
-              batch.map((b) =>
-                client.from('shipping_orders').update({ motorola_status: b.motorola_status, updated_at: new Date().toISOString() }).eq('id', b.id)
+              batch.map((b: any) =>
+                client.from('shipping_orders').update({
+                  motorola_status: b.motorola_status,
+                  ...(b.delivery_challan_code ? { delivery_challan_code: b.delivery_challan_code } : {}),
+                  updated_at: new Date().toISOString()
+                }).eq('id', b.id)
               )
             );
           }
@@ -956,6 +1094,7 @@ class CRMDatabase {
       this.defectiveItems = rawItems.filter((it: any) => !isCompletedJourneyStatus(it.motorola_parts_status));
       this.auditLogs = savedLogs ? JSON.parse(savedLogs) : (isSupabaseConfigured ? [] : INITIAL_AUDIT_LOGS);
       this.awbHistory = savedAwbHistory ? JSON.parse(savedAwbHistory) : [];
+      this.reconcileDeliveryChallanCodes();
 
       if (!savedStations) this.saveToStorage();
     } catch (e) {
@@ -1189,7 +1328,10 @@ class CRMDatabase {
     let totalVal = 0;
 
     const now = new Date().getTime();
-    const latestDcCode = items.find((it) => it.delivery_challan_code)?.delivery_challan_code;
+    const latestDcCode =
+      items.find((it) => it.delivery_challan_code && it.delivery_challan_code.trim())?.delivery_challan_code?.trim() ||
+      this.getEffectiveDcCode(soCode) ||
+      existingSo?.delivery_challan_code?.trim();
 
     items.forEach((item) => {
       // Use exact DC value if available, else estimated_value * quantity
@@ -1504,6 +1646,8 @@ class CRMDatabase {
       const updatedSo = this.recalculateShippingOrder(soCode, deletedSoCodes, allProcessedItems);
       if (updatedSo) touchedOrders.push(updatedSo);
     });
+
+    this.reconcileDeliveryChallanCodes();
 
     // Prune completed items from active this.defectiveItems if !this.isCompletedSessionLoaded
     if (!this.isCompletedSessionLoaded) {
@@ -1893,6 +2037,8 @@ class CRMDatabase {
         this.recalculateShippingOrder(so.so_code);
       }
     });
+
+    this.reconcileDeliveryChallanCodes();
 
     // Persist to local storage
     this.saveToStorage();

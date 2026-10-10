@@ -154,7 +154,7 @@ export const BulkPickupModal: React.FC<BulkPickupModalProps> = ({
       const hasAwb = Boolean(so.active_awb || so.excel_ref_awb);
       return {
         'Shipping Order Code': so.so_code,
-        'Delivery Challan Code': so.delivery_challan_code || '',
+        'Delivery Challan Code': so.delivery_challan_code || crmDb.getEffectiveDcCode(so.so_code) || '',
         'Origin Station': `${so.station_code} - ${st?.station_name || ''}`,
         'City': st?.city || so.city || '',
         'Total Units': so.total_items || 1,

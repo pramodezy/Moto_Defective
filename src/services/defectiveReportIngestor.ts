@@ -95,6 +95,20 @@ export async function parseDefectiveReportFile(file: File): Promise<ParseResult>
       'sodate',
     ]);
     const partsStatus = getColVal(r, ['partsstatus', 'partstatus', 'status', 'motorolastatus']);
+    const dcCode = getColVal(r, [
+      'deliverychallancode',
+      'deliverychallanno',
+      'deliverychallannumber',
+      'deliverychallan',
+      'challancode',
+      'challanno',
+      'challannumber',
+      'dccode',
+      'dcnumber',
+      'dc_code',
+      'dcno',
+      'dc',
+    ]);
 
     // Determine estimated value by category
     let estimatedVal = 3500;
@@ -149,6 +163,7 @@ export async function parseDefectiveReportFile(file: File): Promise<ParseResult>
       sr_fault_description: faultDesc,
       motorola_parts_status: partsStatus || 'Not Return',
       excel_awb: excelAwb || undefined,
+      delivery_challan_code: dcCode || undefined,
       estimated_value: estimatedVal,
       asp_rc_shipping_order_code: aspRcSo || undefined,
       asp_rc_ship_date: aspRcShipDate || undefined,
