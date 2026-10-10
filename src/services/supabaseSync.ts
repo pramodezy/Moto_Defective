@@ -178,9 +178,10 @@ export async function pushUploadedDataToSupabase(
             : (cloud?.courier || so.courier || 'BlueDart Express');
 
           // Status Protection: Never demote from Pickup Pending or higher to Pending AWB
-          const isNotReturn = normalizeMotoStatusKey(so.motorola_status) === 'not return';
+          const isPendingSo = (so.so_code || '').startsWith('SO-PENDING-');
+          const isNotReturn = isPendingSo || normalizeMotoStatusKey(so.motorola_status) === 'not return';
           let derivedStatus: string;
-          if (isNotReturn) {
+          if (isPendingSo || isNotReturn) {
             derivedStatus = 'CCI to Create DC';
           } else {
             const rawStatus = (so.crm_status as string) === 'AWB Pending' ? 'Pending AWB' : (so.crm_status || 'Pending AWB');
@@ -206,11 +207,11 @@ export async function pushUploadedDataToSupabase(
             }
           }
 
-          const effectivePickupStatus = so.pickup_status || cloud?.pickup_status || (effectiveAwb || derivedStatus === 'Pickup Pending' ? 'Pickup Pending' : undefined);
-          const effectiveTokenDate = so.token_issue_date || cloud?.token_issue_date || null;
-          const effectiveEwayNumber = so.eway_bill_number || cloud?.eway_bill_number || '';
-          const effectiveEwayUrl = so.eway_bill_url || cloud?.eway_bill_url || '';
-          const effectiveDcCode = so.delivery_challan_code || cloud?.delivery_challan_code || null;
+          const effectivePickupStatus = isPendingSo ? 'Pickup Pending' : (so.pickup_status || cloud?.pickup_status || (effectiveAwb || derivedStatus === 'Pickup Pending' ? 'Pickup Pending' : undefined));
+          const effectiveTokenDate = isPendingSo ? null : (so.token_issue_date || cloud?.token_issue_date || null);
+          const effectiveEwayNumber = isPendingSo ? '' : (so.eway_bill_number || cloud?.eway_bill_number || '');
+          const effectiveEwayUrl = isPendingSo ? '' : (so.eway_bill_url || cloud?.eway_bill_url || '');
+          const effectiveDcCode = isPendingSo ? null : (so.delivery_challan_code || cloud?.delivery_challan_code || null);
 
           return {
             so_code: so.so_code,
@@ -218,14 +219,14 @@ export async function pushUploadedDataToSupabase(
             region: so.region || 'West',
             state: so.state || '',
             city: so.city || '',
-            motorola_status: so.motorola_status || 'CCI Send To CWH',
-            crm_status: derivedStatus,
+            motorola_status: isPendingSo ? 'Not Return' : (so.motorola_status || 'CCI Send To CWH'),
+            crm_status: isPendingSo ? 'CCI to Create DC' : derivedStatus,
             pickup_status: effectivePickupStatus,
-            excel_ref_awb: effectiveAwb,
-            active_awb: effectiveAwb,
+            excel_ref_awb: isPendingSo ? null : effectiveAwb,
+            active_awb: isPendingSo ? null : effectiveAwb,
             courier: effectiveCourier,
             token_issue_date: effectiveTokenDate,
-            eway_bill_required: !!so.eway_bill_required,
+            eway_bill_required: isPendingSo ? false : !!so.eway_bill_required,
             eway_bill_number: effectiveEwayNumber,
             eway_bill_url: effectiveEwayUrl,
             delivery_challan_code: effectiveDcCode,
@@ -279,38 +280,41 @@ export async function pushUploadedDataToSupabase(
       for (let i = 0; i < items.length; i += 50) {
         const batch = items.slice(i, i + 50);
         const { error: itmErr } = await supabase.from('defective_master').upsert(
-          batch.map((it) => ({
-            composite_key: it.composite_key,
-            sr_number: it.sr_number,
-            sr_part_number: it.sr_part_number,
-            new_part_number: it.new_part_number || '',
-            part_category: it.part_category || 'General Spare',
-            part_description: it.part_description || '',
-            quantity: it.quantity || 1,
-            station_code: it.station_code,
-            region: it.region || 'West',
-            state: it.state || '',
-            city: it.city || '',
-            shipping_order_code: it.shipping_order_code,
-            sr_close_timestamp: it.sr_close_timestamp || null,
-            sr_model_name: it.sr_model_name || '',
-            sr_fault_description: it.sr_fault_description || '',
-            motorola_parts_status: it.motorola_parts_status || 'Not Return',
-            excel_awb: it.excel_awb || '',
-            screening_status: it.screening_status || 'Pending',
-            item_remarks: it.item_remarks || '',
-            estimated_value: it.estimated_value || 8000,
-            delivery_challan_code: it.delivery_challan_code || null,
-            deliver_qty: it.deliver_qty !== undefined && it.deliver_qty !== null ? it.deliver_qty : (it.quantity || 1),
-            value: it.value !== undefined && it.value !== null ? it.value : (it.estimated_value || 8000),
-            asp_rc_shipping_order_code: it.asp_rc_shipping_order_code || null,
-            asp_rc_ship_date: it.asp_rc_ship_date || null,
-            asp_outbound_awb: it.asp_outbound_awb || null,
-            asp_rc_pickup_date: it.asp_rc_pickup_date || null,
-            asp_rc_delivered_date: it.asp_rc_delivered_date || null,
-            so_grn_time: it.so_grn_time || null,
-            rc_receive_remark: it.rc_receive_remark || null,
-          })),
+          batch.map((it) => {
+            const isPendingItm = (it.shipping_order_code || '').startsWith('SO-PENDING-');
+            return {
+              composite_key: it.composite_key,
+              sr_number: it.sr_number,
+              sr_part_number: it.sr_part_number,
+              new_part_number: it.new_part_number || '',
+              part_category: it.part_category || 'General Spare',
+              part_description: it.part_description || '',
+              quantity: it.quantity || 1,
+              station_code: it.station_code,
+              region: it.region || 'West',
+              state: it.state || '',
+              city: it.city || '',
+              shipping_order_code: it.shipping_order_code,
+              sr_close_timestamp: it.sr_close_timestamp || null,
+              sr_model_name: it.sr_model_name || '',
+              sr_fault_description: it.sr_fault_description || '',
+              motorola_parts_status: isPendingItm ? 'Not Return' : (it.motorola_parts_status || 'Not Return'),
+              excel_awb: isPendingItm ? '' : (it.excel_awb || ''),
+              screening_status: it.screening_status || 'Pending',
+              item_remarks: it.item_remarks || '',
+              estimated_value: it.estimated_value || 8000,
+              delivery_challan_code: isPendingItm ? null : (it.delivery_challan_code || null),
+              deliver_qty: it.deliver_qty !== undefined && it.deliver_qty !== null ? it.deliver_qty : (it.quantity || 1),
+              value: it.value !== undefined && it.value !== null ? it.value : (it.estimated_value || 8000),
+              asp_rc_shipping_order_code: it.asp_rc_shipping_order_code || null,
+              asp_rc_ship_date: it.asp_rc_ship_date || null,
+              asp_outbound_awb: it.asp_outbound_awb || null,
+              asp_rc_pickup_date: it.asp_rc_pickup_date || null,
+              asp_rc_delivered_date: it.asp_rc_delivered_date || null,
+              so_grn_time: it.so_grn_time || null,
+              rc_receive_remark: it.rc_receive_remark || null,
+            };
+          }),
           { onConflict: 'composite_key' }
         );
         if (itmErr) {

@@ -143,6 +143,7 @@ export async function parseDefectiveReportFile(file: File): Promise<ParseResult>
     const rcRemark = getColVal(r, ['rcreceiveremark', 'rcremark', 'rccomments', 'rcremark2']);
 
     const finalStation = stationCode || '068';
+    const isSyntheticPending = !soCode;
     const effectiveSoCode = soCode || `SO-PENDING-${finalStation}`;
 
     // Match Key = SR Number + SR Part Number + CCI-ASP Shipping Order Code
@@ -161,9 +162,9 @@ export async function parseDefectiveReportFile(file: File): Promise<ParseResult>
       sr_close_timestamp: srCloseDate,
       sr_model_name: modelName,
       sr_fault_description: faultDesc,
-      motorola_parts_status: partsStatus || 'Not Return',
-      excel_awb: excelAwb || undefined,
-      delivery_challan_code: dcCode || undefined,
+      motorola_parts_status: isSyntheticPending ? 'Not Return' : (partsStatus || 'Not Return'),
+      excel_awb: isSyntheticPending ? undefined : (excelAwb || undefined),
+      delivery_challan_code: isSyntheticPending ? undefined : (dcCode || undefined),
       estimated_value: estimatedVal,
       asp_rc_shipping_order_code: aspRcSo || undefined,
       asp_rc_ship_date: aspRcShipDate || undefined,

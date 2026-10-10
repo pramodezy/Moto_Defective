@@ -213,8 +213,14 @@ export function deriveCrmStatusFromMotorolaStatus(
   awb?: string | null,
   existingCrmStatus?: CRMStatus,
   pickupStatus?: string | null,
-  screeningStatus?: string | null
+  screeningStatus?: string | null,
+  soCode?: string | null
 ): CRMStatus {
+  // If actual SO is not created yet in Motorola CRM (SO-PENDING-*), status is strictly 'CCI to Create DC'
+  if (soCode && soCode.startsWith('SO-PENDING-')) {
+    return 'CCI to Create DC';
+  }
+
   // Unconditionally preserve Debit Posting if flagged by CWH
   if (existingCrmStatus === 'Debit Posting') {
     return 'Debit Posting';
@@ -307,9 +313,14 @@ export function deriveCrmStatusFromMotorolaStatus(
 /**
  * Checks whether an AWB needs to be issued by CWH.
  * Only Leg 1 consignments in Pending AWB or Pending AWB Re-Issue require AWB generation!
- * Consignments already at CWH Received, ASP Send to RC, or RC Received ASP NEVER require inbound AWB!
+ * Consignments without official SO in Motorola CRM (SO-PENDING-*) or already at CWH Received, ASP Send to RC, or RC Received ASP NEVER require inbound AWB!
  */
 export function isAwbIssueRequired(order: ShippingOrder): boolean {
+  // If actual SO is not created yet in Motorola CRM (SO-PENDING-*), AWB cannot and must not be issued!
+  if (order.so_code && order.so_code.startsWith('SO-PENDING-')) {
+    return false;
+  }
+
   const info = getMotorolaStatusInfo(order.motorola_status);
   
   // Delivered or downstream CWH/RC stages: AWB issue definitely NOT required!
@@ -373,6 +384,7 @@ export function getUnifiedStageDetails(order: {
   pickup_status?: string | null;
   active_awb?: string | null;
   excel_ref_awb?: string | null;
+  so_code?: string | null;
 }): UnifiedStage {
   const normMoto = normalizeMotoStatusKey(order.motorola_status);
   const motoInfo = getMotorolaStatusInfo(order.motorola_status);
@@ -386,6 +398,21 @@ export function getUnifiedStageDetails(order: {
       badgeClass: 'bg-rose-100 text-rose-900 border-rose-400 font-bold shadow-xs',
       meaning: 'Consignment flagged by CWH for debit posting against CCI station.',
       stageNumber: 14,
+    };
+  }
+
+  // Stage 1: CCI to Create DC (Actual SO not created yet in Motorola CRM or status is Not Return)
+  if (
+    (order.so_code && order.so_code.startsWith('SO-PENDING-')) ||
+    normMoto === 'not return' ||
+    crm === 'CCI to Create DC'
+  ) {
+    return {
+      key: 'create_dc',
+      stageName: 'CCI to Create DC',
+      badgeClass: 'bg-amber-50 text-amber-900 border-amber-300 font-medium',
+      meaning: 'Defective units awaiting Delivery Challan creation by service center in Motorola CRM.',
+      stageNumber: 1,
     };
   }
 
@@ -543,20 +570,6 @@ export function getUnifiedStageDetails(order: {
       badgeClass: 'bg-amber-50 text-amber-800 border-amber-200 font-medium',
       meaning: 'Delivery Challan created in Motorola CRM. Awaiting AWB token issuance from CWH.',
       stageNumber: 2,
-    };
-  }
-
-  // Stage 1: CCI to Create DC
-  if (
-    normMoto === 'not return' ||
-    crm === 'CCI to Create DC'
-  ) {
-    return {
-      key: 'create_dc',
-      stageName: 'CCI to Create DC',
-      badgeClass: 'bg-amber-50 text-amber-900 border-amber-300 font-medium',
-      meaning: 'Defective units awaiting Delivery Challan creation by service center in Motorola CRM.',
-      stageNumber: 1,
     };
   }
 

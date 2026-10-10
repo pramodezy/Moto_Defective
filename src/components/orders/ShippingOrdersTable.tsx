@@ -189,7 +189,8 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
         return false;
       }
 
-      const effectiveStatus: CRMStatus = normalizeMotoStatusKey(so.motorola_status) === 'not return'
+      const isPendingSo = (so.so_code || '').startsWith('SO-PENDING-');
+      const effectiveStatus: CRMStatus = (isPendingSo || normalizeMotoStatusKey(so.motorola_status) === 'not return')
         ? 'CCI to Create DC'
         : ((so.crm_status as string) === 'AWB Pending' ? 'Pending AWB' : so.crm_status);
 
@@ -241,7 +242,7 @@ export const ShippingOrdersTable: React.FC<ShippingOrdersTableProps> = ({
         'Max Age (Days)': so.max_sr_age,
         'Priority Tier': so.priority_tier === 1 ? 'Super Critical' : so.priority_tier === 2 ? 'Critical' : so.priority_tier === 3 ? 'High' : 'Low',
         'Motorola Status': so.motorola_status,
-        'CRM Status': normalizeMotoStatusKey(so.motorola_status) === 'not return'
+        'CRM Status': ((so.so_code || '').startsWith('SO-PENDING-') || normalizeMotoStatusKey(so.motorola_status) === 'not return')
           ? 'CCI to Create DC'
           : ((so.crm_status as string) === 'AWB Pending' ? 'Pending AWB' : so.crm_status),
         'Active AWB': so.active_awb || '',

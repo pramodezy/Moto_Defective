@@ -81,19 +81,21 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   const stationItems = useMemo(() => items.filter((i) => normalizeCode(i.station_code) === normalizeCode(stationCode)), [items, stationCode]);
 
   // Actionable categorization for CCI:
-  // 1. Stage 1: "CCI to Create DC" (Motorola status "Not Return" or CRM status "CCI to Create DC")
+  // 1. Stage 1: "CCI to Create DC" (Motorola status "Not Return", synthetic SO-PENDING-*, or CRM status "CCI to Create DC")
   const createDcOrders = useMemo(() => {
     return stationOrders.filter((o) => {
+      const isPendingSo = (o.so_code || '').startsWith('SO-PENDING-');
       const moto = getMotorolaStatusInfo(o.motorola_status);
-      return moto.code === 1 || o.crm_status === 'CCI to Create DC';
+      return isPendingSo || moto.code === 1 || o.crm_status === 'CCI to Create DC';
     });
   }, [stationOrders]);
 
   // "Not Return" items: Action for CCI -> Create DC in Moto CRM
   const notReturnItems = useMemo(() => {
     return stationItems.filter((i) => {
+      const isPendingItm = (i.shipping_order_code || '').startsWith('SO-PENDING-');
       const moto = (i.motorola_parts_status || '').toLowerCase();
-      return moto.includes('not return');
+      return isPendingItm || moto.includes('not return');
     });
   }, [stationItems]);
 
@@ -102,6 +104,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   // Once updated to "CWH Received" or further, a CCI has NO action to take!
   const pickupHandoverOrders = useMemo(() => {
     return stationOrders.filter((o) => {
+      if ((o.so_code || '').startsWith('SO-PENDING-') || o.crm_status === 'CCI to Create DC') return false;
       const moto = getMotorolaStatusInfo(o.motorola_status);
       // Strictly only Code 2 (CCI Send to CWH) is eligible for CCI handover!
       if (moto.code !== 2) return false;
@@ -128,6 +131,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   // 3. Stage 4: "Pending AWB Re-Issue" (CCI marked Pickup Not Done; waiting CWH to cancel & re-issue token)
   const pendingReissueOrders = useMemo(() => {
     return stationOrders.filter((o) => {
+      if ((o.so_code || '').startsWith('SO-PENDING-') || o.crm_status === 'CCI to Create DC') return false;
       return o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done';
     });
   }, [stationOrders]);
@@ -135,6 +139,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   // 4. Stage 5: "In Transit" (CCI marked Pickup Done; monitor en route to CWH)
   const inTransitMonitorOrders = useMemo(() => {
     return stationOrders.filter((o) => {
+      if ((o.so_code || '').startsWith('SO-PENDING-') || o.crm_status === 'CCI to Create DC') return false;
       if (o.crm_status === 'Delivered at CWH' || o.crm_status === 'Pending Inward at CWH' || o.crm_status === 'CWH to Create DC' || o.crm_status === 'Pickup Pending for RC' || o.crm_status === 'In Transit to RC' || o.crm_status === 'Delivered to RC' || o.crm_status === 'Discrepancies' || o.crm_status === 'Delivered to RC (Discrepancies)') {
         return false;
       }
@@ -148,6 +153,7 @@ export const CCIPortal: React.FC<CCIPortalProps> = ({
   // 5. Stage 2: "Pending AWB" (DC created in Moto CRM, awaiting initial AWB token generation by CWH)
   const awaitingCwhAwbOrders = useMemo(() => {
     return stationOrders.filter((o) => {
+      if ((o.so_code || '').startsWith('SO-PENDING-')) return false;
       if (o.crm_status === 'Pickup Pending' || Boolean(o.active_awb && o.active_awb.trim())) {
         return false;
       }

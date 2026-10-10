@@ -414,6 +414,25 @@ class CRMDatabase {
         return;
       }
 
+      // Synthetic orders where official SO not yet created in Motorola CRM (SO-PENDING-*)
+      const isPendingSo = (so.so_code || '').startsWith('SO-PENDING-');
+      if (isPendingSo) {
+        if (so.crm_status !== 'CCI to Create DC') {
+          so.crm_status = 'CCI to Create DC';
+          modified = true;
+        }
+        if (so.motorola_status !== 'Not Return') {
+          so.motorola_status = 'Not Return';
+          modified = true;
+        }
+        if (so.active_awb || so.excel_ref_awb) {
+          so.active_awb = undefined;
+          so.excel_ref_awb = undefined;
+          modified = true;
+        }
+        return;
+      }
+
       // 1. If updated as Not Return in Moto CRM, CRM status is strictly 'CCI to Create DC' (Stage 1: CCI ownership to create DC in Motorola CRM)
       const isNotReturn = normalizeMotoStatusKey(so.motorola_status) === 'not return';
       if (isNotReturn && so.crm_status !== 'CCI to Create DC') {
@@ -560,18 +579,21 @@ class CRMDatabase {
 
       const activeSoRows = soRows.filter((so: any) => !isCompletedJourneyStatus(so.motorola_status));
       const activeMappedOrders: ShippingOrder[] = activeSoRows.map((so: any) => {
-        const isNotRet = normalizeMotoStatusKey(so.motorola_status) === 'not return';
+        const isPendingSo = (so.so_code || '').startsWith('SO-PENDING-');
+        const isNotRet = isPendingSo || normalizeMotoStatusKey(so.motorola_status) === 'not return';
         let mappedCrmStatus: CRMStatus;
         if (so.crm_status === 'Debit Posting') {
           mappedCrmStatus = 'Debit Posting';
-        } else if (isNotRet) {
+        } else if (isPendingSo || isNotRet) {
           mappedCrmStatus = 'CCI to Create DC';
         } else if (!so.crm_status || so.crm_status === 'AWB Pending') {
           mappedCrmStatus = deriveCrmStatusFromMotorolaStatus(
             so.motorola_status,
             so.active_awb || so.excel_ref_awb,
             undefined,
-            so.pickup_status
+            so.pickup_status,
+            undefined,
+            so.so_code
           );
         } else {
           mappedCrmStatus = so.crm_status as CRMStatus;
@@ -602,17 +624,17 @@ class CRMDatabase {
           region: so.region || 'West',
           state: so.state || '',
           city: so.city || '',
-          motorola_status: so.motorola_status || 'CCI Send To CWH',
-          crm_status: mappedCrmStatus,
-          pickup_status: effectivePickup,
-          excel_ref_awb: so.excel_ref_awb,
-          active_awb: so.active_awb,
+          motorola_status: isPendingSo ? 'Not Return' : (so.motorola_status || 'CCI Send To CWH'),
+          crm_status: isPendingSo ? 'CCI to Create DC' : mappedCrmStatus,
+          pickup_status: isPendingSo ? 'Pickup Pending' : effectivePickup,
+          active_awb: isPendingSo ? undefined : (so.active_awb || undefined),
+          excel_ref_awb: isPendingSo ? undefined : (so.excel_ref_awb || undefined),
           courier: so.courier || 'BlueDart Express',
           eway_bill_required: Boolean(so.eway_bill_required),
-          eway_bill_number: so.eway_bill_number,
-          eway_bill_url: so.eway_bill_url,
-          cwh_evidence_ref: so.cwh_evidence_ref,
-          delivery_challan_code: so.delivery_challan_code || this.getEffectiveDcCode(so.so_code) || undefined,
+          eway_bill_number: isPendingSo ? undefined : so.eway_bill_number,
+          eway_bill_url: isPendingSo ? undefined : so.eway_bill_url,
+          cwh_evidence_ref: isPendingSo ? undefined : so.cwh_evidence_ref,
+          delivery_challan_code: isPendingSo ? undefined : (so.delivery_challan_code || this.getEffectiveDcCode(so.so_code) || undefined),
           total_declared_value: parseFloat(so.total_declared_value || 0),
           max_sr_age: parseInt(so.max_sr_age || 0, 10),
           priority_tier: parseInt(so.priority_tier || 3, 10) as any,
@@ -714,15 +736,17 @@ class CRMDatabase {
         sr_close_timestamp: it.sr_close_timestamp,
         sr_model_name: it.sr_model_name,
         sr_fault_description: it.sr_fault_description,
-        motorola_parts_status: it.motorola_parts_status || 'CCI Send To CWH',
-        excel_awb: it.excel_awb,
+        motorola_parts_status: (it.shipping_order_code || '').startsWith('SO-PENDING-')
+          ? 'Not Return'
+          : (it.motorola_parts_status || 'CCI Send To CWH'),
+        excel_awb: (it.shipping_order_code || '').startsWith('SO-PENDING-') ? undefined : it.excel_awb,
         screening_status: it.screening_status || 'Pending',
         item_remarks: it.item_remarks,
         estimated_value: (() => {
           const catPrice = this.lookupCatalogPrice(it.new_part_number, it.sr_part_number);
           return (catPrice !== undefined && catPrice > 0) ? catPrice : parseFloat(it.estimated_value || 8000);
         })(),
-        delivery_challan_code: it.delivery_challan_code || undefined,
+        delivery_challan_code: (it.shipping_order_code || '').startsWith('SO-PENDING-') ? undefined : (it.delivery_challan_code || undefined),
         deliver_qty: it.deliver_qty ? parseInt(it.deliver_qty, 10) : undefined,
         value: it.value !== undefined && it.value !== null ? parseFloat(it.value) : undefined,
         asp_rc_shipping_order_code: it.asp_rc_shipping_order_code || undefined,
@@ -745,7 +769,7 @@ class CRMDatabase {
       }
 
       // Auto-reconcile parent consignment motorola_status with constituent line items
-      const ordersToUpdateInSupabase: { id: string; so_code: string; motorola_status: string }[] = [];
+      const ordersToUpdateInSupabase: { id: string; so_code: string; motorola_status: string; crm_status?: string; delivery_challan_code?: string }[] = [];
       const itemsBySoCode = new Map<string, DefectiveItem[]>();
       this.defectiveItems.forEach((it) => {
         if (it.shipping_order_code) {
@@ -757,6 +781,25 @@ class CRMDatabase {
       });
 
       this.shippingOrders.forEach((so) => {
+        const isPendingSo = (so.so_code || '').startsWith('SO-PENDING-');
+        if (isPendingSo) {
+          const needsFix = so.crm_status !== 'CCI to Create DC' || so.motorola_status !== 'Not Return' || !!so.active_awb;
+          so.motorola_status = 'Not Return';
+          so.crm_status = 'CCI to Create DC';
+          so.active_awb = undefined;
+          so.excel_ref_awb = undefined;
+          so.delivery_challan_code = undefined;
+          if (needsFix) {
+            ordersToUpdateInSupabase.push({
+              id: so.id,
+              so_code: so.so_code,
+              motorola_status: 'Not Return',
+              crm_status: 'CCI to Create DC',
+            });
+          }
+          return;
+        }
+
         const soItems = itemsBySoCode.get(so.so_code.trim().toUpperCase());
         if (soItems && soItems.length > 0) {
           const resolvedMoto = resolveConsignmentMotorolaStatus(soItems, so.motorola_status);
@@ -1057,9 +1100,17 @@ class CRMDatabase {
           if (so.crm_status === 'Debit Posting') {
             return so;
           }
-          const isNotRet = normalizeMotoStatusKey(so.motorola_status) === 'not return';
-          if (isNotRet) {
-            return { ...so, crm_status: 'CCI to Create DC' };
+          const isPendingSo = (so.so_code || '').startsWith('SO-PENDING-');
+          const isNotRet = isPendingSo || normalizeMotoStatusKey(so.motorola_status) === 'not return';
+          if (isPendingSo || isNotRet) {
+            return {
+              ...so,
+              crm_status: 'CCI to Create DC',
+              motorola_status: 'Not Return',
+              active_awb: undefined,
+              excel_ref_awb: undefined,
+              delivery_challan_code: isPendingSo ? undefined : so.delivery_challan_code,
+            };
           }
           const isDeliveredOrLater = 
             so.crm_status === 'In Transit' ||
@@ -1085,13 +1136,22 @@ class CRMDatabase {
                 so.motorola_status,
                 so.active_awb || so.excel_ref_awb,
                 undefined,
-                pickupStatus
+                pickupStatus,
+                undefined,
+                so.so_code
               ),
             };
           }
           return { ...so, pickup_status: pickupStatus };
         });
-      this.defectiveItems = rawItems.filter((it: any) => !isCompletedJourneyStatus(it.motorola_parts_status));
+      this.defectiveItems = rawItems
+        .filter((it: any) => !isCompletedJourneyStatus(it.motorola_parts_status))
+        .map((it: any) => {
+          if ((it.shipping_order_code || '').startsWith('SO-PENDING-')) {
+            return { ...it, motorola_parts_status: 'Not Return', excel_awb: undefined, delivery_challan_code: undefined };
+          }
+          return it;
+        });
       this.auditLogs = savedLogs ? JSON.parse(savedLogs) : (isSupabaseConfigured ? [] : INITIAL_AUDIT_LOGS);
       this.awbHistory = savedAwbHistory ? JSON.parse(savedAwbHistory) : [];
       this.reconcileDeliveryChallanCodes();
@@ -1348,8 +1408,12 @@ class CRMDatabase {
       }
     });
 
+    const isSyntheticPendingSo = soCode.startsWith('SO-PENDING-');
+
     // Determine overall Motorola status across all constituent items:
-    const latestMotoStatus = resolveConsignmentMotorolaStatus(items, existingSo?.motorola_status);
+    const latestMotoStatus = isSyntheticPendingSo
+      ? 'Not Return'
+      : resolveConsignmentMotorolaStatus(items, existingSo?.motorola_status);
 
     // Priority Tier: 1: >25D (Super Critical), 2: 16-25D (Critical), 3: 8-15D (High), 4: 0-7D (Low)
     const tier = maxAge > 25 ? 1 : maxAge >= 16 ? 2 : maxAge >= 8 ? 3 : 4;
@@ -1380,22 +1444,27 @@ class CRMDatabase {
 
     // Authoritative AWB: Completely ignore whatever AWB/tracking is in the dump file.
     // The AWB assigned by CWH or Admin (active_awb / excel_ref_awb) is the sole truth.
-    const effectiveAwb = existingSo?.active_awb || existingSo?.excel_ref_awb;
+    const effectiveAwb = isSyntheticPendingSo ? undefined : (existingSo?.active_awb || existingSo?.excel_ref_awb);
 
-    const derivedCrmStatus = deriveCrmStatusFromMotorolaStatus(
-      latestMotoStatus,
-      effectiveAwb,
-      existingSo?.crm_status,
-      existingSo?.pickup_status,
-      latestScreeningStatus
-    );
+    const derivedCrmStatus = isSyntheticPendingSo
+      ? 'CCI to Create DC'
+      : deriveCrmStatusFromMotorolaStatus(
+          latestMotoStatus,
+          effectiveAwb,
+          existingSo?.crm_status,
+          existingSo?.pickup_status,
+          latestScreeningStatus,
+          soCode
+        );
 
     const allItemsDeliveredAtRc = items.length > 0 && items.every(
       (it) => isCompletedJourneyStatus(it.motorola_parts_status) || Boolean(it.so_grn_time) || Boolean(it.asp_rc_delivered_date)
     );
 
     let finalDerivedCrmStatus = derivedCrmStatus;
-    if (
+    if (isSyntheticPendingSo) {
+      finalDerivedCrmStatus = 'CCI to Create DC';
+    } else if (
       allItemsDeliveredAtRc &&
       derivedCrmStatus !== 'Delivered to RC (Discrepancies)' &&
       derivedCrmStatus !== 'Debit Posting' &&
@@ -1405,19 +1474,28 @@ class CRMDatabase {
     }
 
     if (existingSo) {
-      if (latestDcCode) existingSo.delivery_challan_code = latestDcCode;
+      if (isSyntheticPendingSo) {
+        existingSo.motorola_status = 'Not Return';
+        existingSo.crm_status = 'CCI to Create DC';
+        existingSo.active_awb = undefined;
+        existingSo.excel_ref_awb = undefined;
+        existingSo.delivery_challan_code = undefined;
+      } else {
+        if (latestDcCode) existingSo.delivery_challan_code = latestDcCode;
+      }
       existingSo.max_sr_age = maxAge;
       existingSo.total_declared_value = totalVal;
       existingSo.priority_tier = tier;
       existingSo.eway_bill_required = ewayRequired;
       existingSo.total_items = targetItems.reduce((sum, item) => sum + (item.deliver_qty || item.quantity || 1), 0);
-      existingSo.motorola_status = latestMotoStatus || existingSo.motorola_status;
+      existingSo.motorola_status = isSyntheticPendingSo ? 'Not Return' : (latestMotoStatus || existingSo.motorola_status);
 
       // Status Protection: If consignment has an assigned AWB or was already beyond Pending AWB (e.g. Pickup Pending, In Transit, Delivered at CWH),
       // it must NEVER roll back to 'Pending AWB' upon dump upload!
       if (
-        (existingSo.crm_status !== 'Pending AWB' && existingSo.crm_status !== 'CCI to Create DC') ||
-        Boolean(existingSo.active_awb && existingSo.active_awb.trim())
+        !isSyntheticPendingSo &&
+        ((existingSo.crm_status !== 'Pending AWB' && existingSo.crm_status !== 'CCI to Create DC') ||
+        Boolean(existingSo.active_awb && existingSo.active_awb.trim()))
       ) {
         if (finalDerivedCrmStatus === 'Pending AWB') {
           finalDerivedCrmStatus = existingSo.crm_status || 'Pickup Pending';
@@ -2699,7 +2777,9 @@ class CRMDatabase {
       so.motorola_status,
       so.active_awb || so.excel_ref_awb,
       undefined,
-      so.pickup_status
+      so.pickup_status,
+      undefined,
+      so.so_code
     );
 
     so.crm_status = restoredStatus;

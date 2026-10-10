@@ -98,8 +98,8 @@ export const BulkAwbUploadModal: React.FC<BulkAwbUploadModalProps> = ({
   const stationMap = new Map<string, CCIMaster>();
   stations.forEach((st) => stationMap.set(st.station_code, st));
 
-  // Orders currently awaiting AWB assignment
-  const pendingAwbOrders = orders.filter((o) => isAwbIssueRequired(o));
+  // Orders currently awaiting AWB assignment (strictly excludes synthetic SO-PENDING-* where DC is not yet created in Motorola CRM)
+  const pendingAwbOrders = orders.filter((o) => isAwbIssueRequired(o) && !(o.so_code || '').startsWith('SO-PENDING-'));
 
   // Helper to reliably resolve DC Code from order, constituent items, or database details
   const resolveOrderDcCode = (so: ShippingOrder): string => {

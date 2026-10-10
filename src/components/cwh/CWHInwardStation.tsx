@@ -235,9 +235,10 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
 
   // Categorize orders strictly according to the canonical operational stages:
   // Categorize orders strictly according to the canonical operational stages:
-  // 1. Needs Initial AWB Issue: Active 'CCI send to CWH' awaiting token (excludes re-issues & delivered historical records)
+  // 1. Needs Initial AWB Issue: Active 'CCI send to CWH' awaiting token (excludes re-issues, pending DC, & delivered historical records)
   const needsAwbOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
+      if ((o.so_code || '').startsWith('SO-PENDING-')) return false;
       if (o.crm_status === 'Debit Posting') return false;
       const moto = (o.motorola_status || '').toLowerCase();
       const motoInfo = getMotorolaStatusInfo(o.motorola_status);
@@ -270,7 +271,8 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   // 2. Pending AWB Re-Issue: Exception state where CCI reported Pickup Not Done; CWH must cancel & re-issue
   const awbReissueOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
-      if (o.crm_status === 'Debit Posting') return false;
+      if ((o.so_code || '').startsWith('SO-PENDING-')) return false;
+      if (o.crm_status === 'Debit Posting' || o.crm_status === 'CCI to Create DC') return false;
       return o.crm_status === 'Pending AWB Re-Issue' || o.pickup_status === 'Pickup Not Done';
     });
   }, [stationScopedOrders]);
@@ -278,6 +280,7 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   // 3. Pickup Pending: AWB assigned, awaiting courier physical pickup from CCI service center
   const pickupPendingOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
+      if ((o.so_code || '').startsWith('SO-PENDING-')) return false;
       if (o.crm_status === 'Debit Posting') return false;
       const moto = (o.motorola_status || '').toLowerCase();
       const motoInfo = getMotorolaStatusInfo(o.motorola_status);
@@ -326,7 +329,8 @@ export const CWHInwardStation: React.FC<CWHInwardStationProps> = ({
   // 4. In Transit (Leg 1 Inbound): CCI confirmed "Pickup Done" (or courier in-scan); parcel en route to CWH
   const inTransitOrders = useMemo(() => {
     return stationScopedOrders.filter((o) => {
-      if (o.crm_status === 'Debit Posting') return false;
+      if ((o.so_code || '').startsWith('SO-PENDING-')) return false;
+      if (o.crm_status === 'Debit Posting' || o.crm_status === 'CCI to Create DC') return false;
       const moto = (o.motorola_status || '').toLowerCase();
       const motoInfo = getMotorolaStatusInfo(o.motorola_status);
       // Strictly exclude any downstream warehouse / RC stages
